@@ -37,7 +37,7 @@ import {
   type ViewerRole,
   type ViewerSession,
   type WidgetTheme,
-} from '@lst97-oss/client'
+} from '@last-comments-widgets/client'
 import { LcCommentErrorComponent } from './comment-error.component'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
 import { LcCommentListComponent } from './comment-list.component'

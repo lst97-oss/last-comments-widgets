@@ -1,6 +1,11 @@
-import { DEFAULT_EDIT_WINDOW_MINUTES, isEditWindowOpen, type ViewerRole, type WidgetTheme } from '@lst97-oss/client'
+import {
+  DEFAULT_EDIT_WINDOW_MINUTES,
+  isEditWindowOpen,
+  type ViewerRole,
+  type WidgetTheme,
+} from '@last-comments-widgets/client'
 
-export { canModerate } from '@lst97-oss/client'
+export { canModerate } from '@last-comments-widgets/client'
 
 export type Theme = 'light' | 'dark' | 'system'
 

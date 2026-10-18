@@ -1,4 +1,4 @@
-import type { ViewerRole, WidgetTheme } from '@lst97-oss/client'
+import type { ViewerRole, WidgetTheme } from '@last-comments-widgets/client'
 
 export type Theme = 'light' | 'dark' | 'system'
 

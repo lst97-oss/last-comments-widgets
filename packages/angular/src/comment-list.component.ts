@@ -8,7 +8,7 @@ import {
   safeUrl,
   type ThreadNode,
   type ViewerRole,
-} from '@lst97-oss/client'
+} from '@last-comments-widgets/client'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
 import { canEditComment } from './types'
 import { LcVoteButtonsComponent, type VoteEvent } from './vote-buttons.component'

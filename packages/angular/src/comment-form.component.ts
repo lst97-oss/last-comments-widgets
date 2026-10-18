@@ -1,6 +1,6 @@
 import type { ElementRef } from '@angular/core'
 import { Component, computed, input, type OnInit, output, signal, viewChild } from '@angular/core'
-import { type ErrorInfo, renderMarkdown } from '@lst97-oss/client'
+import { type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcTurnstileDirective } from './turnstile.directive'
 

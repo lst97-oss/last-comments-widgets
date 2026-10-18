@@ -16,7 +16,7 @@
     "lint:fix": "bun scripts/lint-all.ts --fix",
     "format": "biome format --write . && prettier --write \"packages/{angular,vue}/**/*.{ts,vue,html,css,json}\"",
     "format:check": "biome format . && prettier --check \"packages/{angular,vue}/**/*.{ts,vue,html,css,json}\"",
-    "typecheck": "bun --filter '@lst97-oss/*' typecheck",
+    "typecheck": "bun --filter '@last-comments-widgets/*' typecheck",
     "changeset": "changeset",
     "changeset:status": "changeset status --verbose",
     "versions:check": "bun scripts/check-versions.ts",

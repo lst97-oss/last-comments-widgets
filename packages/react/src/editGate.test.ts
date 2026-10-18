@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULT_EDIT_WINDOW_MINUTES } from '@lst97-oss/client'
+import { DEFAULT_EDIT_WINDOW_MINUTES } from '@last-comments-widgets/client'
 import { canEditComment } from './editGate'
 
 const own = (minutesAgo: number, userId = 'u1') => ({

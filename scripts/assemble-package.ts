@@ -1,13 +1,13 @@
 // Assembles the single published package (@lst97-oss/last-comments-widgets) from the
 // workspace packages' builds: each dist is copied under dist/<subpath>, the internal
-// @lst97-oss/client specifiers are rewritten to relative paths (consumers install only
+// @last-comments-widgets/client specifiers are rewritten to relative paths (consumers install only
 // this package, never the internals), and the four stylesheets share one fonts dir.
 // Run by `bun run build` last, after every other package has built.
 import { Glob } from 'bun'
 
 const ROOT = `${import.meta.dir}/..`
 const OUT = `${ROOT}/packages/last-comments-widgets/dist`
-const CLIENT_SPECIFIER = '@lst97-oss/client'
+const CLIENT_SPECIFIER = '@last-comments-widgets/client'
 const CLIENT_TARGET = `${OUT}/client/index.js`
 const SUBPATHS = ['client', 'react', 'vue', 'angular', 'vanilla']
 
@@ -77,7 +77,7 @@ const entries = [
   'react/styles.css',
   'vue/index.js',
   'vue/styles.css',
-  'angular/fesm2022/lst97-oss-angular.mjs',
+  'angular/fesm2022/last-comments-widgets-angular.mjs',
   'angular/styles.css',
   'vanilla/index.js',
   'vanilla/styles.css',

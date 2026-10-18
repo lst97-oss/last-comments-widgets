@@ -21,7 +21,7 @@ import {
   themeVarsToStyle,
   type ViewerSession,
   type VoteValue,
-} from '@lst97-oss/client'
+} from '@last-comments-widgets/client'
 import { Check } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import CommentError from './CommentError.vue'

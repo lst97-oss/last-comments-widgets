@@ -9,7 +9,7 @@ import {
   type ThreadNode,
   type ViewerRole,
   type VoteValue,
-} from '@lst97-oss/client'
+} from '@last-comments-widgets/client'
 import { computed, ref } from 'vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'

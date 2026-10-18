@@ -39,7 +39,7 @@ for (const { manifest } of packages) {
     ...manifest.devDependencies,
     ...manifest.peerDependencies,
   })) {
-    if (dep.startsWith('@lst97-oss/') && range !== 'workspace:*') {
+    if (dep.startsWith('@last-comments-widgets/') && range !== 'workspace:*') {
       problems.push(`${manifest.name} depends on ${dep}@${range}, expected workspace:* — it is never published`)
     }
   }
@@ -47,7 +47,7 @@ for (const { manifest } of packages) {
 
 for (const { manifest } of published) {
   for (const [dep, range] of Object.entries({ ...manifest.dependencies, ...manifest.peerDependencies })) {
-    if (dep.startsWith('@lst97-oss/')) {
+    if (dep.startsWith('@last-comments-widgets/')) {
       problems.push(`${manifest.name} depends on ${dep}@${range}, but ${dep} is not published`)
     }
   }

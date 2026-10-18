@@ -8,7 +8,7 @@ import {
   type ThreadNode,
   type ViewerRole,
   type VoteValue,
-} from '@lst97-oss/client'
+} from '@last-comments-widgets/client'
 import { useState } from 'react'
 import { CommentForm } from './CommentForm'
 import { canEditComment } from './editGate'

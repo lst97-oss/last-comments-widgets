@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Comment, ModerationAction, ThreadNode, ViewerRole, VoteValue } from '@lst97-oss/client'
+import type { Comment, ModerationAction, ThreadNode, ViewerRole, VoteValue } from '@last-comments-widgets/client'
 import CommentItem from './CommentItem.vue'
 
 defineProps<{

@@ -19,7 +19,7 @@ import {
   themeVarsToStyle,
   type ViewerSession,
   type VoteValue,
-} from '@lst97-oss/client'
+} from '@last-comments-widgets/client'
 import { ChevronDown } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CommentError } from './CommentError'

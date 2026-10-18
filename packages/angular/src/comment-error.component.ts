@@ -1,5 +1,5 @@
 import { Component, input, output } from '@angular/core'
-import type { ErrorInfo } from '@lst97-oss/client'
+import type { ErrorInfo } from '@last-comments-widgets/client'
 
 // The one error block every surface renders; copy comes from the shared
 // describeError, so no widget invents strings. Hidden while info is null.

@@ -74,17 +74,17 @@
       },
     },
     "packages/angular": {
-      "name": "@lst97-oss/angular",
+      "name": "@last-comments-widgets/angular",
       "version": "0.1.0",
       "dependencies": {
-        "@lst97-oss/client": "^0.1.0",
+        "@last-comments-widgets/client": "^0.1.0",
       },
       "devDependencies": {
         "@angular/common": "22.2.3",
         "@angular/compiler": "22.2.3",
         "@angular/compiler-cli": "22.2.3",
         "@angular/core": "22.2.3",
-        "@lst97-oss/theme": "^0.1.0",
+        "@last-comments-widgets/theme": "^0.1.0",
         "@tailwindcss/cli": "4.3.3",
         "ng-packagr": "22.2.4",
         "rxjs": "^7.8.2",
@@ -99,7 +99,7 @@
       },
     },
     "packages/client": {
-      "name": "@lst97-oss/client",
+      "name": "@last-comments-widgets/client",
       "version": "0.1.0",
       "dependencies": {
         "marked": "^18.1.1",
@@ -140,18 +140,18 @@
       ],
     },
     "packages/react": {
-      "name": "@lst97-oss/react",
+      "name": "@last-comments-widgets/react",
       "version": "0.1.0",
       "dependencies": {
         "@base-ui/react": "^1.9.0",
-        "@lst97-oss/client": "workspace:*",
+        "@last-comments-widgets/client": "workspace:*",
         "@marsidev/react-turnstile": "^1.6.2",
         "class-variance-authority": "^0.7.1",
         "cn": "^0.4.0",
         "lucide-react": "^1.55.0",
       },
       "devDependencies": {
-        "@lst97-oss/theme": "workspace:*",
+        "@last-comments-widgets/theme": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
@@ -167,7 +167,7 @@
       },
     },
     "packages/theme": {
-      "name": "@lst97-oss/theme",
+      "name": "@last-comments-widgets/theme",
       "version": "0.1.0",
       "devDependencies": {
         "@fontsource-variable/geist": "^5.3.0",
@@ -177,13 +177,13 @@
       },
     },
     "packages/vanilla": {
-      "name": "@lst97-oss/vanilla",
+      "name": "@last-comments-widgets/vanilla",
       "version": "0.1.0",
       "dependencies": {
-        "@lst97-oss/client": "workspace:*",
+        "@last-comments-widgets/client": "workspace:*",
       },
       "devDependencies": {
-        "@lst97-oss/theme": "workspace:*",
+        "@last-comments-widgets/theme": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "tailwindcss": "4.3.3",
         "tsup": "^9.0.0",
@@ -191,17 +191,17 @@
       },
     },
     "packages/vue": {
-      "name": "@lst97-oss/vue",
+      "name": "@last-comments-widgets/vue",
       "version": "0.1.0",
       "dependencies": {
-        "@lst97-oss/client": "workspace:*",
+        "@last-comments-widgets/client": "workspace:*",
         "clsx": "^2.1.0",
         "lucide-vue-next": "^0.545.0",
         "tailwind-merge": "^3.0.0",
         "vue-turnstile": "^1.0.0",
       },
       "devDependencies": {
-        "@lst97-oss/theme": "workspace:*",
+        "@last-comments-widgets/theme": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "@vitejs/plugin-vue": "^6.0.0",
         "tailwindcss": "4.3.3",
@@ -713,19 +713,19 @@
 
     "@lmdb/lmdb-win32-x64": ["@lmdb/lmdb-win32-x64@3.5.6", "", { "os": "win32", "cpu": "x64" }, "sha512-1g7G0knRX2iV/voDu54yxrGqw5Dk0w2oIYb7dgJq8IkOi+m7wbD8Q3QpPFjh0C01G58S88dqGn03len6UPCXsg=="],
 
-    "@lst97-oss/angular": ["@lst97-oss/angular@workspace:packages/angular"],
+    "@last-comments-widgets/angular": ["@last-comments-widgets/angular@workspace:packages/angular"],
 
-    "@lst97-oss/client": ["@lst97-oss/client@workspace:packages/client"],
+    "@last-comments-widgets/client": ["@last-comments-widgets/client@workspace:packages/client"],
 
     "@lst97-oss/last-comments-widgets": ["@lst97-oss/last-comments-widgets@workspace:packages/last-comments-widgets"],
 
-    "@lst97-oss/react": ["@lst97-oss/react@workspace:packages/react"],
+    "@last-comments-widgets/react": ["@last-comments-widgets/react@workspace:packages/react"],
 
-    "@lst97-oss/theme": ["@lst97-oss/theme@workspace:packages/theme"],
+    "@last-comments-widgets/theme": ["@last-comments-widgets/theme@workspace:packages/theme"],
 
-    "@lst97-oss/vanilla": ["@lst97-oss/vanilla@workspace:packages/vanilla"],
+    "@last-comments-widgets/vanilla": ["@last-comments-widgets/vanilla@workspace:packages/vanilla"],
 
-    "@lst97-oss/vue": ["@lst97-oss/vue@workspace:packages/vue"],
+    "@last-comments-widgets/vue": ["@last-comments-widgets/vue@workspace:packages/vue"],
 
     "@manypkg/find-root": ["@manypkg/find-root@3.1.0", "", { "dependencies": { "@manypkg/tools": "^2.1.0" } }, "sha512-BcSqCyKhBVZ5YkSzOiheMCV41kqAFptW6xGqYSTjkVTl9XQpr+pqHhwgGCOHQtjDCv7Is6EFyA14Sm5GVbVABA=="],
 

@@ -1,4 +1,4 @@
-import type { Comment, VoteValue } from '@lst97-oss/client'
+import type { Comment, VoteValue } from '@last-comments-widgets/client'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { Button } from './ui/button'
 

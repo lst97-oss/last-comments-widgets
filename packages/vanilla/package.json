@@ -1,5 +1,5 @@
 {
-  "name": "@lst97-oss/vanilla",
+  "name": "@last-comments-widgets/vanilla",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -35,10 +35,10 @@
     "typecheck": "bun --check"
   },
   "dependencies": {
-    "@lst97-oss/client": "workspace:*"
+    "@last-comments-widgets/client": "workspace:*"
   },
   "devDependencies": {
-    "@lst97-oss/theme": "workspace:*",
+    "@last-comments-widgets/theme": "workspace:*",
     "@tailwindcss/cli": "4.3.3",
     "tailwindcss": "4.3.3",
     "tsup": "^9.0.0",

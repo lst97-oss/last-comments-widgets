@@ -1,4 +1,4 @@
-export type { ThemeVars, WidgetTheme } from '@lst97-oss/client'
+export type { ThemeVars, WidgetTheme } from '@last-comments-widgets/client'
 export { LcCommentErrorComponent } from './comment-error.component'
 export { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
 export { LcCommentItemComponent, LcCommentListComponent } from './comment-list.component'

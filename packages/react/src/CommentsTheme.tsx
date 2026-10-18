@@ -1,4 +1,4 @@
-import { themeVarsToStyle, type WidgetTheme } from '@lst97-oss/client'
+import { themeVarsToStyle, type WidgetTheme } from '@last-comments-widgets/client'
 import { type ComponentProps, useRef } from 'react'
 import type { Theme } from './types'
 import { useTheme } from './useTheme'

@@ -1,4 +1,4 @@
-import { DEFAULT_EDIT_WINDOW_MINUTES, isEditWindowOpen } from '@lst97-oss/client'
+import { DEFAULT_EDIT_WINDOW_MINUTES, isEditWindowOpen } from '@last-comments-widgets/client'
 
 export function canEditComment(
   comment: { userId?: string | null; createdAt: string },

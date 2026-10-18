@@ -42,9 +42,9 @@
       "import": "./dist/vue/index.js"
     },
     "./angular": {
-      "types": "./dist/angular/types/lst97-oss-angular.d.ts",
-      "import": "./dist/angular/fesm2022/lst97-oss-angular.mjs",
-      "default": "./dist/angular/fesm2022/lst97-oss-angular.mjs"
+      "types": "./dist/angular/types/last-comments-widgets-angular.d.ts",
+      "import": "./dist/angular/fesm2022/last-comments-widgets-angular.mjs",
+      "default": "./dist/angular/fesm2022/last-comments-widgets-angular.mjs"
     },
     "./vanilla": {
       "types": "./dist/vanilla/index.d.ts",

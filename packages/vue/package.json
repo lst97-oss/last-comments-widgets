@@ -1,5 +1,5 @@
 {
-  "name": "@lst97-oss/vue",
+  "name": "@last-comments-widgets/vue",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -48,7 +48,7 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@lst97-oss/client": "workspace:*",
+    "@last-comments-widgets/client": "workspace:*",
     "clsx": "^2.1.0",
     "lucide-vue-next": "^0.545.0",
     "tailwind-merge": "^3.0.0",
@@ -58,7 +58,7 @@
     "vue": "^3.5.0"
   },
   "devDependencies": {
-    "@lst97-oss/theme": "workspace:*",
+    "@last-comments-widgets/theme": "workspace:*",
     "@tailwindcss/cli": "4.3.3",
     "@vitejs/plugin-vue": "^6.0.0",
     "tailwindcss": "4.3.3",

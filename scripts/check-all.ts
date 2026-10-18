@@ -8,7 +8,7 @@ const rootBiome = Bun.spawn(['biome', 'check', '--error-on-warnings', '.'], {
 })
 if ((await rootBiome.exited) !== 0) failed = true
 
-// The widgets typecheck against @lst97-oss/client's built dist, which a fresh checkout
+// The widgets typecheck against @last-comments-widgets/client's built dist, which a fresh checkout
 // does not have. Rebuild it every time so a stale dist cannot fake a passing typecheck.
 console.log('\n=== build packages/client (shared dist) ===')
 const client = Bun.spawn(['bun', 'run', 'build'], { cwd: 'packages/client', stdout: 'inherit', stderr: 'inherit' })
