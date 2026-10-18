@@ -1,0 +1,70 @@
+{
+  "name": "@last-comments/vue",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Standard last-comments widget for Vue 3.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lst97-oss/last-comments-widgets.git",
+    "directory": "packages/vue"
+  },
+  "homepage": "https://github.com/lst97-oss/last-comments-widgets#readme",
+  "bugs": {
+    "url": "https://github.com/lst97-oss/last-comments-widgets/issues"
+  },
+  "keywords": [
+    "comments",
+    "comment-system",
+    "vue",
+    "tailwindcss",
+    "last-comments"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "bun run typecheck && bun run lint && bun run format:check",
+    "lint": "eslint . --max-warnings 0",
+    "build": "bunx vite build && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
+    "test": "bun test",
+    "lint:fix": "eslint . --fix --max-warnings 0",
+    "format": "prettier --ignore-path ../../.prettierignore --write \"**/*.{ts,vue,html,css,json}\"",
+    "format:check": "prettier --ignore-path ../../.prettierignore --check \"**/*.{ts,vue,html,css,json}\"",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@last-comments/client": "^0.1.0",
+    "clsx": "^2.1.0",
+    "lucide-vue-next": "^0.545.0",
+    "tailwind-merge": "^3.0.0",
+    "vue-turnstile": "^1.0.0"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@last-comments/theme": "^0.1.0",
+    "@tailwindcss/cli": "4.3.3",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4",
+    "vite-plugin-dts": "^5.1.2",
+    "vue": "^3.5.0",
+    "vue-tsc": "^3.3.13"
+  }
+}

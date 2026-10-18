@@ -1,0 +1,8 @@
+export type { ThemeVars, WidgetTheme } from '@last-comments/client'
+export { default as CommentForm } from './CommentForm.vue'
+export { default as CommentItem } from './CommentItem.vue'
+export { default as Comments } from './Comments.vue'
+export { default as CommentViewer } from './CommentViewer.vue'
+export type { CommentsProps, Commentupdater, CommentViewerProps, Theme } from './types'
+export { canModerate, resolvePageUrl, toggleVoteValue } from './types'
+export { default as VoteButtons } from './VoteButtons.vue'
