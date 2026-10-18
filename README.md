@@ -1,0 +1,272 @@
+# last-comments-widgets
+
+Standard drop-in comment widgets for [last-comments](https://github.com/lst97-oss/last-comments) — for consumers who don't want to build their own UI. Native widgets for React, Vue, Angular, and plain HTML, all sharing one API client and one self-contained Tailwind v4 + shadcn `base-nova` theme.
+
+## Install
+
+```bash
+bun add @last-comments/react     # or npm install @last-comments/react
+bun add @last-comments/vue       # or npm install @last-comments/vue
+bun add @last-comments/angular   # or npm install @last-comments/angular
+bun add @last-comments/vanilla   # or npm install @last-comments/vanilla
+```
+
+## Usage
+
+React:
+
+```tsx
+import { Comments } from '@last-comments/react'
+import '@last-comments/react/styles.css'
+
+<Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
+```
+
+Vue:
+
+```vue
+<script setup lang="ts">
+import { Comments } from '@last-comments/vue'
+import '@last-comments/vue/styles.css'
+</script>
+
+<template>
+  <Comments site="demo" base-url="https://comments.example.com" turnstile-site-key="…" />
+</template>
+```
+
+Angular:
+
+```ts
+import { LcCommentsComponent } from '@last-comments/angular'
+import '@last-comments/angular/styles.css'
+
+@Component({ imports: [LcCommentsComponent], template: `<lc-comments site="demo" baseUrl="…" />` })
+export class AppComponent {}
+```
+
+Plain HTML (no build step):
+
+```html
+<link rel="stylesheet" href="https://unpkg.com/@last-comments/vanilla/dist/styles.css" />
+<div data-lc-comments data-lc-site="demo" data-lc-base-url="https://comments.example.com"></div>
+<script type="importmap">
+  {
+    "imports": {
+      "@last-comments/client": "https://unpkg.com/@last-comments/client/dist/index.js",
+      "marked": "https://unpkg.com/marked/lib/marked.esm.js"
+    }
+  }
+</script>
+<script type="module" src="https://unpkg.com/@last-comments/vanilla/dist/index.js"></script>
+```
+
+Props (all frameworks): `site` (required), `baseUrl` (required), `pageUrl` (default `location.href`), `turnstileSiteKey` (guest posting), `limit` (default 20; threads per page, see below), `lazy` (default false; defer all requests until the widget scrolls into view), `theme` (`light` | `dark` | `system`), `themeVars` (per-instance overrides, see below), `signInUrl` (host-owned sign-in page), `viewerUserId` (shows own Edit/Delete buttons; empty = guest), `viewerRole` (`admin` | `moderator`; enables inline moderation, see below), `editWindowMinutes` (default 5, must match the server `COMMENT_EDIT_WINDOW_MINUTES`; the server always wins on divergence), `fetchImpl` (bring-your-own fetch — log, record, or rewrite to a same-origin proxy; every request still sends `credentials: 'include'` and the init shape is unchanged).
+
+```ts
+// fetchImpl receives (url, init) exactly as the widget would call fetch.
+const fetchImpl: typeof fetch = (input, init) => fetch(toSameOriginProxy(input), init)
+```
+
+Signed-in viewers are detected from the API session (`GET {baseUrl}/api/auth/get-session`), with the host's `viewerUserId` prop as the fallback when the API cannot answer (no same-origin proxy): when signed in, the composer drops the guest name field and Turnstile, posting uses the session identity, and votes work; the identity menu below lets the user post anonymously instead.
+
+## Custom themes and CSS overrides
+
+React, Vue, Angular, and vanilla accept the same `themeVars` object. `vars` applies in both modes; `dark` overrides individual values when `theme="dark"` or system dark mode is active. `Comments` and `CommentViewer` share the same tokens. Theme types are exported from each UI package.
+
+```tsx
+import { Comments, type WidgetTheme } from '@last-comments/react'
+import '@last-comments/react/styles.css'
+
+const brand: WidgetTheme = {
+  vars: {
+    primary: '#2354d1', primaryForeground: '#ffffff',
+    popover: '#ffffff', popoverForeground: '#182033',
+    accent: '#e8efff', accentForeground: '#182033',
+    fontFamily: 'Inter, sans-serif', fontSize: '16px',
+    spacing: '0.25rem', radius: '0.75rem', controlRadius: '0.5rem',
+    controlHeight: '2.5rem', cardPadding: '1rem', composerPadding: '1rem',
+    cardShadow: '0 2px 12px rgb(0 0 0 / 0.08)', dropdownShadow: 'none',
+  },
+  dark: {
+    background: '#111827', foreground: '#f9fafb',
+    card: '#182033', cardForeground: '#f9fafb',
+    popover: '#182033', popoverForeground: '#f9fafb',
+    accent: '#263450', accentForeground: '#ffffff',
+  },
+}
+
+<Comments site="demo" baseUrl="/" theme="system" themeVars={brand} />
+```
+
+Vue uses `:theme-vars="brand"`; Angular uses `[themeVars]="brand"`; vanilla accepts `{ themeVars: brand }` in `mountComments` and `renderCommentViewer`. Pass complete CSS colors (hex, `rgb()`, `oklch()`, etc.), lengths with units, and unitless line heights. Fonts must be loaded by the host if they are not already available.
+
+| Theme keys | Controls |
+| --- | --- |
+| `background`, `foreground` | Widget surface and default text |
+| `primary`, `primaryForeground` | Primary actions and links |
+| `card`, `cardForeground` | Comment surfaces and text |
+| `popover`, `popoverForeground` | Identity menus and React dialogs |
+| `muted`, `mutedForeground`, `secondary`, `secondaryForeground` | Composer, placeholders, secondary surfaces and text |
+| `accent`, `accentForeground` | Selector hover and keyboard highlight |
+| `border`, `input`, `ring` | Borders and focus indicators |
+| `destructive`, `destructiveForeground` | Errors and destructive actions |
+| `success`, `warning`, `error`, `info` | Status palettes; each also has `Foreground` and `Muted` keys |
+| `radius`, `controlRadius` | Surface and control corner radii |
+| `fontFamily`, `fontFamilyMono`, `fontSize`, `lineHeight` | Typography, including Markdown and popups |
+| `spacing` | Spacing unit used by gaps, margins, padding, and utility-sized controls |
+| `controlHeight` | Minimum height of buttons, inputs, and selects |
+| `cardPadding`, `composerPadding` | Comment and composer padding; reply indentation is preserved |
+| `cardShadow`, `dropdownShadow`, `dialogShadow`, `backdrop` | Shadows and React modal backdrop color |
+
+Styles, resets, and semantic defaults are scoped to `.lc-comments` and `.lc-theme` using native CSS `@scope`; use a browser with `@scope` support. Importing widget CSS does not set the host page's font, colors, margins, or utility classes. Each instance has its own defaults, and an explicitly light widget stays light inside a dark host. React menus, dialogs, and tooltips portal into their owning root so CSS variables and selectors still apply. Avoid clipping that root with `overflow: hidden` when using popups.
+
+For more detailed customization, use these shared hooks: `.lc-comments`, `.lc-comment`, `.lc-reply`, `.lc-composer`, `.lc-markdown`, `.lc-error`, `.lc-identity-trigger`, `.lc-identity-menu`, and `.lc-identity-item`. React overlays also expose `.lc-dialog`, `.lc-dialog-backdrop`, and `.lc-tooltip`. Controls can be targeted with ordinary `button`, `input`, `textarea`, and `select` selectors below the root. Custom styles can override the defaults without `!important`:
+
+```css
+/* Wrap the widget in <div id="discussion"> to target this instance. */
+#discussion .lc-comments {
+  --popover: #fff5e8;
+  --accent: #fbd9a0;
+  --lc-font-family: Georgia, serif;
+}
+#discussion .lc-identity-menu {
+  min-width: 15rem;
+  border: 1px solid #d4ab71;
+}
+#discussion .lc-comment {
+  border: 1px solid #e5e7eb;
+}
+```
+
+Semantic CSS variables use kebab case (`primaryForeground` → `--primary-foreground`). Typography, spacing, control dimensions, padding, shadows, and backdrop tokens use an `--lc-` prefix (`fontFamily` → `--lc-font-family`, `cardShadow` → `--lc-card-shadow`); `radius` remains `--radius`. Inline `themeVars` values take precedence over stylesheet variables on the root. `THEME_CSS_VARIABLES` in `@last-comments/client` exports the complete mapping.
+
+For plain HTML, every token also has `data-lc-theme-var-<kebab-name>` and `data-lc-theme-dark-var-<kebab-name>` attributes:
+
+```html
+<div data-lc-comments data-lc-site="demo" data-lc-base-url="/"
+  data-lc-theme="system"
+  data-lc-theme-var-popover="#fff5e8"
+  data-lc-theme-var-font-family="Georgia, serif"
+  data-lc-theme-var-control-height="44px"
+  data-lc-theme-dark-var-popover="#241b14"></div>
+```
+
+When composing from exported subcomponents, supply a theme root yourself: React provides `<CommentsTheme theme="system" themeVars={brand}>…</CommentsTheme>`; other frameworks and raw HTML can use a `.lc-theme` wrapper with CSS variables and a `dark` class for dark mode. `Comments` and `CommentViewer` already provide their roots. Third-party verification challenges retain their provider-owned appearance.
+
+## Identity and sign-in
+
+The composer footer carries the identity control next to the name field — `Comment as [ Anonymous ▾ ]` — so signing in is always optional: the guest form (name + Turnstile) is usable either way. Signed-out visitors get `Sign in…` in the menu; it links to `signInUrl` when the host provides one, otherwise the widget asks the API to start the OAuth flow (`POST {baseUrl}/api/auth/sign-in/social`, provider `google`) and navigates to the returned authorization URL, which returns the user to `pageUrl`. That default path needs `baseUrl` reachable with credentials from the page (the same-origin proxy recommended for voting) and a provider configured on the server; failures show the server's message under the control.
+
+Signed-in visitors can switch between `Anonymous` and `<name> (you)`, and `Sign out` ends the API session (`POST {baseUrl}/api/auth/sign-out`). Guest comments — the anonymous identity, or any visitor without a session — are posted **without** the session cookie (`credentials: 'omit'`), so the API attributes them to the guest name (blank posts as `Anonymous`). A proxy that attaches the session server-side will attribute them to the account instead, and Edit/Delete/votes do not apply to guest comments.
+
+## Pagination and loading
+
+Lists page through **threads**, not rows: a page shows `limit` top-level comments (default 20) together with their replies, and the pager (`‹ Previous` / `Page N` / `Next ›`) appears once there is more than one page. The list endpoint returns no total, so the pager shows the current page instead of numbered links; `Next` disables once the stream ends. Rows are fetched only for the page you visit and kept in memory, so `Previous` is instant and never re-requests. A reply written after the stream moved past its thread's page is not shown until more rows load — the list endpoint has no per-thread query, so exact thread pagination would need a server-side `threads` query.
+
+Loading states are skeletons rather than blank space: three skeleton cards on first load, two more below the list while the next page arrives (the pager disables in flight), and a skeleton chip in the identity control — with posting disabled — until the API answers `get-session`, so a comment can never be posted with a guessed identity.
+
+`lazy` defers every request (comments and session) until the widget scrolls into view (`IntersectionObserver`, 200px margin, one-shot). Use it for embeds below the fold; avatars load lazily in every mode.
+
+## Moderation
+
+Pass `viewerRole` (`admin` or `moderator`, typically with `viewerUserId`) to render inline moderation controls: the thread lists every status with `hidden`/`deleted` badges, each row offers Hide/Restore, Pin/Unpin, Delete and Block/Unblock user, and a page lock/unlock bar appears above the list. Voting is hidden in this mode because the moderation payload carries no vote data. The server authorizes every action, so an account without permission sees the `FORBIDDEN` copy and nothing changes. Moderation requires the comments API to be served from the widget page's own origin: `/api/moderation` sends no CORS headers and its POST is origin-checked, so dev proxies must rewrite the `Origin` header (see `examples/react/vite.config.ts`); a cross-origin embed cannot moderate.
+
+## Read-only viewer
+
+`CommentViewer` (Vue `CommentViewer`, Angular `lc-comment-viewer`, vanilla `data-lc-viewer` + `renderCommentViewer`) renders the same list with no composer and no Reply/Edit/Delete/vote buttons — import it where the page only shows comments. Same `site`/`baseUrl`/`pageUrl`/`limit`/`lazy`/`theme`/`themeVars`, same thread pager and skeletons; voting UI stays available via the exported `VoteButtons` for hosts that opt in.
+
+```tsx
+import { CommentViewer } from '@last-comments/react'
+
+<CommentViewer site="demo" baseUrl="https://comments.example.com" />
+```
+
+## Client API
+
+`@last-comments/client` is what the four widgets are built on; hosts rendering their own UI can import it directly. Every widget package depends on it at runtime, which is why all six packages ship one lockstep version.
+
+| Export | Purpose |
+| --- | --- |
+| `createClient({ site, baseUrl, fetchImpl })` | list, post, edit and delete comments, vote, and run moderation calls |
+| `listCommentsPage({ …, offset, limit })` | one page of rows plus `hasMore` (probes one extra row; the API returns no total) |
+| `loadThreadWindow({ …, pages, existing })` | rows accumulated until N whole threads are present — the loader behind the widget pager |
+| `fetchViewerThreads({ … })` | one-shot fetch of the flat stream |
+| `buildCommentTree(rows)` | group that stream into thread nodes (orphan replies become roots) |
+| `describeError(error, overrides?)` | the title/message/action copy every widget renders |
+| `beginOAuthSignIn` · `fetchViewerSession` · `signOutViewerSession` | the flow behind the identity control |
+| `renderMarkdown` · `safeUrl` | markdown rendering (raw HTML stripped) and URL sanitising |
+| `themeVarsToStyle` · `THEME_CSS_VARIABLES` | map `themeVars` onto the widget's CSS variables |
+| `isEditWindowOpen` · `DEFAULT_EDIT_WINDOW_MINUTES` · `canModerate` · `moderationCommentToComment` | shared widget rules |
+
+Signatures and the complete type list live in `packages/client/src/index.ts`.
+
+## Markdown
+
+Bodies render GitHub-flavored markdown (bold, italic, strikethrough, code, links, images, lists, quotes, tables, newlines) via a shared renderer in `@last-comments/client`. Raw HTML is stripped, links allow `http(s):`/`mailto:` only. Every composer is a muted panel with icon toolbar (Bold/Italic/Quote/Code/Link/Bullet/Numbered), Write/Preview toggle, and a `Styling with Markdown is supported` hint.
+
+## Requirements
+
+- Register the page origin in the server's `site_origins` table, or every API call fails with `ORIGIN_NOT_ALLOWED` (403).
+- Guest posting needs `turnstileSiteKey` (Cloudflare Turnstile); signed-in users skip verification. Under `COMMENT_VERIFICATION_REQUIRED=true` with no provider, guests get a 503 notice.
+- Every widget request is sent with `credentials: 'include'`, and the API never returns `Access-Control-Allow-Credentials` — so a plain cross-origin embed cannot list, post, vote or moderate: route the API through a same-origin proxy (e.g. rewrite `/api/comments` and `/api/moderation` → `baseUrl`, as the examples do). A reverse proxy in front of the API must rewrite `Origin` for `/api/moderation`, whose POST is origin-checked against the server's own origin.
+
+## Errors
+
+Every failure renders one block — alert icon, a title that names the situation, the API's own message when it is human-readable, and an action only when one helps (`Try again` for retryable failures, `Sign in` when an account is required). It appears for: list and viewer load failures (including the viewer's retry), composer post/reply failures, edit/delete/vote failures, moderation actions, and sign-in/sign-out failures. Busy/blocked/locked pages keep their dedicated states.
+
+The copy comes from `describeError(error, overrides?)` in `@last-comments/client` (exported and tested): it maps each `ApiError.code` to `{ code, title, message, action }`, turns a failed `fetch` into "Couldn't reach the comments service", ignores the synthesised `request failed with 500` message, and takes `overrides.title` only for codes that have no scenario-specific copy — widgets pass action framing such as `"Your comment wasn't posted"`. Hosts rendering their own UI can call it directly.
+
+The rendered block carries `data-lc-error` and `data-error-code` (empty when the failure was not from the API) so you can style or assert on it.
+
+## Error codes
+
+`VALIDATION_ERROR` `MALFORMED_JSON` `UNAUTHENTICATED` `ORIGIN_NOT_ALLOWED` `SITE_NOT_FOUND` `USER_BLOCKED` `PAGE_LOCKED` `PARENT_NOT_FOUND` `COMMENT_NOT_FOUND` `COMMENT_VERIFICATION_FAILED` `COMMENT_VERIFICATION_UNAVAILABLE` `FORBIDDEN` `EDIT_WINDOW_EXPIRED` `SIGN_IN_UNAVAILABLE` `SIGN_OUT_FAILED` — see `packages/client/src/index.ts` (`ApiError.code`).
+
+## Develop
+
+```bash
+bun install
+bun run check         # All package lint, formatting, typechecks + React Doctor
+bun run typecheck     # Bun native typecheck; Vue uses vue-tsc
+bun run lint          # Check lint without changing files
+bun run lint:fix      # Apply safe lint fixes
+bun run format        # Format source files
+bun run format:check  # Check formatting without changing files
+bun test
+bun run test:theme    # Build + browser theme regressions (Chrome installed)
+bun run build
+```
+
+| Package | Linter | Formatter |
+| --- | --- | --- |
+| `react` | Biome recommended React rules + React Doctor (`check`) | Biome |
+| `vue` | ESLint + TypeScript ESLint + Vue recommended rules | Prettier (whole SFCs) |
+| `angular` | ESLint + TypeScript ESLint + Angular recommended and template accessibility rules | Prettier (including inline templates) |
+| `client`, `vanilla`, `theme` | Biome recommended rules | Biome |
+
+Each package exposes `lint`, `lint:fix`, `format`, `format:check`, and `check` scripts. TypeScript packages also expose `typecheck`. React, Angular, the client, and vanilla use `bun --check` (the direct form of `bun check`) so it always invokes the typechecker rather than the package's `check` script. Vue uses `vue-tsc` because Bun cannot resolve `.vue` imports or check SFC templates. Angular ESLint checks Angular templates; Angular template typechecking remains part of the Angular build. Biome excludes the Vue and Angular packages so the formatters do not overlap. Generated `dist` files are excluded from both toolchains.
+
+Agents and AI contributors: read [`AGENTS.md`](AGENTS.md) for the layout, conventions, and the verification traps this repo has (client `dist` resolution, the thread-paging model, Angular's compile-only verification).
+
+## Release
+
+All six published packages (`client`, `theme`, `react`, `vue`, `angular`, `vanilla`) are one `fixed` [changesets](https://github.com/changesets/changesets) group: a release bumps every package to the same version and rewrites the internal `@last-comments/client` / `@last-comments/theme` ranges to match, so a widget can never be installed with a client it cannot work with. Framework compatibility lives in `peerDependencies` (React 19, Vue 3.5, Angular 22), never in the package version — an Angular-only change narrows Angular's peer range and gets its own changelog entry.
+
+```bash
+bun run changeset        # describe the change; name all six packages so every CHANGELOG carries the summary
+bun run version          # bump all six, rewrite internal ranges, write CHANGELOG.md, bun install, versions:check
+git add -A && git commit -m "chore: release"
+npm login                # once per machine
+bun run release          # versions:check + check + test + build + pack:check + changeset publish
+git push --follow-tags   # push the release commit and the six annotated tags
+```
+
+Publishing is deliberately local: `bun run release` gates `changeset publish` behind the lockstep check, the full lint/typecheck suite, the tests, a fresh build, and `pack:check` — which inspects the exact tarballs npm would upload and fails if a manifest entry point, README, or LICENSE is missing or package source leaked in. `changeset publish` then uses the npm credentials from `npm login` on this machine and creates one annotated git tag per package (push them with `git push --follow-tags`), so no registry token lives in GitHub. Every package ships its own README and LICENSE and declares its repository, homepage, bugs and license, so the npm pages are complete. CI (`.github/workflows/ci.yml`) only verifies every push and pull request (including the same `pack:check`) and requires a changeset when a package changed. Nothing is on npm yet, so the first release is `0.1.0`, the version already in the manifests; `publishConfig.access: "public"` is set per package because scoped packages default to restricted. `changeset status` and tag creation need at least one commit on the branch.
+
+Demos: `examples/react` (`bun run dev`, :5173), `examples/vue` (:5174), `examples/html` (static file using `packages/vanilla/dist`). `examples/angular` holds the same demo as app source only — it has no Angular CLI config, so the Angular widget is verified by compiling (`bun run check`, `ng build`) rather than in a browser. Point the runnable demos at a running `last-comments` server (`bun run db:business:up && bun run db:business:migrate && bun run db:business:bootstrap && bun run dev` in the reference repo, default `http://localhost:3000`). The React demo reads `?lazy` (mount with `lazy`) and `?tall` (push the widgets below the fold) from the URL to exercise the deferred path.
+
+## License
+
+MIT
+
