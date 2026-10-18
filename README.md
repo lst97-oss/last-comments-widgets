@@ -240,8 +240,9 @@ bun run build
 | `vue` | ESLint + TypeScript ESLint + Vue recommended rules | Prettier (whole SFCs) |
 | `angular` | ESLint + TypeScript ESLint + Angular recommended and template accessibility rules | Prettier (including inline templates) |
 | `client`, `vanilla`, `theme` | Biome recommended rules | Biome |
+| `last-comments-widgets` (published) | — no source of its own; its `dist` is assembled from the others | — |
 
-Each package exposes `lint`, `lint:fix`, `format`, `format:check`, and `check` scripts. TypeScript packages also expose `typecheck`. React, Angular, the client, and vanilla use `bun --check` (the direct form of `bun check`) so it always invokes the typechecker rather than the package's `check` script. Vue uses `vue-tsc` because Bun cannot resolve `.vue` imports or check SFC templates. Angular ESLint checks Angular templates; Angular template typechecking remains part of the Angular build. Biome excludes the Vue and Angular packages so the formatters do not overlap. Generated `dist` files are excluded from both toolchains.
+Each package with source exposes `lint`, `lint:fix`, `format`, `format:check`, and `check` scripts — the published package has only `build`, since there is nothing in it to lint. TypeScript packages also expose `typecheck`. React, Angular, the client, and vanilla use `bun --check` (the direct form of `bun check`) so it always invokes the typechecker rather than the package's `check` script. Vue uses `vue-tsc` because Bun cannot resolve `.vue` imports or check SFC templates. Angular ESLint checks Angular templates; Angular template typechecking remains part of the Angular build. Biome excludes the Vue and Angular packages so the formatters do not overlap. Generated `dist` files are excluded from both toolchains.
 
 Agents and AI contributors: read [`AGENTS.md`](AGENTS.md) for the layout, conventions, and the verification traps this repo has (client `dist` resolution, the thread-paging model, Angular's compile-only verification).
 
