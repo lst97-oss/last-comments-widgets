@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>last-comments plain HTML demo</title>
+    <link rel="stylesheet" href="../../packages/vanilla/dist/styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@last-comments/client": "../../packages/client/dist/index.js",
+          "marked": "../../packages/client/node_modules/marked/lib/marked.esm.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main class="lc-theme" style="max-width: 42rem; margin: 0 auto; padding: 1.5rem">
+      <h1>last-comments plain HTML demo</h1>
+      <!-- Inline moderation: add data-lc-viewer-user-id and data-lc-viewer-role="admin|moderator".
+           It only works when the comments API is served from this page's own origin. -->
+      <div data-lc-comments data-lc-site="demo" data-lc-base-url="http://localhost:3000"></div>
+      <h2>Read-only viewer</h2>
+      <div data-lc-viewer data-lc-site="demo" data-lc-base-url="http://localhost:3000"></div>
+    </main>
+    <script
+      type="module"
+      src="../../packages/vanilla/dist/index.js"
+      data-lc-site="demo"
+      data-lc-base-url="http://localhost:3000"
+    ></script>
+  </body>
+</html>
