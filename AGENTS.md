@@ -59,7 +59,7 @@ cd packages/react && bun test          # single package
 - Required before claiming done: `bun run check` in the touched package **and** a real run (`bun test`), plus a headless-Chromium probe for anything visual or interactive (identity switch, pager, skeletons, error surfaces, 360px layout). Delete throwaway probes and stop the servers you started.
 - Theme or token changes: `bun run test:theme`.
 - **Angular is compile-level only** (see `examples/angular` above): `bun run check` + `bunx ngc -p tsconfig.json --noEmit` + `bun run build`, and say the browser proof is missing rather than implying one.
-- **Client `dist` trap**: the widgets resolve `@last-comments/client` from its built `dist`. After editing `packages/client/src`, run `bun run build` there before typechecking, testing or probing the widgets — otherwise you get misleading `TS2305: has no exported member` / undefined-export failures.
+- **Client `dist` trap**: the widgets resolve `@last-comments/client` from its built `dist`. After editing `packages/client/src`, run `bun run build` there before typechecking, testing or probing the widgets — otherwise you get misleading `TS2305: has no exported member` / undefined-export failures. The root `bun run check` rebuilds the client itself; a per-package `bun run check` does not.
 - Stub the API with a plain `Bun.serve` that logs requests; assert on the wire (`GET /api/comments?…&offset=…`) as well as the DOM.
 
 ## Release
