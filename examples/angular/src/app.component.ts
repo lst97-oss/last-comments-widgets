@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import { BrowserModule } from '@angular/platform-browser'
-import { LcCommentsComponent, LcCommentViewerComponent } from '@last-comments/angular'
+import { LcCommentsComponent, LcCommentViewerComponent } from '@lst97-oss/last-comments-widgets/angular'
 
 @Component({
   selector: 'app-root',

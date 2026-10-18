@@ -1,4 +1,4 @@
-import type { ErrorInfo } from '@last-comments/client'
+import type { ErrorInfo } from '@lst97-oss/client'
 import { TriangleAlert } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import { Button, buttonVariants } from './ui/button'

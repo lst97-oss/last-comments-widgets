@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ApiError, describeError, type ErrorInfo, renderMarkdown } from '@last-comments/client'
+import { ApiError, describeError, type ErrorInfo, renderMarkdown } from '@lst97-oss/client'
 import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-vue-next'
 import { computed, nextTick, ref } from 'vue'
 import VueTurnstile from 'vue-turnstile'

@@ -1,19 +1,21 @@
-# @last-comments/vue
+# @lst97-oss/last-comments-widgets/vue
+
+Internal workspace package (source in `packages/vue`) — not published on its own. Consumers import it from the published entry point `@lst97-oss/last-comments-widgets/vue`.
 
 Drop-in Vue 3 comment widget for [last-comments](https://github.com/lst97-oss/last-comments), with one self-contained Tailwind v4 + shadcn `base-nova` theme shared by every framework widget.
 
 ## Install
 
 ```bash
-npm install @last-comments/vue
+bun add @lst97-oss/last-comments-widgets
 ```
 
 ## Usage
 
 ```vue
 <script setup lang="ts">
-import { Comments } from '@last-comments/vue'
-import '@last-comments/vue/styles.css'
+import { Comments } from '@lst97-oss/last-comments-widgets/vue'
+import '@lst97-oss/last-comments-widgets/vue/styles.css'
 </script>
 
 <template>

@@ -1,14 +1,11 @@
 # last-comments-widgets
 
-Standard drop-in comment widgets for [last-comments](https://github.com/lst97-oss/last-comments) — for consumers who don't want to build their own UI. Native widgets for React, Vue, Angular, and plain HTML, all sharing one API client and one self-contained Tailwind v4 + shadcn `base-nova` theme.
+Standard drop-in comment widgets for [last-comments](https://github.com/lst97-oss/last-comments) — for consumers who don't want to build their own UI. Native widgets for React, Vue, Angular, and plain HTML, all sharing one API client and one self-contained Tailwind v4 + shadcn `base-nova` theme, all shipped in one package with a subpath per framework (`/react`, `/vue`, `/angular`, `/vanilla`, plus `/client` and `/theme.css`).
 
 ## Install
 
 ```bash
-bun add @last-comments/react     # or npm install @last-comments/react
-bun add @last-comments/vue       # or npm install @last-comments/vue
-bun add @last-comments/angular   # or npm install @last-comments/angular
-bun add @last-comments/vanilla   # or npm install @last-comments/vanilla
+bun add @lst97-oss/last-comments-widgets   # or npm install @lst97-oss/last-comments-widgets
 ```
 
 ## Usage
@@ -16,8 +13,8 @@ bun add @last-comments/vanilla   # or npm install @last-comments/vanilla
 React:
 
 ```tsx
-import { Comments } from '@last-comments/react'
-import '@last-comments/react/styles.css'
+import { Comments } from '@lst97-oss/last-comments-widgets/react'
+import '@lst97-oss/last-comments-widgets/react/styles.css'
 
 <Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
 ```
@@ -26,8 +23,8 @@ Vue:
 
 ```vue
 <script setup lang="ts">
-import { Comments } from '@last-comments/vue'
-import '@last-comments/vue/styles.css'
+import { Comments } from '@lst97-oss/last-comments-widgets/vue'
+import '@lst97-oss/last-comments-widgets/vue/styles.css'
 </script>
 
 <template>
@@ -38,8 +35,8 @@ import '@last-comments/vue/styles.css'
 Angular:
 
 ```ts
-import { LcCommentsComponent } from '@last-comments/angular'
-import '@last-comments/angular/styles.css'
+import { LcCommentsComponent } from '@lst97-oss/last-comments-widgets/angular'
+import '@lst97-oss/last-comments-widgets/angular/styles.css'
 
 @Component({ imports: [LcCommentsComponent], template: `<lc-comments site="demo" baseUrl="…" />` })
 export class AppComponent {}
@@ -48,17 +45,16 @@ export class AppComponent {}
 Plain HTML (no build step):
 
 ```html
-<link rel="stylesheet" href="https://unpkg.com/@last-comments/vanilla/dist/styles.css" />
+<link rel="stylesheet" href="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/styles.css" />
 <div data-lc-comments data-lc-site="demo" data-lc-base-url="https://comments.example.com"></div>
 <script type="importmap">
   {
     "imports": {
-      "@last-comments/client": "https://unpkg.com/@last-comments/client/dist/index.js",
       "marked": "https://unpkg.com/marked/lib/marked.esm.js"
     }
   }
 </script>
-<script type="module" src="https://unpkg.com/@last-comments/vanilla/dist/index.js"></script>
+<script type="module" src="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/index.js"></script>
 ```
 
 Props (all frameworks): `site` (required), `baseUrl` (required), `pageUrl` (default `location.href`), `turnstileSiteKey` (guest posting), `limit` (default 20; threads per page, see below), `lazy` (default false; defer all requests until the widget scrolls into view), `theme` (`light` | `dark` | `system`), `themeVars` (per-instance overrides, see below), `signInUrl` (host-owned sign-in page), `viewerUserId` (shows own Edit/Delete buttons; empty = guest), `viewerRole` (`admin` | `moderator`; enables inline moderation, see below), `editWindowMinutes` (default 5, must match the server `COMMENT_EDIT_WINDOW_MINUTES`; the server always wins on divergence), `fetchImpl` (bring-your-own fetch — log, record, or rewrite to a same-origin proxy; every request still sends `credentials: 'include'` and the init shape is unchanged).
@@ -72,11 +68,11 @@ Signed-in viewers are detected from the API session (`GET {baseUrl}/api/auth/get
 
 ## Custom themes and CSS overrides
 
-React, Vue, Angular, and vanilla accept the same `themeVars` object. `vars` applies in both modes; `dark` overrides individual values when `theme="dark"` or system dark mode is active. `Comments` and `CommentViewer` share the same tokens. Theme types are exported from each UI package.
+React, Vue, Angular, and vanilla accept the same `themeVars` object. `vars` applies in both modes; `dark` overrides individual values when `theme="dark"` or system dark mode is active. `Comments` and `CommentViewer` share the same tokens. Theme types are exported from each widget subpath.
 
 ```tsx
-import { Comments, type WidgetTheme } from '@last-comments/react'
-import '@last-comments/react/styles.css'
+import { Comments, type WidgetTheme } from '@lst97-oss/last-comments-widgets/react'
+import '@lst97-oss/last-comments-widgets/react/styles.css'
 
 const brand: WidgetTheme = {
   vars: {
@@ -139,7 +135,7 @@ For more detailed customization, use these shared hooks: `.lc-comments`, `.lc-co
 }
 ```
 
-Semantic CSS variables use kebab case (`primaryForeground` → `--primary-foreground`). Typography, spacing, control dimensions, padding, shadows, and backdrop tokens use an `--lc-` prefix (`fontFamily` → `--lc-font-family`, `cardShadow` → `--lc-card-shadow`); `radius` remains `--radius`. Inline `themeVars` values take precedence over stylesheet variables on the root. `THEME_CSS_VARIABLES` in `@last-comments/client` exports the complete mapping.
+Semantic CSS variables use kebab case (`primaryForeground` → `--primary-foreground`). Typography, spacing, control dimensions, padding, shadows, and backdrop tokens use an `--lc-` prefix (`fontFamily` → `--lc-font-family`, `cardShadow` → `--lc-card-shadow`); `radius` remains `--radius`. Inline `themeVars` values take precedence over stylesheet variables on the root. `THEME_CSS_VARIABLES` in `@lst97-oss/last-comments-widgets/client` exports the complete mapping.
 
 For plain HTML, every token also has `data-lc-theme-var-<kebab-name>` and `data-lc-theme-dark-var-<kebab-name>` attributes:
 
@@ -177,14 +173,14 @@ Pass `viewerRole` (`admin` or `moderator`, typically with `viewerUserId`) to ren
 `CommentViewer` (Vue `CommentViewer`, Angular `lc-comment-viewer`, vanilla `data-lc-viewer` + `renderCommentViewer`) renders the same list with no composer and no Reply/Edit/Delete/vote buttons — import it where the page only shows comments. Same `site`/`baseUrl`/`pageUrl`/`limit`/`lazy`/`theme`/`themeVars`, same thread pager and skeletons; voting UI stays available via the exported `VoteButtons` for hosts that opt in.
 
 ```tsx
-import { CommentViewer } from '@last-comments/react'
+import { CommentViewer } from '@lst97-oss/last-comments-widgets/react'
 
 <CommentViewer site="demo" baseUrl="https://comments.example.com" />
 ```
 
 ## Client API
 
-`@last-comments/client` is what the four widgets are built on; hosts rendering their own UI can import it directly. Every widget package depends on it at runtime, which is why all six packages ship one lockstep version.
+`@lst97-oss/last-comments-widgets/client` (the bare package name resolves to the same entry point) is what the four widgets are built on; hosts rendering their own UI can import it directly. Every widget subpath depends on it at runtime, which is why all four frameworks ship inside one package and share its version.
 
 | Export | Purpose |
 | --- | --- |
@@ -203,7 +199,7 @@ Signatures and the complete type list live in `packages/client/src/index.ts`.
 
 ## Markdown
 
-Bodies render GitHub-flavored markdown (bold, italic, strikethrough, code, links, images, lists, quotes, tables, newlines) via a shared renderer in `@last-comments/client`. Raw HTML is stripped, links allow `http(s):`/`mailto:` only. Every composer is a muted panel with icon toolbar (Bold/Italic/Quote/Code/Link/Bullet/Numbered), Write/Preview toggle, and a `Styling with Markdown is supported` hint.
+Bodies render GitHub-flavored markdown (bold, italic, strikethrough, code, links, images, lists, quotes, tables, newlines) via a shared renderer in `@lst97-oss/last-comments-widgets/client`. Raw HTML is stripped, links allow `http(s):`/`mailto:` only. Every composer is a muted panel with icon toolbar (Bold/Italic/Quote/Code/Link/Bullet/Numbered), Write/Preview toggle, and a `Styling with Markdown is supported` hint.
 
 ## Requirements
 
@@ -215,7 +211,7 @@ Bodies render GitHub-flavored markdown (bold, italic, strikethrough, code, links
 
 Every failure renders one block — alert icon, a title that names the situation, the API's own message when it is human-readable, and an action only when one helps (`Try again` for retryable failures, `Sign in` when an account is required). It appears for: list and viewer load failures (including the viewer's retry), composer post/reply failures, edit/delete/vote failures, moderation actions, and sign-in/sign-out failures. Busy/blocked/locked pages keep their dedicated states.
 
-The copy comes from `describeError(error, overrides?)` in `@last-comments/client` (exported and tested): it maps each `ApiError.code` to `{ code, title, message, action }`, turns a failed `fetch` into "Couldn't reach the comments service", ignores the synthesised `request failed with 500` message, and takes `overrides.title` only for codes that have no scenario-specific copy — widgets pass action framing such as `"Your comment wasn't posted"`. Hosts rendering their own UI can call it directly.
+The copy comes from `describeError(error, overrides?)` in `@lst97-oss/last-comments-widgets/client` (exported and tested): it maps each `ApiError.code` to `{ code, title, message, action }`, turns a failed `fetch` into "Couldn't reach the comments service", ignores the synthesised `request failed with 500` message, and takes `overrides.title` only for codes that have no scenario-specific copy — widgets pass action framing such as `"Your comment wasn't posted"`. Hosts rendering their own UI can call it directly.
 
 The rendered block carries `data-lc-error` and `data-error-code` (empty when the failure was not from the API) so you can style or assert on it.
 
@@ -251,20 +247,20 @@ Agents and AI contributors: read [`AGENTS.md`](AGENTS.md) for the layout, conven
 
 ## Release
 
-All six published packages (`client`, `theme`, `react`, `vue`, `angular`, `vanilla`) are one `fixed` [changesets](https://github.com/changesets/changesets) group: a release bumps every package to the same version and rewrites the internal `@last-comments/client` / `@last-comments/theme` ranges to match, so a widget can never be installed with a client it cannot work with. Framework compatibility lives in `peerDependencies` (React 19, Vue 3.5, Angular 22), never in the package version — an Angular-only change narrows Angular's peer range and gets its own changelog entry.
+One package is published — `@lst97-oss/last-comments-widgets`, with one subpath per framework — and `packages/{client,theme,react,vue,angular,vanilla}` are its private workspace sources, so there is no cross-package version to keep in lockstep: a release bumps that one package, and a widget can never be installed with a client it cannot work with. Framework compatibility lives in `peerDependencies` (React 19, Vue 3.5, Angular 22), never in the package version — an Angular-only change narrows Angular's peer range and gets its own changelog entry.
 
 ```bash
-bun run changeset        # describe the change; name all six packages so every CHANGELOG carries the summary
-bun run version          # bump all six, rewrite internal ranges, write CHANGELOG.md, bun install, versions:check
+bun run changeset        # describe the change
+bun run version          # bump the published package, write CHANGELOG.md, bun install, versions:check
 git add -A && git commit -m "chore: release"
 npm login                # once per machine
 bun run release          # versions:check + check + test + build + pack:check + changeset publish
-git push --follow-tags   # push the release commit and the six annotated tags
+git push --follow-tags   # push the release commit and its annotated tag
 ```
 
-Publishing is deliberately local: `bun run release` gates `changeset publish` behind the lockstep check, the full lint/typecheck suite, the tests, a fresh build, and `pack:check` — which inspects the exact tarballs npm would upload and fails if a manifest entry point, README, or LICENSE is missing or package source leaked in. `changeset publish` then uses the npm credentials from `npm login` on this machine and creates one annotated git tag per package (push them with `git push --follow-tags`), so no registry token lives in GitHub. Every package ships its own README and LICENSE and declares its repository, homepage, bugs and license, so the npm pages are complete. CI (`.github/workflows/ci.yml`) only verifies every push and pull request (including the same `pack:check`) and requires a changeset when a package changed. Nothing is on npm yet, so the first release is `0.1.0`, the version already in the manifests; `publishConfig.access: "public"` is set per package because scoped packages default to restricted. `changeset status` and tag creation need at least one commit on the branch.
+Publishing is deliberately local: `bun run release` gates `changeset publish` behind the full lint/typecheck suite, the tests, a fresh build (`build` assembles `packages/last-comments-widgets/dist` from the workspace packages) and `pack:check` — which inspects the exact tarball npm would upload and fails if a manifest entry point, README, or LICENSE is missing or package source leaked in. `changeset publish` then uses the npm credentials from `npm login` on this machine and creates one annotated git tag (push it with `git push --follow-tags`), so no registry token lives in GitHub. The tarball ships the README and LICENSE and declares its repository, homepage, bugs and license, so the npm page is complete. CI (`.github/workflows/ci.yml`) only verifies every push and pull request (including the same `pack:check`) and requires a changeset when the published package changed. Nothing is on npm yet, so the first release is `0.1.0`, the version already in the manifest; `publishConfig.access: "public"` is set because scoped packages default to restricted. `changeset status` and tag creation need at least one commit on the branch.
 
-Demos: `examples/react` (`bun run dev`, :5173), `examples/vue` (:5174), `examples/html` (static file using `packages/vanilla/dist`). `examples/angular` holds the same demo as app source only — it has no Angular CLI config, so the Angular widget is verified by compiling (`bun run check`, `ng build`) rather than in a browser. Point the runnable demos at a running `last-comments` server (`bun run db:business:up && bun run db:business:migrate && bun run db:business:bootstrap && bun run dev` in the reference repo, default `http://localhost:3000`). The React demo reads `?lazy` (mount with `lazy`) and `?tall` (push the widgets below the fold) from the URL to exercise the deferred path.
+Demos: `examples/react` (`bun run dev`, :5173), `examples/vue` (:5174), `examples/html` (static file using the hosted bundle at `https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/index.js`). `examples/angular` holds the same demo as app source only — it has no Angular CLI config, so the Angular widget is verified by compiling (`bun run check`, `ng build`) rather than in a browser. Point the runnable demos at a running `last-comments` server (`bun run db:business:up && bun run db:business:migrate && bun run db:business:bootstrap && bun run dev` in the reference repo, default `http://localhost:3000`). The React demo reads `?lazy` (mount with `lazy`) and `?tall` (push the widgets below the fold) from the URL to exercise the deferred path.
 
 ## License
 

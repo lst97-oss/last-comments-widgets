@@ -30,7 +30,7 @@
         "@angular/forms": "22.2.3",
         "@angular/platform-browser": "22.2.3",
         "@angular/platform-browser-dynamic": "22.2.3",
-        "@last-comments/angular": "workspace:*",
+        "@lst97-oss/last-comments-widgets": "workspace:*",
       },
       "devDependencies": {
         "@angular-devkit/build-angular": "22.2.3",
@@ -44,7 +44,7 @@
     "examples/react": {
       "name": "react-demo",
       "dependencies": {
-        "@last-comments/react": "workspace:*",
+        "@lst97-oss/last-comments-widgets": "workspace:*",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
       },
@@ -61,7 +61,7 @@
     "examples/vue": {
       "name": "vue-demo",
       "dependencies": {
-        "@last-comments/vue": "workspace:*",
+        "@lst97-oss/last-comments-widgets": "workspace:*",
         "vue": "^3.5.0",
       },
       "devDependencies": {
@@ -74,17 +74,17 @@
       },
     },
     "packages/angular": {
-      "name": "@last-comments/angular",
+      "name": "@lst97-oss/angular",
       "version": "0.1.0",
       "dependencies": {
-        "@last-comments/client": "^0.1.0",
+        "@lst97-oss/client": "^0.1.0",
       },
       "devDependencies": {
         "@angular/common": "22.2.3",
         "@angular/compiler": "22.2.3",
         "@angular/compiler-cli": "22.2.3",
         "@angular/core": "22.2.3",
-        "@last-comments/theme": "^0.1.0",
+        "@lst97-oss/theme": "^0.1.0",
         "@tailwindcss/cli": "4.3.3",
         "ng-packagr": "22.2.4",
         "rxjs": "^7.8.2",
@@ -99,7 +99,7 @@
       },
     },
     "packages/client": {
-      "name": "@last-comments/client",
+      "name": "@lst97-oss/client",
       "version": "0.1.0",
       "dependencies": {
         "marked": "^18.1.1",
@@ -109,19 +109,49 @@
         "typescript": "^6.0.3",
       },
     },
-    "packages/react": {
-      "name": "@last-comments/react",
+    "packages/last-comments-widgets": {
+      "name": "@lst97-oss/last-comments-widgets",
       "version": "0.1.0",
       "dependencies": {
         "@base-ui/react": "^1.9.0",
-        "@last-comments/client": "workspace:*",
+        "@marsidev/react-turnstile": "^1.6.2",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.0",
+        "cn": "^0.4.0",
+        "lucide-react": "^1.55.0",
+        "lucide-vue-next": "^0.545.0",
+        "marked": "^18.1.1",
+        "tailwind-merge": "^3.0.0",
+        "vue-turnstile": "^1.0.0",
+      },
+      "peerDependencies": {
+        "@angular/common": "^22.0.0",
+        "@angular/core": "^22.0.0",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "vue": "^3.5.0",
+      },
+      "optionalPeers": [
+        "@angular/common",
+        "@angular/core",
+        "react",
+        "react-dom",
+        "vue",
+      ],
+    },
+    "packages/react": {
+      "name": "@lst97-oss/react",
+      "version": "0.1.0",
+      "dependencies": {
+        "@base-ui/react": "^1.9.0",
+        "@lst97-oss/client": "workspace:*",
         "@marsidev/react-turnstile": "^1.6.2",
         "class-variance-authority": "^0.7.1",
         "cn": "^0.4.0",
         "lucide-react": "^1.55.0",
       },
       "devDependencies": {
-        "@last-comments/theme": "workspace:*",
+        "@lst97-oss/theme": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
@@ -137,7 +167,7 @@
       },
     },
     "packages/theme": {
-      "name": "@last-comments/theme",
+      "name": "@lst97-oss/theme",
       "version": "0.1.0",
       "devDependencies": {
         "@fontsource-variable/geist": "^5.3.0",
@@ -147,13 +177,13 @@
       },
     },
     "packages/vanilla": {
-      "name": "@last-comments/vanilla",
+      "name": "@lst97-oss/vanilla",
       "version": "0.1.0",
       "dependencies": {
-        "@last-comments/client": "workspace:*",
+        "@lst97-oss/client": "workspace:*",
       },
       "devDependencies": {
-        "@last-comments/theme": "workspace:*",
+        "@lst97-oss/theme": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "tailwindcss": "4.3.3",
         "tsup": "^9.0.0",
@@ -161,17 +191,17 @@
       },
     },
     "packages/vue": {
-      "name": "@last-comments/vue",
+      "name": "@lst97-oss/vue",
       "version": "0.1.0",
       "dependencies": {
-        "@last-comments/client": "workspace:*",
+        "@lst97-oss/client": "workspace:*",
         "clsx": "^2.1.0",
         "lucide-vue-next": "^0.545.0",
         "tailwind-merge": "^3.0.0",
         "vue-turnstile": "^1.0.0",
       },
       "devDependencies": {
-        "@last-comments/theme": "workspace:*",
+        "@lst97-oss/theme": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "@vitejs/plugin-vue": "^6.0.0",
         "tailwindcss": "4.3.3",
@@ -665,18 +695,6 @@
 
     "@keyv/serialize": ["@keyv/serialize@1.1.1", "", {}, "sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA=="],
 
-    "@last-comments/angular": ["@last-comments/angular@workspace:packages/angular"],
-
-    "@last-comments/client": ["@last-comments/client@workspace:packages/client"],
-
-    "@last-comments/react": ["@last-comments/react@workspace:packages/react"],
-
-    "@last-comments/theme": ["@last-comments/theme@workspace:packages/theme"],
-
-    "@last-comments/vanilla": ["@last-comments/vanilla@workspace:packages/vanilla"],
-
-    "@last-comments/vue": ["@last-comments/vue@workspace:packages/vue"],
-
     "@leichtgewicht/ip-codec": ["@leichtgewicht/ip-codec@2.0.5", "", {}, "sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw=="],
 
     "@listr2/prompt-adapter-inquirer": ["@listr2/prompt-adapter-inquirer@4.2.7", "", { "dependencies": { "@inquirer/type": "^4.0.7" }, "peerDependencies": { "@inquirer/prompts": ">= 3 < 9", "listr2": "11.1.0" } }, "sha512-k180vxSv2KqmnDxoato6pCqEJsov4U5C0EVmldZkAdNeVBxY48A/LM6TCNPGIzDK/iZSfsZP0Mw+gbWc5hXLyA=="],
@@ -694,6 +712,20 @@
     "@lmdb/lmdb-win32-arm64": ["@lmdb/lmdb-win32-arm64@3.5.6", "", { "os": "win32", "cpu": "arm64" }, "sha512-J7A9aEQsQiv0TYtBGL7NDIPp2lOS8nnl+zm4sWZm1xlsTTaQ4PgD096Adzdrk27rw3UxCkDXdCUa4ax41oztBQ=="],
 
     "@lmdb/lmdb-win32-x64": ["@lmdb/lmdb-win32-x64@3.5.6", "", { "os": "win32", "cpu": "x64" }, "sha512-1g7G0knRX2iV/voDu54yxrGqw5Dk0w2oIYb7dgJq8IkOi+m7wbD8Q3QpPFjh0C01G58S88dqGn03len6UPCXsg=="],
+
+    "@lst97-oss/angular": ["@lst97-oss/angular@workspace:packages/angular"],
+
+    "@lst97-oss/client": ["@lst97-oss/client@workspace:packages/client"],
+
+    "@lst97-oss/last-comments-widgets": ["@lst97-oss/last-comments-widgets@workspace:packages/last-comments-widgets"],
+
+    "@lst97-oss/react": ["@lst97-oss/react@workspace:packages/react"],
+
+    "@lst97-oss/theme": ["@lst97-oss/theme@workspace:packages/theme"],
+
+    "@lst97-oss/vanilla": ["@lst97-oss/vanilla@workspace:packages/vanilla"],
+
+    "@lst97-oss/vue": ["@lst97-oss/vue@workspace:packages/vue"],
 
     "@manypkg/find-root": ["@manypkg/find-root@3.1.0", "", { "dependencies": { "@manypkg/tools": "^2.1.0" } }, "sha512-BcSqCyKhBVZ5YkSzOiheMCV41kqAFptW6xGqYSTjkVTl9XQpr+pqHhwgGCOHQtjDCv7Is6EFyA14Sm5GVbVABA=="],
 

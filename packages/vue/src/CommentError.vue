@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ErrorInfo } from '@last-comments/client'
+import type { ErrorInfo } from '@lst97-oss/client'
 
 // One block for every failure in the widget. Copy comes from the client's
 // describeError; this only decides layout and which action to offer.

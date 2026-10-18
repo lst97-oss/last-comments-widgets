@@ -1,0 +1,105 @@
+{
+  "name": "@lst97-oss/last-comments-widgets",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Drop-in comment widgets for last-comments — React, Vue, Angular and plain HTML on one API client and one Tailwind v4 + shadcn base-nova theme.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lst97-oss/last-comments-widgets.git",
+    "directory": "packages/last-comments-widgets"
+  },
+  "homepage": "https://github.com/lst97-oss/last-comments-widgets#readme",
+  "bugs": {
+    "url": "https://github.com/lst97-oss/last-comments-widgets/issues"
+  },
+  "keywords": [
+    "comments",
+    "comment-system",
+    "react",
+    "vue",
+    "angular",
+    "vanilla-js",
+    "tailwindcss",
+    "shadcn",
+    "last-comments"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js"
+    },
+    "./vue": {
+      "types": "./dist/vue/index.d.ts",
+      "import": "./dist/vue/index.js"
+    },
+    "./angular": {
+      "types": "./dist/angular/types/lst97-oss-angular.d.ts",
+      "import": "./dist/angular/fesm2022/lst97-oss-angular.mjs",
+      "default": "./dist/angular/fesm2022/lst97-oss-angular.mjs"
+    },
+    "./vanilla": {
+      "types": "./dist/vanilla/index.d.ts",
+      "import": "./dist/vanilla/index.js"
+    },
+    "./theme.css": "./dist/theme.css",
+    "./react/styles.css": "./dist/react/styles.css",
+    "./vue/styles.css": "./dist/vue/styles.css",
+    "./angular/styles.css": "./dist/angular/styles.css",
+    "./vanilla/styles.css": "./dist/vanilla/styles.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun ../../scripts/assemble-package.ts"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.9.0",
+    "@marsidev/react-turnstile": "^1.6.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.0",
+    "cn": "^0.4.0",
+    "lucide-react": "^1.55.0",
+    "lucide-vue-next": "^0.545.0",
+    "marked": "^18.1.1",
+    "tailwind-merge": "^3.0.0",
+    "vue-turnstile": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@angular/common": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vue": "^3.5.0"
+  },
+  "peerDependenciesMeta": {
+    "@angular/common": {
+      "optional": true
+    },
+    "@angular/core": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  }
+}

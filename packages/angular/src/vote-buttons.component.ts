@@ -1,5 +1,5 @@
 import { Component, computed, input, output } from '@angular/core'
-import type { Comment, VoteValue } from '@last-comments/client'
+import type { Comment, VoteValue } from '@lst97-oss/client'
 
 export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: true }
 

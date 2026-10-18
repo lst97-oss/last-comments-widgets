@@ -1,19 +1,21 @@
-# @last-comments/angular
+# @lst97-oss/last-comments-widgets/angular
+
+Internal workspace package (source in `packages/angular`) — not published on its own. Consumers import it from the published entry point `@lst97-oss/last-comments-widgets/angular`.
 
 Drop-in Angular 22 comment widget for [last-comments](https://github.com/lst97-oss/last-comments), with one self-contained Tailwind v4 + shadcn `base-nova` theme shared by every framework widget.
 
 ## Install
 
 ```bash
-npm install @last-comments/angular
+bun add @lst97-oss/last-comments-widgets
 ```
 
 ## Usage
 
 ```ts
 import { Component } from '@angular/core'
-import { LcCommentsComponent } from '@last-comments/angular'
-import '@last-comments/angular/styles.css'
+import { LcCommentsComponent } from '@lst97-oss/last-comments-widgets/angular'
+import '@lst97-oss/last-comments-widgets/angular/styles.css'
 
 @Component({
   imports: [LcCommentsComponent],

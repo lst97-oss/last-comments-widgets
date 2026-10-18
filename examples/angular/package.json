@@ -12,7 +12,7 @@
     "@angular/forms": "22.2.3",
     "@angular/platform-browser": "22.2.3",
     "@angular/platform-browser-dynamic": "22.2.3",
-    "@last-comments/angular": "workspace:*"
+    "@lst97-oss/last-comments-widgets": "workspace:*"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "22.2.3",

@@ -13,7 +13,7 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
-      external: ['vue', 'vue-turnstile', 'lucide-vue-next', '@last-comments/client', 'clsx', 'tailwind-merge'],
+      external: ['vue', 'vue-turnstile', 'lucide-vue-next', '@lst97-oss/client', 'clsx', 'tailwind-merge'],
     },
   },
 })

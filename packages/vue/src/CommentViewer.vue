@@ -8,7 +8,7 @@ import {
   loadThreadWindow,
   type ThreadNode,
   themeVarsToStyle,
-} from '@last-comments/client'
+} from '@lst97-oss/client'
 import { computed, ref, watch } from 'vue'
 import CommentError from './CommentError.vue'
 import CommentList from './CommentList.vue'

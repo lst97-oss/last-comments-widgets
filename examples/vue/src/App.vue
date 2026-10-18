@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Comments, CommentViewer } from '@last-comments/vue'
-import type { WidgetTheme } from '@last-comments/client'
-import '@last-comments/vue/styles.css'
+import { Comments, CommentViewer } from '@lst97-oss/last-comments-widgets/vue'
+import type { WidgetTheme } from '@lst97-oss/last-comments-widgets/client'
+import '@lst97-oss/last-comments-widgets/vue/styles.css'
 
 const site = ref('demo')
 const baseUrl = ref('http://localhost:3000')

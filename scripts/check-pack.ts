@@ -1,8 +1,9 @@
-// Pre-publish guard: proves the tarballs `changeset publish` would upload contain
-// every entry point the manifest advertises, plus the README/LICENSE npm shows on
-// the package page. Run after `bun run build`; a missing dist or a `files` mistake
-// fails here instead of shipping a broken package.
-const PUBLISHED = ['client', 'theme', 'react', 'vue', 'angular', 'vanilla']
+// Pre-publish guard: proves the tarball `changeset publish` would upload contains every
+// entry point the manifest advertises, plus the README/LICENSE npm shows on the package
+// page. Run after `bun run build`; a missing dist, a missing subpath or a `files` mistake
+// fails here instead of shipping a broken package. The six framework packages are private
+// workspace sources and are not packed.
+const PUBLISHED = ['last-comments-widgets']
 
 type Manifest = {
   name: string
@@ -80,4 +81,6 @@ if (problems.length > 0) {
   for (const problem of problems) console.error(`  - ${problem}`)
   process.exit(1)
 }
-console.log(`${PUBLISHED.length} tarballs ready (${Math.round(unpacked / 1024)} KiB unpacked)`)
+console.log(
+  `${PUBLISHED.length} tarball${PUBLISHED.length === 1 ? '' : 's'} ready (${Math.round(unpacked / 1024)} KiB unpacked)`,
+)

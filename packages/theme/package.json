@@ -1,6 +1,7 @@
 {
-  "name": "@last-comments/theme",
+  "name": "@lst97-oss/theme",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Shared Tailwind v4 + shadcn base-nova theme tokens for last-comments widgets.",
   "license": "MIT",

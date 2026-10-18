@@ -4,12 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>last-comments plain HTML demo</title>
-    <link rel="stylesheet" href="../../packages/vanilla/dist/styles.css" />
+    <!-- Hosted bundle of the published package; for a local build swap these two URLs for
+         ../../packages/last-comments-widgets/dist/vanilla/styles.css and .../index.js -->
+    <link rel="stylesheet" href="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/styles.css" />
     <script type="importmap">
       {
         "imports": {
-          "@last-comments/client": "../../packages/client/dist/index.js",
-          "marked": "../../packages/client/node_modules/marked/lib/marked.esm.js"
+          "marked": "https://unpkg.com/marked/lib/marked.esm.js"
         }
       }
     </script>
@@ -25,7 +26,7 @@
     </main>
     <script
       type="module"
-      src="../../packages/vanilla/dist/index.js"
+      src="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/index.js"
       data-lc-site="demo"
       data-lc-base-url="http://localhost:3000"
     ></script>

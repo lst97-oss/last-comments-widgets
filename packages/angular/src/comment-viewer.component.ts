@@ -20,7 +20,7 @@ import {
   type ThreadNode,
   themeVarsToStyle,
   type WidgetTheme,
-} from '@last-comments/client'
+} from '@lst97-oss/client'
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcCommentListComponent } from './comment-list.component'
 import type { Theme } from './types'

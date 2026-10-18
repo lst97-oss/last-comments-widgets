@@ -7,7 +7,7 @@
     "build": "bunx --bun vite build"
   },
   "dependencies": {
-    "@last-comments/vue": "workspace:*",
+    "@lst97-oss/last-comments-widgets": "workspace:*",
     "vue": "^3.5.0"
   },
   "devDependencies": {

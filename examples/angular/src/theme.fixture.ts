@@ -1,7 +1,7 @@
 import '@angular/compiler'
 import { Component, signal } from '@angular/core'
 import { bootstrapApplication } from '@angular/platform-browser'
-import { LcCommentsComponent, LcCommentViewerComponent } from '@last-comments/angular'
+import { LcCommentsComponent, LcCommentViewerComponent } from '@lst97-oss/last-comments-widgets/angular'
 import { branded, options } from '../../../scripts/fixtures/theme'
 
 // The browser fixture loads the published partial compilation output through JIT.

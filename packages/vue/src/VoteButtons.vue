@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Comment, VoteValue } from '@last-comments/client'
+import type { Comment, VoteValue } from '@lst97-oss/client'
 import { ArrowDown, ArrowUp } from 'lucide-vue-next'
 import { cn } from './lib/cn'
 import { toggleVoteValue } from './types'

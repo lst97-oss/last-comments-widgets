@@ -1,4 +1,4 @@
-// react-doctor suppressions for @last-comments/react.
+// react-doctor suppressions for @lst97-oss/react.
 // Cloned ui/** files are verbatim shadcn/Base-UI output — see reference
 // last-comments/doctor.config.ts for the same override.
 export default {

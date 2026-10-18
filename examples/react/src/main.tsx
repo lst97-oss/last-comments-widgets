@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Comments, CommentViewer } from '@last-comments/react'
-import type { WidgetTheme } from '@last-comments/client'
-import '@last-comments/react/styles.css'
+import { Comments, CommentViewer } from '@lst97-oss/last-comments-widgets/react'
+import type { WidgetTheme } from '@lst97-oss/last-comments-widgets/client'
+import '@lst97-oss/last-comments-widgets/react/styles.css'
 
 const THEME_PRESETS: Record<string, WidgetTheme> = {
   Default: {},

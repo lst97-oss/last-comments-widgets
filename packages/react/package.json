@@ -1,6 +1,7 @@
 {
-  "name": "@last-comments/react",
+  "name": "@lst97-oss/react",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Standard last-comments widget for React (shadcn base-nova + Tailwind v4).",
   "license": "MIT",
@@ -36,7 +37,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
-    "@last-comments/client": "^0.1.0",
+    "@lst97-oss/client": "workspace:*",
     "@marsidev/react-turnstile": "^1.6.2",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
@@ -47,7 +48,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@last-comments/theme": "^0.1.0",
+    "@lst97-oss/theme": "workspace:*",
     "@tailwindcss/cli": "4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

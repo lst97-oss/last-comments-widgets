@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { renderMarkdown } from '@last-comments/client'
+import { renderMarkdown } from '@lst97-oss/client'
 import { canShowEdit, toggleVoteValue } from './types'
 
 describe('toggleVoteValue', () => {

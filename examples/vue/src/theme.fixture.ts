@@ -1,4 +1,4 @@
-import { Comments, CommentViewer } from '@last-comments/vue'
+import { Comments, CommentViewer } from '@lst97-oss/last-comments-widgets/vue'
 import { createApp, h, ref } from 'vue'
 import { branded, options } from '../../../scripts/fixtures/theme'
 

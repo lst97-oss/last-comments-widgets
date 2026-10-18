@@ -2,9 +2,11 @@ import { Glob } from 'bun'
 
 const manifests = [...new Glob('packages/*/package.json').scanSync('.')].sort()
 // @last-comments/client first: the widgets import it from its built dist, so angular —
-// alphabetically first — cannot compile on a fresh checkout.
+// alphabetically first — cannot compile on a fresh checkout. The published package is
+// assembled from every other dist, so it builds last.
 const CLIENT = 'packages/client/package.json'
-const pkgs = [CLIENT, ...manifests.filter((manifest) => manifest !== CLIENT)]
+const PUBLISHED = 'packages/last-comments-widgets/package.json'
+const pkgs = [CLIENT, ...manifests.filter((manifest) => manifest !== CLIENT && manifest !== PUBLISHED), PUBLISHED]
 let failed = false
 for (const manifest of pkgs) {
   const dir = manifest.slice(0, -'/package.json'.length)

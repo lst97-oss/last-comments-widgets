@@ -1,44 +1,65 @@
-// Lockstep guard: the `fixed` changesets group keeps every published package on one
-// version, and the widgets' internal ranges must point at that exact version, so a
-// widget can never be installed with a @last-comments/client it cannot work with.
-const PUBLISHED = ['client', 'theme', 'react', 'vue', 'angular', 'vanilla']
+// Publish guard: exactly one package leaves this repo. The framework packages are private
+// workspace sources, so they reference each other with the workspace protocol (nothing is
+// versioned between unpublished packages) and the published manifest must not depend on
+// them at all — a consumer installs one package and nothing else.
+import { Glob } from 'bun'
+
+const PUBLISHED_NAME = '@lst97-oss/last-comments-widgets'
 
 type Manifest = {
   name: string
-  version: string
+  private?: boolean
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
 }
 
 const packages = await Promise.all(
-  PUBLISHED.map(async (dir) => ({
-    dir,
-    manifest: (await Bun.file(`packages/${dir}/package.json`).json()) as Manifest,
+  [...new Glob('packages/*/package.json').scanSync('.')].sort().map(async (path) => ({
+    path,
+    manifest: (await Bun.file(path).json()) as Manifest,
   })),
 )
 
-const versions = packages.map(({ manifest }) => manifest.version)
-const expected = `^${versions[0]}`
 const problems: string[] = []
-if (versions.some((version) => version !== versions[0])) {
+const published = packages.filter(({ manifest }) => !manifest.private)
+
+if (published.length !== 1) {
   problems.push(
-    `packages disagree on a version: ${packages.map(({ manifest }) => `${manifest.name}@${manifest.version}`).join(', ')}`,
+    `expected exactly one published package, found ${published.length} (${published.map((p) => p.manifest.name).join(', ')})`,
   )
+} else if (published[0].manifest.name !== PUBLISHED_NAME) {
+  problems.push(`expected ${PUBLISHED_NAME} to be the published package, found ${published[0].manifest.name}`)
 }
 
 for (const { manifest } of packages) {
-  for (const [dep, range] of Object.entries({ ...manifest.dependencies, ...manifest.devDependencies })) {
-    if (dep.startsWith('@last-comments/') && range !== expected) {
-      problems.push(`${manifest.name} depends on ${dep}@${range}, expected ${expected}`)
+  if (!manifest.private) continue
+  for (const [dep, range] of Object.entries({
+    ...manifest.dependencies,
+    ...manifest.devDependencies,
+    ...manifest.peerDependencies,
+  })) {
+    if (dep.startsWith('@lst97-oss/') && range !== 'workspace:*') {
+      problems.push(`${manifest.name} depends on ${dep}@${range}, expected workspace:* — it is never published`)
+    }
+  }
+}
+
+for (const { manifest } of published) {
+  for (const [dep, range] of Object.entries({ ...manifest.dependencies, ...manifest.peerDependencies })) {
+    if (dep.startsWith('@lst97-oss/')) {
+      problems.push(`${manifest.name} depends on ${dep}@${range}, but ${dep} is not published`)
     }
   }
 }
 
 if (problems.length > 0) {
-  console.error('lockstep check failed:')
+  console.error('publish check failed:')
   for (const problem of problems) console.error(`  - ${problem}`)
-  console.error('Bump versions with `bun run version` (changesets); never edit one manifest by hand.')
+  console.error(`Bump with \`bun run version\` (changesets); never edit the version by hand.`)
   process.exit(1)
 }
 
-console.log(`${packages.length} packages at ${versions[0]} with internal ranges at ${expected}`)
+console.log(
+  `${packages.length} packages in the workspace, ${PUBLISHED_NAME}@${published[0].manifest.version} is the only one published`,
+)

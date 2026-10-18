@@ -7,7 +7,7 @@ import {
   type ThreadNode,
   themeVarsToStyle,
   type ViewerOptions,
-} from '@last-comments/client'
+} from '@lst97-oss/client'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CommentError } from './CommentError'
 import { CommentItem } from './CommentItem'

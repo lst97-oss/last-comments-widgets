@@ -1,6 +1,7 @@
 {
-  "name": "@last-comments/client",
+  "name": "@lst97-oss/client",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Framework-agnostic API client for last-comments widgets.",
   "license": "MIT",

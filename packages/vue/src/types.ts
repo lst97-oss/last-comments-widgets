@@ -5,9 +5,9 @@ import {
   type ViewerRole,
   type VoteValue,
   type WidgetTheme,
-} from '@last-comments/client'
+} from '@lst97-oss/client'
 
-export { canModerate } from '@last-comments/client'
+export { canModerate } from '@lst97-oss/client'
 
 export type Theme = 'light' | 'dark' | 'system'
 

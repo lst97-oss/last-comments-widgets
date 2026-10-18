@@ -1,4 +1,4 @@
-export type { ThemeVars, WidgetTheme } from '@last-comments/client'
+export type { ThemeVars, WidgetTheme } from '@lst97-oss/client'
 
 import type {
   Comment,
@@ -12,7 +12,7 @@ import type {
   ViewerSession,
   VoteValue,
   WidgetTheme,
-} from '@last-comments/client'
+} from '@lst97-oss/client'
 import {
   ApiError,
   beginOAuthSignIn,
@@ -31,7 +31,7 @@ import {
   signOutViewerSession,
   THEME_CSS_VARIABLES,
   themeVarsToStyle,
-} from '@last-comments/client'
+} from '@lst97-oss/client'
 
 export type Theme = 'light' | 'dark' | 'system'
 

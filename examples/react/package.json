@@ -7,7 +7,7 @@
     "build": "bunx --bun vite build"
   },
   "dependencies": {
-    "@last-comments/react": "workspace:*",
+    "@lst97-oss/last-comments-widgets": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

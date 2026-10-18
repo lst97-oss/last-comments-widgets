@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildCommentTree, type Comment, renderMarkdown } from '@last-comments/client'
+import { buildCommentTree, type Comment, renderMarkdown } from '@lst97-oss/client'
 import {
   errorMarkup,
   escapeHtml,

@@ -1,4 +1,4 @@
-import { CommentItem, Comments, CommentsTheme, CommentViewer } from '@last-comments/react'
+import { CommentItem, Comments, CommentsTheme, CommentViewer } from '@lst97-oss/last-comments-widgets/react'
 import { useState } from 'react'
 import { createRoot, hydrateRoot } from 'react-dom/client'
 import { branded, options, sampleComment } from '../../../scripts/fixtures/theme'

@@ -1,6 +1,7 @@
 {
-  "name": "@last-comments/angular",
+  "name": "@lst97-oss/angular",
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "description": "Standard last-comments widget for Angular.",
   "license": "MIT",
@@ -22,14 +23,14 @@
   ],
   "exports": {
     ".": {
-      "types": "./dist/types/last-comments-angular.d.ts",
-      "import": "./dist/fesm2022/last-comments-angular.mjs",
-      "default": "./dist/fesm2022/last-comments-angular.mjs"
+      "types": "./dist/types/lst97-oss-angular.d.ts",
+      "import": "./dist/fesm2022/lst97-oss-angular.mjs",
+      "default": "./dist/fesm2022/lst97-oss-angular.mjs"
     },
     "./styles.css": "./dist/styles.css",
     "./package.json": "./package.json"
   },
-  "types": "./dist/types/last-comments-angular.d.ts",
+  "types": "./dist/types/lst97-oss-angular.d.ts",
   "files": [
     "dist"
   ],
@@ -47,7 +48,7 @@
     "typecheck": "bun --check"
   },
   "dependencies": {
-    "@last-comments/client": "^0.1.0"
+    "@lst97-oss/client": "workspace:*"
   },
   "peerDependencies": {
     "@angular/common": "^22.0.0",
@@ -58,7 +59,7 @@
     "@angular/compiler": "22.2.3",
     "@angular/compiler-cli": "22.2.3",
     "@angular/core": "22.2.3",
-    "@last-comments/theme": "^0.1.0",
+    "@lst97-oss/theme": "workspace:*",
     "@tailwindcss/cli": "4.3.3",
     "ng-packagr": "22.2.4",
     "rxjs": "^7.8.2",

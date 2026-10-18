@@ -1,4 +1,4 @@
-export type { ThemeVars, WidgetTheme } from '@last-comments/client'
+export type { ThemeVars, WidgetTheme } from '@lst97-oss/client'
 export { default as CommentForm } from './CommentForm.vue'
 export { default as CommentItem } from './CommentItem.vue'
 export { default as Comments } from './Comments.vue'

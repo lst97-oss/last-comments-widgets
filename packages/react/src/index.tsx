@@ -1,5 +1,5 @@
-export type { ThemeVars, WidgetTheme } from '@last-comments/client'
-export { canModerate } from '@last-comments/client'
+export type { ThemeVars, WidgetTheme } from '@lst97-oss/client'
+export { canModerate } from '@lst97-oss/client'
 export { CommentItem } from './CommentItem'
 export { Comments } from './Comments'
 export { CommentsTheme } from './CommentsTheme'

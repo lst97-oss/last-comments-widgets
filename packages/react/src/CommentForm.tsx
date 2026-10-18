@@ -1,4 +1,4 @@
-import { type ErrorInfo, renderMarkdown } from '@last-comments/client'
+import { type ErrorInfo, renderMarkdown } from '@lst97-oss/client'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-react'
 import { type ReactNode, useRef, useState } from 'react'
