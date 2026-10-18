@@ -1,0 +1,42 @@
+{
+  "name": "@last-comments/client",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Framework-agnostic API client for last-comments widgets.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/lst97-oss/last-comments-widgets.git", "directory": "packages/client" },
+  "homepage": "https://github.com/lst97-oss/last-comments-widgets#readme",
+  "bugs": { "url": "https://github.com/lst97-oss/last-comments-widgets/issues" },
+  "keywords": ["comments", "comment-system", "api-client", "last-comments"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "bun run typecheck && bun run lint && bun run format:check",
+    "build": "bunx tsup src/index.ts --format esm --clean --dts --out-dir dist",
+    "lint": "biome check --error-on-warnings .",
+    "lint:fix": "biome check --error-on-warnings --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "typecheck": "bun --check"
+  },
+  "dependencies": {
+    "marked": "^18.1.1"
+  },
+  "devDependencies": {
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
+  }
+}
