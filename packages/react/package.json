@@ -1,0 +1,60 @@
+{
+  "name": "@last-comments/react",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Standard last-comments widget for React (shadcn base-nova + Tailwind v4).",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/lst97-oss/last-comments-widgets.git", "directory": "packages/react" },
+  "homepage": "https://github.com/lst97-oss/last-comments-widgets#readme",
+  "bugs": { "url": "https://github.com/lst97-oss/last-comments-widgets/issues" },
+  "keywords": ["comments", "comment-system", "react", "tailwindcss", "shadcn", "last-comments"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./styles.css": "./dist/styles.css",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check": "bun run typecheck && bun run lint && bun run format:check && react-doctor .",
+    "lint": "biome check --error-on-warnings .",
+    "build": "bunx tsup src/index.tsx --format esm --clean --dts --out-dir dist --external react --external react-dom && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
+    "test": "bun test",
+    "lint:fix": "biome check --error-on-warnings --write .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "typecheck": "bun --check"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.9.0",
+    "@last-comments/client": "^0.1.0",
+    "@marsidev/react-turnstile": "^1.6.2",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.4.0",
+    "lucide-react": "^1.55.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@last-comments/theme": "^0.1.0",
+    "@tailwindcss/cli": "4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "4.3.3",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
+  }
+}
