@@ -1,11 +1,17 @@
-import { type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
+import { DEFAULT_BODY_LIMIT, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-react'
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useId, useRef, useState } from 'react'
 import { CommentError } from './CommentError'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Textarea } from './ui/textarea'
+
+export type CommentFormInput = {
+  authorName: string
+  bodyMarkdown: string
+  verificationToken: string | undefined
+}
 
 type CommentFormProps = {
   siteKey: string | undefined
@@ -13,6 +19,8 @@ type CommentFormProps = {
   parentId: string | null
   pending: boolean
   error: ErrorInfo | null
+  // Max body characters, counted before trimming to match the server routes.
+  bodyLimit?: number
   // Sign-in route for errors whose action is `sign-in` (post/reply only).
   onSignIn?: () => void
   signInHref?: string
@@ -23,7 +31,7 @@ type CommentFormProps = {
   identity?: ReactNode
   // Return `false` when the send failed: the form keeps the draft for a retry.
   // Anything else (including nothing) clears it.
-  onSubmit: (input: { authorName: string; bodyMarkdown: string; verificationToken: string | undefined }) => unknown
+  onSubmit: (input: CommentFormInput) => unknown
   onCancelReply?: () => void
 }
 
@@ -97,6 +105,7 @@ export function CommentForm({
   parentId,
   pending,
   error,
+  bodyLimit = DEFAULT_BODY_LIMIT,
   onSignIn,
   signInHref,
   initialBody = '',
@@ -112,6 +121,7 @@ export function CommentForm({
   const [preview, setPreview] = useState(false)
   const turnstileRef = useRef<TurnstileInstance>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const counterId = useId()
 
   function insert(before: string, after: string, placeholder = 'text') {
     const el = bodyRef.current
@@ -146,25 +156,27 @@ export function CommentForm({
     })
   }
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault()
+  const bodyTooLong = body.length > bodyLimit
+
+  // Form Action: the fields are controlled, so the action reads state rather
+  // than FormData; the reset lives here for the forms that stay mounted.
+  async function submitAction() {
+    // The submit button is already disabled; keep the guard so a stale render can
+    // never post a body the server would reject with a validation error.
+    if (bodyTooLong) return
     const result = await onSubmit({
       authorName: guest ? authorName.trim() || 'Anonymous' : authorName,
       bodyMarkdown: body,
       verificationToken: token,
     })
-    // `false` = the send failed: keep the draft so it can be retried.
+    // `false` = the send failed: keep the draft so it can be retried. The head
+    // composer remounts on success (key epoch); the edit/reply slots unmount.
     if (result === false) return
-    setBody('')
-    setToken(undefined)
-    setPreview(false)
     turnstileRef.current?.reset()
   }
 
-  const bodyTooLong = body.trim().length > 10_000
-
   return (
-    <form onSubmit={handleSubmit} className="lc-composer rounded-xl border border-border bg-muted/60 p-3">
+    <form action={submitAction} className="lc-composer rounded-xl border border-border p-3">
       {parentId && (
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>Replying to this comment</span>
@@ -193,9 +205,16 @@ export function CommentForm({
           rows={4}
           required
           aria-label={parentId ? 'Reply body' : 'Comment body'}
+          aria-describedby={counterId}
+          aria-invalid={bodyTooLong || undefined}
           className="border-0 bg-transparent px-1 focus-visible:ring-0"
         />
       )}
+      {/* Counts what the author typed: the server caps the same raw length. */}
+      <p id={counterId} data-lc-char-count="" className="mt-1 text-right text-xs text-muted-foreground tabular-nums">
+        <span className={bodyTooLong ? 'text-destructive' : undefined}>{body.length.toLocaleString()}</span>
+        {` / ${bodyLimit.toLocaleString()}`}
+      </p>
       {guest && siteKey && (
         <Turnstile
           ref={turnstileRef}

@@ -1,4 +1,4 @@
-import { Component, computed, effect, input, output, signal } from '@angular/core'
+import { Component, computed, input, linkedSignal, output } from '@angular/core'
 import {
   type Comment,
   DEFAULT_EDIT_WINDOW_MINUTES,
@@ -30,43 +30,43 @@ function initials(name: string): string {
   standalone: true,
   imports: [LcVoteButtonsComponent, LcCommentFormComponent],
   template: `
-    <article class="lc-comment" [class]="depth() > 0 ? 'lc-reply ml-6 border-l border-border pl-4' : ''">
+    @let c = comment().comment;
+    <!-- Static class and [class] merge; lc-comment is never replaced. -->
+    <article class="lc-comment" [class]="depth() > 0 ? 'lc-reply ml-6 border-l border-border' : ''">
       <div class="flex flex-wrap items-center gap-2">
         @if (avatarUrl(); as avatarSrc) {
           <img
             [src]="avatarSrc"
-            [alt]="comment().comment.authorName"
+            [alt]="c.authorName"
             referrerpolicy="no-referrer"
             loading="lazy"
             decoding="async"
-            class="h-8 w-8 rounded-full object-cover"
+            class="lc-avatar h-8 w-8 rounded-full object-cover"
           />
         } @else {
           <span
-            class="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground"
+            class="lc-avatar flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground"
             >{{ initialsLabel() }}</span
           >
         }
-        <span class="min-w-0 font-medium break-words">{{ comment().comment.authorName }}</span>
-        <time [attr.dateTime]="comment().comment.createdAt" class="text-xs text-muted-foreground">{{
-          dateLabel()
-        }}</time>
-        @if (comment().comment.editedAt) {
+        <span class="min-w-0 font-medium break-words">{{ c.authorName }}</span>
+        <time [attr.dateTime]="c.createdAt" class="text-xs text-muted-foreground">{{ dateLabel() }}</time>
+        @if (c.editedAt) {
           <span class="text-xs text-muted-foreground">edited</span>
         }
-        @if (comment().comment.pinnedAt) {
+        @if (c.pinnedAt) {
           <span class="text-xs text-muted-foreground">pinned</span>
         }
-        @if (comment().comment.status === 'hidden') {
+        @if (c.status === 'hidden') {
           <span class="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">hidden</span>
         }
-        @if (comment().comment.status === 'deleted') {
+        @if (c.status === 'deleted') {
           <span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">deleted</span>
         }
-        @if (!hideVotes()) {
+        @if (!votesHidden()) {
           <span class="ml-auto">
             @if (readOnly()) {
-              <span class="text-sm text-muted-foreground">{{ comment().comment.score }}</span>
+              <span class="text-sm text-muted-foreground">{{ c.score }}</span>
             } @else {
               <lc-vote-buttons [comment]="comment().comment" (vote)="vote.emit($event)" />
             }
@@ -77,7 +77,7 @@ function initials(name: string): string {
         <div class="my-3">
           <lc-comment-form
             [guest]="false"
-            [initialBody]="comment().comment.bodyMarkdown"
+            [initialBody]="c.bodyMarkdown"
             submitLabel="Save"
             [submitting]="editSaving()"
             [showCancel]="true"
@@ -87,10 +87,7 @@ function initials(name: string): string {
           />
         </div>
       } @else {
-        <div
-          class="lc-markdown my-3 font-sans text-sm"
-          [innerHTML]="renderMarkdown(comment().comment.bodyMarkdown)"
-        ></div>
+        <div class="lc-markdown my-3 font-sans text-sm" [innerHTML]="bodyHtml()"></div>
       }
       @if (!readOnly()) {
         <div class="flex flex-wrap items-center gap-3 text-sm">
@@ -99,22 +96,22 @@ function initials(name: string): string {
               type="button"
               (click)="replying.set(!replying())"
               [attr.aria-expanded]="replying()"
-              class="font-medium text-primary underline-offset-4 hover:underline"
+              class="lc-action font-medium underline-offset-4 hover:underline"
             >
               Reply
             </button>
           }
           @if (canEdit() && !editing()) {
-            <button
-              type="button"
-              (click)="editing.set(true)"
-              class="text-muted-foreground underline-offset-4 hover:underline"
-            >
+            <button type="button" (click)="editing.set(true)" class="lc-action underline-offset-4 hover:underline">
               Edit
             </button>
           }
           @if (own() && !viewerRole() && !editing()) {
-            <button type="button" (click)="onDelete()" class="text-muted-foreground underline-offset-4 hover:underline">
+            <button
+              type="button"
+              (click)="onDelete()"
+              class="lc-action lc-action-destructive underline-offset-4 hover:underline"
+            >
               Delete
             </button>
           }
@@ -122,47 +119,47 @@ function initials(name: string): string {
       }
       @if (viewerRole() && !readOnly()) {
         <div class="mt-2 flex flex-wrap items-center gap-3 text-sm">
-          @if (comment().comment.status === 'visible') {
+          @if (c.status === 'visible') {
             <button
               type="button"
               [disabled]="moderationPending()"
-              (click)="moderate.emit({ comment: comment().comment, action: 'hide' })"
+              (click)="moderate.emit({ comment: c, action: 'hide' })"
               class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
             >
               Hide
             </button>
           }
-          @if (comment().comment.status !== 'visible') {
+          @if (c.status !== 'visible') {
             <button
               type="button"
               [disabled]="moderationPending()"
-              (click)="moderate.emit({ comment: comment().comment, action: 'restore' })"
+              (click)="moderate.emit({ comment: c, action: 'restore' })"
               class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
             >
               Restore
             </button>
           }
-          @if (comment().comment.status === 'visible' && comment().comment.pinnedAt) {
+          @if (c.status === 'visible' && c.pinnedAt) {
             <button
               type="button"
               [disabled]="moderationPending()"
-              (click)="moderate.emit({ comment: comment().comment, action: 'unpin' })"
+              (click)="moderate.emit({ comment: c, action: 'unpin' })"
               class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
             >
               Unpin
             </button>
           }
-          @if (comment().comment.status === 'visible' && !comment().comment.pinnedAt) {
+          @if (c.status === 'visible' && !c.pinnedAt) {
             <button
               type="button"
               [disabled]="moderationPending()"
-              (click)="moderate.emit({ comment: comment().comment, action: 'pin' })"
+              (click)="moderate.emit({ comment: c, action: 'pin' })"
               class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
             >
               Pin
             </button>
           }
-          @if (comment().comment.status !== 'deleted') {
+          @if (c.status !== 'deleted') {
             <button
               type="button"
               [disabled]="moderationPending()"
@@ -172,14 +169,14 @@ function initials(name: string): string {
               Delete
             </button>
           }
-          @if (comment().comment.userId) {
+          @if (c.userId) {
             <button
               type="button"
               [disabled]="moderationPending()"
-              (click)="blockUser.emit({ comment: comment().comment, blocked: !comment().comment.userBlocked })"
+              (click)="blockUser.emit({ comment: c, blocked: !c.userBlocked })"
               class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
             >
-              {{ comment().comment.userBlocked ? 'Unblock user' : 'Block user' }}
+              {{ c.userBlocked ? 'Unblock user' : 'Block user' }}
             </button>
           }
         </div>
@@ -190,10 +187,10 @@ function initials(name: string): string {
             #replyForm
             [guest]="guest()"
             [turnstileSiteKey]="turnstileSiteKey()"
-            [parentId]="comment().comment.id"
+            [parentId]="c.id"
             [submitting]="replySubmitting()"
             [error]="replyError()"
-            (submitted)="reply.emit({ parentId: comment().comment.id, submit: $event })"
+            (submitted)="reply.emit({ parentId: c.id, submit: $event })"
             (signIn)="signIn.emit()"
             (cancelReply)="replying.set(false)"
           />
@@ -251,22 +248,14 @@ export class LcCommentItemComponent {
   moderate = output<{ comment: Comment; action: ModerationAction }>()
   blockUser = output<{ comment: Comment; blocked: boolean }>()
   signIn = output<void>()
-  replying = signal(false)
-  editing = signal(false)
-
-  constructor() {
-    effect(() => {
-      // Every thread mutation hands this item a fresh node: reset draft state.
-      // That is also what closes the editor after a successful save, so a failed
-      // save (no mutation) leaves the editor and its draft open.
-      this.comment()
-      this.replying.set(false)
-      this.editing.set(false)
-    })
-  }
+  // Every thread mutation hands this item a fresh node: reset draft state.
+  // That is also what closes the editor after a successful save, so a failed
+  // save (no mutation) leaves the editor and its draft open.
+  replying = linkedSignal({ source: () => this.comment(), computation: () => false })
+  editing = linkedSignal({ source: () => this.comment(), computation: () => false })
 
   // Sanitization happened in the shared renderer; no bypass call needed.
-  readonly renderMarkdown = renderMarkdown
+  readonly bodyHtml = computed(() => renderMarkdown(this.comment().comment.bodyMarkdown))
   readonly initialsLabel = computed(() => initials(this.comment().comment.authorName))
   readonly avatarUrl = computed(() => safeUrl(this.comment().comment.avatarUrl))
 
@@ -281,9 +270,13 @@ export class LcCommentItemComponent {
   )
   readonly moderationPending = computed(() => this.pendingModeration()[this.comment().comment.id] ?? false)
   readonly canReplyHere = computed(() => !(this.viewerRole() && this.comment().comment.status !== 'visible'))
+  // Voting needs a visible comment: the endpoint rejects the rest.
+  readonly votesHidden = computed(
+    () => this.hideVotes() || (this.viewerRole() !== undefined && this.comment().comment.status !== 'visible'),
+  )
 
   // Stays open on a failed save: the widget's success path rebuilds the thread,
-  // which resets this item's draft state (see the constructor effect).
+  // which resets this item's draft state.
   onEditSubmit(submit: CommentSubmit): void {
     this.edited.emit({ id: this.comment().comment.id, submit })
   }

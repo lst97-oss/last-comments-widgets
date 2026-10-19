@@ -1,13 +1,12 @@
-import { CommonModule } from '@angular/common'
 import {
-  type AfterViewInit,
+  afterNextRender,
   Component,
   computed,
+  DestroyRef,
   ElementRef,
   effect,
   inject,
   input,
-  type OnDestroy,
   signal,
 } from '@angular/core'
 import {
@@ -22,8 +21,11 @@ import {
   type WidgetTheme,
 } from '@last-comments-widgets/client'
 import { LcCommentErrorComponent } from './comment-error.component'
+import { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 import { LcCommentListComponent } from './comment-list.component'
-import type { Theme } from './types'
+import { observeInView } from './observe-in-view'
+import { prefersDark, subscribeSystemTheme } from './theme-media'
+import { type Theme, resolvePageUrl } from './types'
 
 type Status = 'loading' | 'ready' | 'error'
 
@@ -31,31 +33,11 @@ type Status = 'loading' | 'ready' | 'error'
 @Component({
   selector: 'lc-comment-viewer',
   standalone: true,
-  imports: [CommonModule, LcCommentListComponent, LcCommentErrorComponent],
+  imports: [LcCommentListComponent, LcCommentErrorComponent, LcCommentSkeletonsComponent],
   template: `
-    <section class="lc-comments grid gap-4" [class.dark]="dark()" [ngStyle]="themeStyle()" aria-label="Comments">
+    <section class="lc-comments grid gap-4" [class.dark]="dark()" [style]="themeStyle()" aria-label="Comments">
       @if (status() === 'loading') {
-        <div role="status" aria-busy="true" class="grid gap-3">
-          <span class="sr-only">Loading comments…</span>
-          <div class="grid gap-3" aria-hidden="true">
-            @for (card of skeletonCards; track card) {
-              <div class="rounded-lg border border-border p-4">
-                <div class="flex items-center gap-3">
-                  <div class="h-8 w-8 shrink-0 animate-pulse rounded-full bg-muted"></div>
-                  <div class="h-4 w-32 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 space-y-2">
-                  <div class="h-4 w-full animate-pulse rounded bg-muted"></div>
-                  <div class="h-4 w-4/5 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 flex gap-2">
-                  <div class="h-6 w-16 animate-pulse rounded bg-muted"></div>
-                  <div class="h-6 w-20 animate-pulse rounded bg-muted"></div>
-                </div>
-              </div>
-            }
-          </div>
-        </div>
+        <lc-comment-skeletons [count]="3" />
       }
       @if (error(); as failure) {
         <lc-comment-error [info]="failure" (retry)="load()" (signIn)="signInFromError()" />
@@ -67,27 +49,7 @@ type Status = 'loading' | 'ready' | 'error'
         <lc-comment-list [nodes]="pageRoots()" [readOnly]="true" />
       }
       @if (loadingPage()) {
-        <div role="status" aria-busy="true" class="grid gap-3">
-          <span class="sr-only">Loading comments…</span>
-          <div class="grid gap-3" aria-hidden="true">
-            @for (card of pageSkeletonCards; track card) {
-              <div class="rounded-lg border border-border p-4">
-                <div class="flex items-center gap-3">
-                  <div class="h-8 w-8 shrink-0 animate-pulse rounded-full bg-muted"></div>
-                  <div class="h-4 w-32 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 space-y-2">
-                  <div class="h-4 w-full animate-pulse rounded bg-muted"></div>
-                  <div class="h-4 w-4/5 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 flex gap-2">
-                  <div class="h-6 w-16 animate-pulse rounded bg-muted"></div>
-                  <div class="h-6 w-20 animate-pulse rounded bg-muted"></div>
-                </div>
-              </div>
-            }
-          </div>
-        </div>
+        <lc-comment-skeletons [count]="2" />
       }
       @if (page() > 1 || hasMore() || tree().length > pageSize()) {
         <nav aria-label="Comments pagination" class="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -116,7 +78,7 @@ type Status = 'loading' | 'ready' | 'error'
     </section>
   `,
 })
-export class LcCommentViewerComponent implements AfterViewInit, OnDestroy {
+export class LcCommentViewerComponent {
   site = input.required<string>()
   baseUrl = input.required<string>()
   pageUrl = input<string | undefined>(undefined)
@@ -126,7 +88,8 @@ export class LcCommentViewerComponent implements AfterViewInit, OnDestroy {
   fetchImpl = input<typeof fetch | undefined>(undefined)
   lazy = input(false)
 
-  dark = signal(false)
+  readonly systemDark = prefersDark()
+  dark = computed(() => (this.theme() === 'dark' ? true : this.theme() === 'light' ? false : this.systemDark()))
   themeStyle = computed<Record<string, string>>(() => themeVarsToStyle(this.themeVars(), this.dark()))
   comments = signal<Comment[]>([])
   tree = computed<ThreadNode[]>(() => buildCommentTree(this.comments()))
@@ -141,31 +104,18 @@ export class LcCommentViewerComponent implements AfterViewInit, OnDestroy {
   hasNext = computed(() => this.tree().length > this.page() * this.pageSize() || this.hasMore())
   status = signal<Status>('loading')
   error = signal<ErrorInfo | null>(null)
-  // Skeleton card counts: 3 for the initial load, 2 for an in-flight page fetch.
-  readonly skeletonCards = [0, 1, 2]
-  readonly pageSkeletonCards = [0, 1]
 
   #host = inject<ElementRef<HTMLElement>>(ElementRef)
-  #observer: IntersectionObserver | null = null
+  #destroyRef = inject(DestroyRef)
   #visible = signal(false)
-  #media: MediaQueryList | null = null
-  #mediaListener: ((event: MediaQueryListEvent) => void) | null = null
+  // Load generation: a response from an older load never commits.
+  #seq = 0
 
   constructor() {
-    effect(() => {
-      const mode = this.theme()
-      if (this.#media && this.#mediaListener) this.#media.removeEventListener('change', this.#mediaListener)
-      this.#media = null
-      this.#mediaListener = null
-      if (mode !== 'system' || typeof window === 'undefined') {
-        this.dark.set(mode === 'dark')
-        return
-      }
-      const query = window.matchMedia('(prefers-color-scheme: dark)')
-      this.#media = query
-      this.dark.set(query.matches)
-      this.#mediaListener = (event: MediaQueryListEvent) => this.dark.set(event.matches)
-      query.addEventListener('change', this.#mediaListener)
+    // The media query is a shared singleton; only system-themed instances join it.
+    effect((onCleanup) => {
+      if (this.theme() !== 'system') return
+      onCleanup(subscribeSystemTheme())
     })
     effect(() => {
       this.site()
@@ -175,38 +125,25 @@ export class LcCommentViewerComponent implements AfterViewInit, OnDestroy {
       if (this.lazy() && !this.#visible()) return
       void this.load()
     })
-  }
-
-  // Below-the-fold embeds defer the first request until the root is near the
-  // viewport; no IntersectionObserver (SSR/test) loads immediately.
-  ngAfterViewInit(): void {
-    if (!this.lazy() || typeof IntersectionObserver === 'undefined') {
-      this.#visible.set(true)
-      return
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return
-        observer.disconnect()
-        this.#observer = null
-        this.#visible.set(true)
-      },
-      { rootMargin: '200px' },
-    )
-    this.#observer = observer
-    observer.observe(this.#host.nativeElement)
-  }
-
-  ngOnDestroy(): void {
-    this.#observer?.disconnect()
-    if (this.#media && this.#mediaListener) this.#media.removeEventListener('change', this.#mediaListener)
+    // Below-the-fold embeds defer the first request until the root is near the
+    // viewport; no IntersectionObserver (SSR/test) loads immediately.
+    afterNextRender(() => {
+      const cleanup = observeInView(
+        this.#host.nativeElement,
+        this.lazy(),
+        typeof IntersectionObserver === 'undefined' ? undefined : IntersectionObserver,
+        () => this.#visible.set(true),
+      )
+      if (cleanup) this.#destroyRef.onDestroy(cleanup)
+    })
   }
 
   url(): string {
-    return this.pageUrl() ?? window.location.href
+    return resolvePageUrl(this.pageUrl())
   }
 
   async load(): Promise<void> {
+    const seq = ++this.#seq
     this.status.set('loading')
     this.error.set(null)
     this.page.set(1)
@@ -221,16 +158,19 @@ export class LcCommentViewerComponent implements AfterViewInit, OnDestroy {
         fetchImpl: this.fetchImpl(),
         pages: 1,
       })
+      if (seq !== this.#seq) return
       this.comments.set(window.comments)
       this.hasMore.set(window.hasMore)
       this.status.set('ready')
     } catch (err) {
+      if (seq !== this.#seq) return
       this.error.set(describeError(err))
       this.status.set('error')
     }
   }
 
   async nextPage(): Promise<void> {
+    const seq = ++this.#seq
     const limit = this.pageSize()
     const page = this.page()
     // Cache hit: the next root window is already loaded.
@@ -250,10 +190,12 @@ export class LcCommentViewerComponent implements AfterViewInit, OnDestroy {
         pages: page + 1,
         existing: this.comments(),
       })
+      if (seq !== this.#seq) return
       this.comments.set(window.comments)
       this.hasMore.set(window.hasMore)
       this.page.set(page + 1)
     } catch (err) {
+      if (seq !== this.#seq) return
       this.error.set(describeError(err))
       this.status.set('error')
     } finally {

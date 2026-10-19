@@ -21,6 +21,11 @@ export type Comment = {
   editedAt: string | null
   score: number
   viewerVote: VoteValue | null
+  // Site role of the author when the server resolved one; null for guests and
+  // signed-in users without a membership on this site.
+  authorRole: ViewerRole | null
+  // Returned once by POST /api/comments for guest authors; list endpoints omit it.
+  editKey?: string
   // Present only on moderation-sourced comments (GET /api/moderation); the public endpoints never send it.
   userBlocked?: boolean
 }
@@ -52,6 +57,11 @@ export type ModerationComment = {
   pageUrl: string
   pageLocked: boolean
   userBlocked: boolean
+  // Vote state for the requesting moderator.
+  score: number
+  viewerVote: VoteValue | null
+  // Site role of the author, mirroring the public comment wire field.
+  authorRole: ViewerRole | null
 }
 
 // Wire shape of the server's ModerationPageSummary.
@@ -132,10 +142,24 @@ export type PostInput = {
   anonymous?: boolean
 }
 
-export type EditInput = { commentId: string; bodyMarkdown: string }
+export type EditInput = { commentId: string; bodyMarkdown: string; editKey?: string }
 
 export type ListModerationInput = { pageId?: string; limit?: number; offset?: number }
 export type ModerateCommentInput = { commentId: string; action: ModerationAction }
+// Moderator composer input: the thread is addressed by page id, and the
+// session (not an origin allow-list or Turnstile) is the verification.
+export type CreateModerationCommentInput = {
+  pageId: string
+  bodyMarkdown: string
+  parentId?: string
+  // Moderators may post anonymously from the dashboard; the server then stores
+  // a guest row (userId null) and returns a guest edit key.
+  anonymous?: boolean
+  authorName?: string
+}
+export type EditModerationCommentInput = { commentId: string; bodyMarkdown: string }
+// `value: null` clears the moderator's vote (a second click on the same arrow).
+export type ModerationVoteInput = { commentId: string; value: VoteValue | null }
 
 // Mirrors server normalizePageUrl (domain/comment.ts): absolute http(s),
 // no userinfo, hash stripped, host lowercased.
@@ -236,6 +260,9 @@ export type LastCommentsClient = {
   editOwnComment: (input: EditInput) => Promise<Comment>
   deleteOwnComment: (commentId: string) => Promise<Comment>
   listModeration: (input: ListModerationInput) => Promise<ModerationOverview>
+  createModerationComment: (input: CreateModerationCommentInput) => Promise<Comment>
+  editModerationComment: (input: EditModerationCommentInput) => Promise<Comment>
+  setModerationVote: (input: ModerationVoteInput) => Promise<VoteSummary>
   moderateComment: (input: ModerateCommentInput) => Promise<ModerationCommentPatch>
   setPageLocked: (input: { pageId: string; locked: boolean }) => Promise<ModerationPageState>
   setUserBlocked: (input: { userId: string; blocked: boolean }) => Promise<{ userId: string; blocked: boolean }>
@@ -302,7 +329,11 @@ export function createClient(options: ClientOptions): LastCommentsClient {
       method: 'PATCH',
       credentials: 'include',
       headers: jsonHeaders,
-      body: JSON.stringify({ site, bodyMarkdown: input.bodyMarkdown }),
+      body: JSON.stringify({
+        site,
+        bodyMarkdown: input.bodyMarkdown,
+        ...(input.editKey !== undefined ? { editKey: input.editKey } : {}),
+      }),
     })
     const data = await readEnvelope<{ comment: Comment }>(res)
     return data.comment
@@ -328,6 +359,59 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     if (input.offset !== undefined) params.set('offset', String(input.offset))
     const res = await fetchImpl(`${base}/api/moderation?${params}`, { credentials: 'include' })
     return readEnvelope<ModerationOverview>(res)
+  }
+
+  // Moderator posting: the dashboard composer must reach the moderation
+  // endpoint, because the public create path rejects origins the site does not
+  // allow (and still asks guests for verification).
+  async function createModerationComment(input: CreateModerationCommentInput): Promise<Comment> {
+    const res = await fetchImpl(`${base}/api/moderation`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        site,
+        target: 'comment-create',
+        pageId: input.pageId,
+        ...(input.parentId === undefined ? {} : { parentId: input.parentId }),
+        ...(input.anonymous === undefined ? {} : { anonymous: input.anonymous }),
+        ...(input.authorName === undefined ? {} : { authorName: input.authorName }),
+        bodyMarkdown: input.bodyMarkdown,
+      }),
+    })
+    const data = await readEnvelope<{ comment: Comment }>(res)
+    return data.comment
+  }
+
+  // Same story as create: a moderator editing their own comment from a
+  // dashboard cannot pass the site's origin allow-list.
+  async function editModerationComment(input: EditModerationCommentInput): Promise<Comment> {
+    const res = await fetchImpl(`${base}/api/moderation`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: jsonHeaders,
+      body: JSON.stringify({
+        site,
+        target: 'comment-edit',
+        commentId: input.commentId,
+        bodyMarkdown: input.bodyMarkdown,
+      }),
+    })
+    const data = await readEnvelope<{ comment: Comment }>(res)
+    return data.comment
+  }
+
+  // Voting from a dashboard: the public vote route is origin-gated, so
+  // moderator votes ride the same endpoint as the other moderation actions.
+  async function setModerationVote(input: ModerationVoteInput): Promise<VoteSummary> {
+    const res = await fetchImpl(`${base}/api/moderation`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: jsonHeaders,
+      body: JSON.stringify({ site, target: 'vote', commentId: input.commentId, value: input.value }),
+    })
+    const data = await readEnvelope<{ vote: VoteSummary }>(res)
+    return data.vote
   }
 
   async function moderateComment(input: ModerateCommentInput): Promise<ModerationCommentPatch> {
@@ -373,6 +457,9 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     editOwnComment,
     deleteOwnComment,
     listModeration,
+    createModerationComment,
+    editModerationComment,
+    setModerationVote,
     moderateComment,
     setPageLocked,
     setUserBlocked,
@@ -420,19 +507,101 @@ export function renderMarkdown(source: string): string {
 }
 
 export const DEFAULT_EDIT_WINDOW_MINUTES = 5
+export const DEFAULT_ANON_EDIT_WINDOW_MINUTES = 10
+// Comment bodies are capped at this many characters (counted before trimming).
+// Hosts whose server enforces a different number pass it to the widget.
+export const DEFAULT_BODY_LIMIT = 10_000
+// Returned by resolveEditWindow for anyone who does not own the comment.
+export const EDIT_WINDOW_CLOSED = -1
 
-// Mirror of the server edit window (COMMENT_EDIT_WINDOW_MINUTES).
-// Invalid dates fail closed so widgets never show an Edit button the
-// server will reject. windowMinutes <= 0 means unlimited.
+// Mirror of the server edit windows. Invalid dates fail closed so widgets
+// never show an Edit button the server will reject.
+// null = unlimited; 0 = unlimited (legacy API); negative = always closed.
 export function isEditWindowOpen(
   createdAtIso: string,
   nowMs: number = Date.now(),
-  windowMinutes: number = DEFAULT_EDIT_WINDOW_MINUTES,
+  windowMinutes: number | null = DEFAULT_EDIT_WINDOW_MINUTES,
 ): boolean {
-  if (windowMinutes <= 0) return true
+  if (windowMinutes === null || windowMinutes === 0) return true
+  if (windowMinutes < 0) return false
   const createdMs = Date.parse(createdAtIso)
   if (Number.isNaN(createdMs)) return false
   return nowMs - createdMs <= windowMinutes * 60_000
+}
+
+// Signed-in authors edit any time. Guest-authored comments are owned by
+// whoever holds the key issued when they were created, inside the anonymous
+// window supplied by the host.
+export function resolveEditWindow(input: {
+  commentUserId?: string | null
+  viewerUserId?: string | null
+  anonymousWindowMinutes?: number
+  hasEditKey?: boolean
+}): number | null {
+  const {
+    commentUserId,
+    viewerUserId,
+    anonymousWindowMinutes = DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+    hasEditKey = false,
+  } = input
+  if (commentUserId) return viewerUserId && commentUserId === viewerUserId ? null : EDIT_WINDOW_CLOSED
+  return hasEditKey ? anonymousWindowMinutes : EDIT_WINDOW_CLOSED
+}
+
+export type ThreadSort = 'newest' | 'oldest' | 'best'
+
+// Pinned rows lead every level; `best` ranks by net score, then newest.
+function compareThreadNodes(a: ThreadNode, b: ThreadNode, direction: ThreadSort): number {
+  const pinnedA = a.comment.pinnedAt !== null
+  const pinnedB = b.comment.pinnedAt !== null
+  if (pinnedA !== pinnedB) return pinnedA ? -1 : 1
+  if (direction === 'best') {
+    const byScore = b.comment.score - a.comment.score
+    if (byScore !== 0) return byScore
+    const byNewest = Date.parse(b.comment.createdAt) - Date.parse(a.comment.createdAt)
+    if (byNewest !== 0) return byNewest
+    return a.comment.id < b.comment.id ? -1 : 1
+  }
+  const sign = direction === 'newest' ? -1 : 1
+  const byCreated = (Date.parse(a.comment.createdAt) - Date.parse(b.comment.createdAt)) * sign
+  if (byCreated !== 0) return byCreated
+  return (a.comment.id < b.comment.id ? -1 : 1) * sign
+}
+
+// Every level sorts independently, so a pinned reply tops its own group.
+export function sortThreadTree(nodes: ThreadNode[], direction: ThreadSort): ThreadNode[] {
+  return [...nodes]
+    .sort((a, b) => compareThreadNodes(a, b, direction))
+    .map((node) => ({ comment: node.comment, children: sortThreadTree(node.children, direction) }))
+}
+
+// Public entry point kept for hosts: sorts the whole tree, not just roots.
+export function sortCommentRoots(roots: ThreadNode[], direction: ThreadSort): ThreadNode[] {
+  return sortThreadTree(roots, direction)
+}
+
+const EDIT_KEY_PREFIX = 'lc.editKey.'
+
+// Guest edit keys live only in this browser. Storage failures (private mode,
+// quota) must never break posting, so every access is best-effort.
+export function saveEditKey(commentId: string, editKey: string): void {
+  try {
+    globalThis.localStorage?.setItem(`${EDIT_KEY_PREFIX}${commentId}`, editKey)
+  } catch {}
+}
+
+export function getEditKey(commentId: string): string | null {
+  try {
+    return globalThis.localStorage?.getItem(`${EDIT_KEY_PREFIX}${commentId}`) ?? null
+  } catch {
+    return null
+  }
+}
+
+export function forgetEditKey(commentId: string): void {
+  try {
+    globalThis.localStorage?.removeItem(`${EDIT_KEY_PREFIX}${commentId}`)
+  } catch {}
 }
 
 // UI gate only — the server authorizes every moderation call. An absent
@@ -457,8 +626,9 @@ export function moderationCommentToComment(row: ModerationComment): Comment {
     pinnedAt: row.pinnedAt,
     createdAt: row.createdAt,
     editedAt: null,
-    score: 0,
-    viewerVote: null,
+    score: row.score,
+    viewerVote: row.viewerVote,
+    authorRole: row.authorRole,
     userBlocked: row.userBlocked,
   }
 }
@@ -502,14 +672,32 @@ export const THEME_CSS_VARIABLES = {
   fontFamilyMono: '--lc-font-family-mono',
   fontSize: '--lc-font-size',
   lineHeight: '--lc-line-height',
+  fontWeightMedium: '--lc-font-weight-medium',
   spacing: '--lc-spacing',
   controlHeight: '--lc-control-height',
   controlRadius: '--lc-control-radius',
   cardPadding: '--lc-card-padding',
   composerPadding: '--lc-composer-padding',
+  composerBackground: '--lc-composer-background',
   dropdownShadow: '--lc-dropdown-shadow',
   dialogShadow: '--lc-dialog-shadow',
   backdrop: '--lc-backdrop',
+  menuZIndex: '--lc-menu-z-index',
+  commentBorder: '--lc-comment-border',
+  borderWidth: '--lc-border-width',
+  replyBackground: '--lc-reply-background',
+  threadActive: '--lc-thread-line',
+  threadMuted: '--lc-thread-muted',
+  threadIndent: '--lc-thread-indent',
+  avatarRing: '--lc-avatar-ring',
+  avatarRadius: '--lc-avatar-radius',
+  skeletonRadius: '--lc-skeleton-radius',
+  voteBackground: '--lc-vote-background',
+  voteBorder: '--lc-vote-border',
+  voteShadow: '--lc-vote-shadow',
+  actionColor: '--lc-action-color',
+  actionHoverColor: '--lc-action-hover-color',
+  actionHoverBackground: '--lc-action-hover-background',
 } as const
 
 export type ThemeVars = Partial<Record<keyof typeof THEME_CSS_VARIABLES, string>>
@@ -542,6 +730,69 @@ export function buildCommentTree(flat: Comment[]): ThreadNode[] {
     else roots.push(node)
   }
   return roots
+}
+
+// Reddit-style short age: "just now", "5m ago", "3h ago", "2d ago",
+// "2mo ago", "1y ago". Future and invalid dates fail safe.
+export function formatRelativeTime(iso: string, nowMs: number = Date.now()): string {
+  const then = Date.parse(iso)
+  if (Number.isNaN(then)) return ''
+  const seconds = Math.max(0, Math.round((nowMs - then) / 1000))
+  if (seconds < 45) return 'just now'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 30) return `${days}d ago`
+  const months = Math.round(days / 30)
+  if (months < 12) return `${months}mo ago`
+  return `${Math.round(months / 12)}y ago`
+}
+
+export type ThreadParticipant = { key: string; name: string; avatarUrl?: string | null }
+
+// Unique authors across a reply subtree, in first-seen order: guests collapse
+// by display name because they carry no id.
+export function collectThreadParticipants(nodes: ThreadNode[]): ThreadParticipant[] {
+  const participants = new Map<string, ThreadParticipant>()
+  const visit = (list: ThreadNode[]) => {
+    for (const node of list) {
+      const { comment } = node
+      const key = comment.userId ?? `guest:${comment.authorName}`
+      if (!participants.has(key))
+        participants.set(key, { key, name: comment.authorName, avatarUrl: comment.avatarUrl ?? null })
+      visit(node.children)
+    }
+  }
+  visit(nodes)
+  return [...participants.values()]
+}
+
+export type ThreadGuideItem = { x: number; top: number; bottom: number; break?: boolean }
+
+// Fumadocs' TOC guide line, adapted to comment rows: each item runs down its own
+// inline-start edge, and consecutive items join through a cubic whose ±4px
+// controls bend the line between nesting levels (straight between peers, since
+// their x matches). Coordinates are px in the widget list's own space; the
+// caller measures them. `break` starts a new subpath, so one thread's line never
+// runs across the rows of the next.
+export function buildThreadGuidePath(items: ThreadGuideItem[]): { d: string; width: number; height: number } {
+  if (items.length === 0) return { d: '', width: 0, height: 0 }
+  let d = ''
+  let width = 0
+  let height = 0
+  for (const [index, item] of items.entries()) {
+    const x = item.x + 0.5 // half-pixel shift keeps a 2px stroke crisp
+    const previous = item.break ? undefined : items[index - 1]
+    d += previous
+      ? ` C ${previous.x + 0.5} ${item.top - 4} ${x} ${previous.bottom + 4} ${x} ${item.top}`
+      : `M ${x} ${item.top}`
+    d += ` L ${x} ${item.bottom}`
+    width = Math.max(width, x + 2)
+    height = Math.max(height, item.bottom)
+  }
+  return { d, width, height }
 }
 
 export type ErrorAction = 'retry' | 'sign-in' | 'none'

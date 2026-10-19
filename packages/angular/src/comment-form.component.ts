@@ -15,7 +15,7 @@ export type CommentSubmit = { body: string; authorName?: string; token?: string 
   standalone: true,
   imports: [LcTurnstileDirective, LcCommentErrorComponent],
   template: `
-    <form (submit)="onSubmit($event)" class="lc-composer rounded-xl border border-border bg-muted/60 p-3">
+    <form (submit)="onSubmit($event)" class="lc-composer rounded-xl border border-border p-3">
       @if (parentId() || showCancel()) {
         <div class="mb-2 flex flex-wrap items-center justify-between text-xs text-muted-foreground">
           <span>{{ parentId() ? 'Replying to this comment' : 'Editing comment' }}</span>

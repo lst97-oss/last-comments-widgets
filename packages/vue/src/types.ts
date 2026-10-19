@@ -1,6 +1,7 @@
 import {
   DEFAULT_EDIT_WINDOW_MINUTES,
   isEditWindowOpen,
+  type ThreadNode,
   type ViewerOptions,
   type ViewerRole,
   type VoteValue,
@@ -15,6 +16,9 @@ export type CommentsProps = {
   site: string
   baseUrl: string
   pageUrl?: string
+  // Host-known thread id: moderator mode then addresses this page directly
+  // instead of matching `pageUrl` against the site's (capped) page list.
+  pageId?: string
   turnstileSiteKey?: string
   limit?: number
   theme?: Theme
@@ -53,4 +57,27 @@ export function canShowEdit(
 
 export function toggleVoteValue(current: VoteValue | null, next: VoteValue): 'clear' | VoteValue {
   return current === next ? 'clear' : next
+}
+
+export type VoteOverlay = Record<string, { score: number; viewerVote: VoteValue | null }>
+
+// Applies pending vote results to a built tree without rebuilding it. Untouched
+// nodes keep their identity, so only the voted row (and its ancestors' child
+// arrays) re-renders; an empty overlay returns the input array unchanged.
+export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): ThreadNode[] {
+  if (Object.keys(overlay).length === 0) return nodes
+  let changed = false
+  const apply = (node: ThreadNode): ThreadNode => {
+    const patch = overlay[node.comment.id]
+    const children = node.children.map(apply)
+    const childrenChanged = children.some((child, index) => child !== node.children[index])
+    if (!patch) return childrenChanged ? { ...node, children } : node
+    changed = true
+    return {
+      comment: { ...node.comment, score: patch.score, viewerVote: patch.viewerVote },
+      children: childrenChanged ? children : node.children,
+    }
+  }
+  const result = nodes.map(apply)
+  return changed ? result : nodes
 }

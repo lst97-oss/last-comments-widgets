@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import type { Comment, ModerationAction, ThreadNode, ViewerRole, VoteValue } from '@last-comments-widgets/client'
+import {
+  canModerate,
+  type ModerationAction,
+  type ThreadNode,
+  type ViewerRole,
+  type VoteValue,
+} from '@last-comments-widgets/client'
 import CommentItem from './CommentItem.vue'
 
 defineProps<{
@@ -28,12 +34,12 @@ defineOptions({ name: 'CommentList' })
   <div class="grid gap-4">
     <CommentItem
       v-for="node in nodes"
-      :key="(node.comment as Comment).id"
-      :node="node as ThreadNode"
+      :key="node.comment.id"
+      :node="node"
       :depth="depth ?? 0"
       :viewer-user-id="viewerUserId"
       :viewer-role="viewerRole"
-      :hide-votes="hideVotes"
+      :hide-votes="hideVotes || (canModerate(viewerRole) && node.comment.status !== 'visible')"
       :pending-moderation="pendingModeration"
       :edit-window-minutes="editWindowMinutes"
       :read-only="readOnly"

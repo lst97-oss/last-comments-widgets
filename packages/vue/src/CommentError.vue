@@ -5,6 +5,8 @@ import type { ErrorInfo } from '@last-comments-widgets/client'
 // describeError; this only decides layout and which action to offer.
 const props = defineProps<{ info: ErrorInfo; signInHref?: string }>()
 const emit = defineEmits<{ retry: []; 'sign-in': [] }>()
+
+defineOptions({ name: 'CommentError' })
 </script>
 
 <template>

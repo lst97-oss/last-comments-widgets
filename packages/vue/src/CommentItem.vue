@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import {
-  type Comment,
   DEFAULT_EDIT_WINDOW_MINUTES,
-  isEditWindowOpen,
   type ModerationAction,
   renderMarkdown,
   safeUrl,
@@ -14,6 +12,7 @@ import { computed, ref } from 'vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'
 import VoteButtons from './VoteButtons.vue'
+import { canShowEdit } from './types'
 
 const props = defineProps<{
   node: ThreadNode
@@ -47,11 +46,11 @@ const own = computed(
   () =>
     props.viewerUserId != null && props.node.comment.userId != null && props.viewerUserId === props.node.comment.userId,
 )
-const canEdit = computed(
-  () =>
-    own.value &&
-    isEditWindowOpen(props.node.comment.createdAt, Date.now(), props.editWindowMinutes ?? DEFAULT_EDIT_WINDOW_MINUTES),
+const canEdit = computed(() =>
+  canShowEdit(props.viewerUserId, props.node.comment, props.editWindowMinutes ?? DEFAULT_EDIT_WINDOW_MINUTES),
 )
+const formattedDate = computed(() => formatDate(props.node.comment.createdAt))
+const initialsLabel = computed(() => initials(props.node.comment.authorName))
 
 function initials(name: string): string {
   return name
@@ -74,6 +73,10 @@ function submitEdit(input: { bodyMarkdown: string }) {
   return props.onEdit(props.node.comment.id, input.bodyMarkdown)
 }
 
+function cancelEdit() {
+  editing.value = false
+}
+
 async function remove() {
   if (busy.value) return
   if (typeof window !== 'undefined' && !window.confirm('Delete this comment?')) return
@@ -94,10 +97,10 @@ function removeModerated() {
 </script>
 
 <template>
-  <article class="lc-comment min-w-0" :class="props.depth > 0 ? 'lc-reply ml-6 border-l border-border pl-4' : ''">
+  <article class="lc-comment min-w-0" :class="props.depth > 0 ? 'lc-reply ml-6 border-l border-border' : ''">
     <div class="flex flex-wrap items-center gap-2">
       <span
-        class="inline-flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground"
+        class="lc-avatar inline-flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium text-muted-foreground"
       >
         <img
           v-if="avatarUrl"
@@ -108,12 +111,10 @@ function removeModerated() {
           referrerpolicy="no-referrer"
           class="size-full object-cover"
         />
-        <span v-else>{{ initials(props.node.comment.authorName) }}</span>
+        <span v-else>{{ initialsLabel }}</span>
       </span>
       <span class="min-w-0 font-medium break-words">{{ props.node.comment.authorName }}</span>
-      <time :dateTime="props.node.comment.createdAt" class="text-xs text-muted-foreground">{{
-        formatDate(props.node.comment.createdAt)
-      }}</time>
+      <time :dateTime="props.node.comment.createdAt" class="text-xs text-muted-foreground">{{ formattedDate }}</time>
       <span v-if="props.node.comment.editedAt" class="text-xs text-muted-foreground">edited</span>
       <span v-if="props.node.comment.pinnedAt" class="text-xs text-muted-foreground">pinned</span>
       <span
@@ -130,7 +131,7 @@ function removeModerated() {
       </span>
       <span v-if="!props.hideVotes" class="ml-auto">
         <span v-if="props.readOnly" class="text-sm text-muted-foreground">{{ props.node.comment.score }}</span>
-        <VoteButtons v-else :comment="props.node.comment as Comment" :on-vote="props.onVote" />
+        <VoteButtons v-else :comment="props.node.comment" :on-vote="props.onVote" />
       </span>
     </div>
     <div v-if="editing && !props.readOnly" class="my-3">
@@ -141,7 +142,7 @@ function removeModerated() {
         submit-label="Save"
         error-title="Your edit wasn't saved"
         :on-submit="submitEdit"
-        :on-cancel-reply="() => (editing = false)"
+        :on-cancel-reply="cancelEdit"
         :sign-in-href="props.signInHref"
         :on-sign-in="props.onSignIn"
         @submitted="editing = false"
@@ -153,7 +154,7 @@ function removeModerated() {
       <button
         v-if="canReplyHere"
         type="button"
-        class="font-medium text-primary underline-offset-4 hover:underline"
+        class="lc-action font-medium underline-offset-4 hover:underline"
         @click="props.onReply(props.node.comment.id)"
       >
         Reply
@@ -161,7 +162,7 @@ function removeModerated() {
       <button
         v-if="canEdit && !editing"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline"
+        class="lc-action underline-offset-4 hover:underline"
         @click="editing = true"
       >
         Edit
@@ -169,7 +170,7 @@ function removeModerated() {
       <button
         v-if="own && !props.viewerRole && !editing"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline"
+        class="lc-action lc-action-destructive underline-offset-4 hover:underline"
         :disabled="busy"
         @click="remove"
       >
@@ -180,7 +181,7 @@ function removeModerated() {
       <button
         v-if="props.node.comment.status === 'visible'"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+        class="lc-action underline-offset-4 hover:underline disabled:opacity-50"
         :disabled="moderationPending"
         @click="props.onModerate?.(props.node.comment.id, 'hide')"
       >
@@ -189,7 +190,7 @@ function removeModerated() {
       <button
         v-if="props.node.comment.status !== 'visible'"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+        class="lc-action underline-offset-4 hover:underline disabled:opacity-50"
         :disabled="moderationPending"
         @click="props.onModerate?.(props.node.comment.id, 'restore')"
       >
@@ -198,7 +199,7 @@ function removeModerated() {
       <button
         v-if="props.node.comment.status === 'visible' && props.node.comment.pinnedAt"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+        class="lc-action underline-offset-4 hover:underline disabled:opacity-50"
         :disabled="moderationPending"
         @click="props.onModerate?.(props.node.comment.id, 'unpin')"
       >
@@ -207,7 +208,7 @@ function removeModerated() {
       <button
         v-if="props.node.comment.status === 'visible' && !props.node.comment.pinnedAt"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+        class="lc-action underline-offset-4 hover:underline disabled:opacity-50"
         :disabled="moderationPending"
         @click="props.onModerate?.(props.node.comment.id, 'pin')"
       >
@@ -216,7 +217,7 @@ function removeModerated() {
       <button
         v-if="props.node.comment.status !== 'deleted'"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+        class="lc-action underline-offset-4 hover:underline disabled:opacity-50"
         :disabled="moderationPending"
         @click="removeModerated"
       >
@@ -225,7 +226,7 @@ function removeModerated() {
       <button
         v-if="props.node.comment.userId"
         type="button"
-        class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+        class="lc-action underline-offset-4 hover:underline disabled:opacity-50"
         :disabled="moderationPending"
         @click="props.onBlockUser?.(props.node.comment.id, !props.node.comment.userBlocked)"
       >

@@ -9,6 +9,8 @@ const props = defineProps<{
   onVote: (commentId: string, value: VoteValue | 'clear') => void
 }>()
 
+defineOptions({ name: 'VoteButtons' })
+
 const base =
   'inline-flex size-7 items-center justify-center rounded-lg border border-transparent text-sm font-medium transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5'
 const active = 'border-border bg-muted text-foreground'
@@ -16,7 +18,7 @@ const idle = 'text-muted-foreground hover:bg-muted hover:text-foreground'
 </script>
 
 <template>
-  <div class="flex items-center gap-1" role="group" aria-label="Vote">
+  <div class="lc-vote flex items-center gap-1" role="group" aria-label="Vote">
     <button
       type="button"
       :class="cn(base, props.comment.viewerVote === 1 ? active : idle)"

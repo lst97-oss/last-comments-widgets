@@ -1,5 +1,6 @@
 import type { Comment, VoteValue } from '@last-comments-widgets/client'
 import { ArrowDown, ArrowUp } from 'lucide-react'
+import { memo } from 'react'
 import { Button } from './ui/button'
 
 type VoteButtonsProps = {
@@ -9,9 +10,9 @@ type VoteButtonsProps = {
   onClear: (comment: Comment) => void
 }
 
-export function VoteButtons({ comment, pending, onVote, onClear }: VoteButtonsProps) {
+export const VoteButtons = memo(function VoteButtons({ comment, pending, onVote, onClear }: VoteButtonsProps) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="lc-vote flex items-center gap-0.5">
       <Button
         size="sm"
         variant={comment.viewerVote === 1 ? 'default' : 'ghost'}
@@ -37,4 +38,4 @@ export function VoteButtons({ comment, pending, onVote, onClear }: VoteButtonsPr
       </Button>
     </div>
   )
-}
+})

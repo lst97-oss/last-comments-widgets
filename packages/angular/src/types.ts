@@ -1,7 +1,9 @@
 import {
   DEFAULT_EDIT_WINDOW_MINUTES,
   isEditWindowOpen,
+  type ThreadNode,
   type ViewerRole,
+  type VoteValue,
   type WidgetTheme,
 } from '@last-comments-widgets/client'
 
@@ -42,4 +44,27 @@ export function canEditComment(
     viewerUserId === comment.userId &&
     isEditWindowOpen(comment.createdAt, Date.now(), editWindowMinutes)
   )
+}
+
+export type VoteOverlay = Record<string, { score: number; viewerVote: VoteValue | null }>
+
+// Applies pending vote results to a built tree without rebuilding it. Untouched
+// nodes keep their identity, so only the voted row (and its ancestors' child
+// arrays) re-renders; an empty overlay returns the input array unchanged.
+export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): ThreadNode[] {
+  if (Object.keys(overlay).length === 0) return nodes
+  let changed = false
+  const apply = (node: ThreadNode): ThreadNode => {
+    const patch = overlay[node.comment.id]
+    const children = node.children.map(apply)
+    const childrenChanged = children.some((child, index) => child !== node.children[index])
+    if (!patch) return childrenChanged ? { ...node, children } : node
+    changed = true
+    return {
+      comment: { ...node.comment, score: patch.score, viewerVote: patch.viewerVote },
+      children: childrenChanged ? children : node.children,
+    }
+  }
+  const result = nodes.map(apply)
+  return changed ? result : nodes
 }
