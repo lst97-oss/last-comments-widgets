@@ -13,40 +13,58 @@ bun add @lst97-oss/last-comments-widgets   # or npm install @lst97-oss/last-comm
 React:
 
 ```tsx
-import { Comments } from '@lst97-oss/last-comments-widgets/react'
-import '@lst97-oss/last-comments-widgets/react/styles.css'
+import { Comments } from "@lst97-oss/last-comments-widgets/react";
+import "@lst97-oss/last-comments-widgets/react/styles.css";
 
-<Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
+<Comments
+  site="demo"
+  baseUrl="https://comments.example.com"
+  turnstileSiteKey="…"
+/>;
 ```
 
 Vue:
 
 ```vue
 <script setup lang="ts">
-import { Comments } from '@lst97-oss/last-comments-widgets/vue'
-import '@lst97-oss/last-comments-widgets/vue/styles.css'
+import { Comments } from "@lst97-oss/last-comments-widgets/vue";
+import "@lst97-oss/last-comments-widgets/vue/styles.css";
 </script>
 
 <template>
-  <Comments site="demo" base-url="https://comments.example.com" turnstile-site-key="…" />
+  <Comments
+    site="demo"
+    base-url="https://comments.example.com"
+    turnstile-site-key="…"
+  />
 </template>
 ```
 
 Angular:
 
 ```ts
-import { LcCommentsComponent } from '@lst97-oss/last-comments-widgets/angular'
-import '@lst97-oss/last-comments-widgets/angular/styles.css'
+import { LcCommentsComponent } from "@lst97-oss/last-comments-widgets/angular";
+import "@lst97-oss/last-comments-widgets/angular/styles.css";
 
-@Component({ imports: [LcCommentsComponent], template: `<lc-comments site="demo" baseUrl="…" />` })
+@Component({
+  imports: [LcCommentsComponent],
+  template: `<lc-comments site="demo" baseUrl="…" />`,
+})
 export class AppComponent {}
 ```
 
 Plain HTML (no build step):
 
 ```html
-<link rel="stylesheet" href="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/styles.css" />
-<div data-lc-comments data-lc-site="demo" data-lc-base-url="https://comments.example.com"></div>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/styles.css"
+/>
+<div
+  data-lc-comments
+  data-lc-site="demo"
+  data-lc-base-url="https://comments.example.com"
+></div>
 <script type="importmap">
   {
     "imports": {
@@ -54,14 +72,18 @@ Plain HTML (no build step):
     }
   }
 </script>
-<script type="module" src="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/index.js"></script>
+<script
+  type="module"
+  src="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/index.js"
+></script>
 ```
 
-Props (all frameworks): `site` (required), `baseUrl` (required), `pageUrl` (default `location.href`), `turnstileSiteKey` (guest posting), `limit` (default 20; threads per page, see below), `lazy` (default false; defer all requests until the widget scrolls into view), `theme` (`light` | `dark` | `system`), `themeVars` (per-instance overrides, see below), `signInUrl` (host-owned sign-in page), `viewerUserId` (shows own Edit/Delete buttons; empty = guest), `viewerRole` (`admin` | `moderator`; enables inline moderation, see below), `editWindowMinutes` (default 5, must match the server `COMMENT_EDIT_WINDOW_MINUTES`; the server always wins on divergence), `fetchImpl` (bring-your-own fetch — log, record, or rewrite to a same-origin proxy; every request still sends `credentials: 'include'` and the init shape is unchanged).
+Props (all frameworks): `site` (required), `baseUrl` (required), `pageUrl` (default `location.href`), `turnstileSiteKey` (guest posting), `limit` (default 20; threads per page, see below), `lazy` (default false; defer all requests until the widget scrolls into view), `theme` (`light` | `dark` | `system`), `themeVars` (per-instance overrides, see below), `signInUrl` (host-owned sign-in page), `viewerUserId` (shows own Edit/Delete buttons; empty = guest), `pageId` (host-known thread id; moderator mode addresses it instead of matching `pageUrl`), `viewerRole` (`admin` | `moderator`; enables inline moderation, see below), `onModerated` (callback after a moderation action, lock change or moderator post), `actionMode` (React; `icon` | `icon-text` | `text`, default `icon-text` — how Reply/Edit/Delete and moderator actions render their icons), `bodyLimit` (React; max body characters, counted before trimming, default 10,000; set it to whatever the host server enforces), `anonEditWindowMinutes` (React; default 10, mirroring the server `COMMENT_ANON_EDIT_WINDOW_MINUTES`) — signed-in authors may edit any time, while guests edit only from the browser that stored the key returned when they posted. Vue, Angular and vanilla still expose `editWindowMinutes` (default 5) for their own UI gate until they are ported, `fetchImpl` (bring-your-own fetch — log, record, or rewrite to a same-origin proxy; every request still sends `credentials: 'include'` and the init shape is unchanged).
 
 ```ts
 // fetchImpl receives (url, init) exactly as the widget would call fetch.
-const fetchImpl: typeof fetch = (input, init) => fetch(toSameOriginProxy(input), init)
+const fetchImpl: typeof fetch = (input, init) =>
+  fetch(toSameOriginProxy(input), init);
 ```
 
 Signed-in viewers are detected from the API session (`GET {baseUrl}/api/auth/get-session`), with the host's `viewerUserId` prop as the fallback when the API cannot answer (no same-origin proxy): when signed in, the composer drops the guest name field and Turnstile, posting uses the session identity, and votes work; the identity menu below lets the user post anonymously instead.
@@ -97,27 +119,34 @@ const brand: WidgetTheme = {
 
 Vue uses `:theme-vars="brand"`; Angular uses `[themeVars]="brand"`; vanilla accepts `{ themeVars: brand }` in `mountComments` and `renderCommentViewer`. Pass complete CSS colors (hex, `rgb()`, `oklch()`, etc.), lengths with units, and unitless line heights. Fonts must be loaded by the host if they are not already available.
 
-| Theme keys | Controls |
-| --- | --- |
-| `background`, `foreground` | Widget surface and default text |
-| `primary`, `primaryForeground` | Primary actions and links |
-| `card`, `cardForeground` | Comment surfaces and text |
-| `popover`, `popoverForeground` | Identity menus and React dialogs |
-| `muted`, `mutedForeground`, `secondary`, `secondaryForeground` | Composer, placeholders, secondary surfaces and text |
-| `accent`, `accentForeground` | Selector hover and keyboard highlight |
-| `border`, `input`, `ring` | Borders and focus indicators |
-| `destructive`, `destructiveForeground` | Errors and destructive actions |
-| `success`, `warning`, `error`, `info` | Status palettes; each also has `Foreground` and `Muted` keys |
-| `radius`, `controlRadius` | Surface and control corner radii |
-| `fontFamily`, `fontFamilyMono`, `fontSize`, `lineHeight` | Typography, including Markdown and popups |
-| `spacing` | Spacing unit used by gaps, margins, padding, and utility-sized controls |
-| `controlHeight` | Minimum height of buttons, inputs, and selects |
-| `cardPadding`, `composerPadding` | Comment and composer padding; reply indentation is preserved |
-| `cardShadow`, `dropdownShadow`, `dialogShadow`, `backdrop` | Shadows and React modal backdrop color |
+| Theme keys                                                     | Controls                                                                |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `background`, `foreground`                                     | Widget surface and default text                                         |
+| `primary`, `primaryForeground`                                 | Primary actions and links                                               |
+| `card`, `cardForeground`                                       | Comment surfaces and text                                               |
+| `popover`, `popoverForeground`                                 | Identity menus and React dialogs                                        |
+| `muted`, `mutedForeground`, `secondary`, `secondaryForeground` | Composer, placeholders, secondary surfaces and text                     |
+| `accent`, `accentForeground`                                   | Selector hover and keyboard highlight                                   |
+| `border`, `input`, `ring`                                      | Borders and focus indicators                                            |
+| `destructive`, `destructiveForeground`                         | Errors and destructive actions                                          |
+| `success`, `warning`, `error`, `info`                          | Status palettes; each also has `Foreground` and `Muted` keys            |
+| `radius`, `controlRadius`, `avatarRadius`, `skeletonRadius`    | Surface/control corner radii, avatar shape, and loading placeholder radius |
+| `fontFamily`, `fontFamilyMono`, `fontSize`, `lineHeight`       | Typography, including Markdown and popups                               |
+| `fontWeightMedium`                                             | Weight used by author names, buttons, and other emphasized labels       |
+| `spacing`                                                      | Spacing unit used by gaps, margins, padding, and utility-sized controls |
+| `controlHeight`                                                | Minimum height of buttons, inputs, and selects                          |
+| `cardPadding`, `composerPadding`, `composerBackground`         | Comment/composer padding and the composer surface color; reply indentation is preserved |
+| `commentBorder`, `borderWidth`, `replyBackground`              | Comment border width (`0` = none), border width of other surfaces and controls, and reply surface color |
+| `threadActive`, `threadMuted`, `threadIndent`                 | Reply guide line: active and muted colors, and the guide gutter width   |
+| `avatarRing`                                                   | Ring behind stacked reply avatars                                       |
+| `voteBackground`, `voteBorder`, `voteShadow`                   | Vote pill surface, border and shadow                                    |
+| `actionColor`, `actionHoverColor`, `actionHoverBackground`     | Reply/Edit/Delete and moderator action colors on hover                  |
+| `menuZIndex`                                                   | Stacking order of the identity menu                                     |
+| `cardShadow`, `dropdownShadow`, `dialogShadow`, `backdrop`     | Shadows and React modal backdrop color                                  |
 
 Styles, resets, and semantic defaults are scoped to `.lc-comments` and `.lc-theme` using native CSS `@scope`; use a browser with `@scope` support. Importing widget CSS does not set the host page's font, colors, margins, or utility classes. Each instance has its own defaults, and an explicitly light widget stays light inside a dark host. React menus, dialogs, and tooltips portal into their owning root so CSS variables and selectors still apply. Avoid clipping that root with `overflow: hidden` when using popups.
 
-For more detailed customization, use these shared hooks: `.lc-comments`, `.lc-comment`, `.lc-reply`, `.lc-composer`, `.lc-markdown`, `.lc-error`, `.lc-identity-trigger`, `.lc-identity-menu`, and `.lc-identity-item`. React overlays also expose `.lc-dialog`, `.lc-dialog-backdrop`, and `.lc-tooltip`. Controls can be targeted with ordinary `button`, `input`, `textarea`, and `select` selectors below the root. Custom styles can override the defaults without `!important`:
+For more detailed customization, use these shared hooks: `.lc-comments`, `.lc-comment`, `.lc-reply`, `.lc-replies-trigger`, `.lc-thread-guides`, `.lc-thread-overlay`, `.lc-reply-stack`, `.lc-vote`, `.lc-action`, `.lc-action-destructive`, `.lc-collapse`, `.lc-admin-badge`, `.lc-blocked-badge`, `.lc-composer`, `.lc-markdown`, `.lc-avatar`, `.lc-skeleton`, `.lc-error`, `.lc-identity-trigger`, `.lc-identity-menu`, `.lc-identity-item`, and `.lc-actions-menu`. React overlays also expose `.lc-dialog`, `.lc-dialog-backdrop`, and `.lc-tooltip`. Controls can be targeted with ordinary `button`, `input`, `textarea`, and `select` selectors below the root. Custom styles can override the defaults without `!important`:
 
 ```css
 /* Wrap the widget in <div id="discussion"> to target this instance. */
@@ -140,12 +169,16 @@ Semantic CSS variables use kebab case (`primaryForeground` → `--primary-foregr
 For plain HTML, every token also has `data-lc-theme-var-<kebab-name>` and `data-lc-theme-dark-var-<kebab-name>` attributes:
 
 ```html
-<div data-lc-comments data-lc-site="demo" data-lc-base-url="/"
+<div
+  data-lc-comments
+  data-lc-site="demo"
+  data-lc-base-url="/"
   data-lc-theme="system"
   data-lc-theme-var-popover="#fff5e8"
   data-lc-theme-var-font-family="Georgia, serif"
   data-lc-theme-var-control-height="44px"
-  data-lc-theme-dark-var-popover="#241b14"></div>
+  data-lc-theme-dark-var-popover="#241b14"
+></div>
 ```
 
 When composing from exported subcomponents, supply a theme root yourself: React provides `<CommentsTheme theme="system" themeVars={brand}>…</CommentsTheme>`; other frameworks and raw HTML can use a `.lc-theme` wrapper with CSS variables and a `dark` class for dark mode. `Comments` and `CommentViewer` already provide their roots. Third-party verification challenges retain their provider-owned appearance.
@@ -158,6 +191,8 @@ Signed-in visitors can switch between `Anonymous` and `<name> (you)`, and `Sign 
 
 ## Pagination and loading
 
+Replies hang off their parent through measured Fumadocs-style connector lines: a guide runs down the gutter of each thread's replies, and a top-level comment draws one down its own rows only when it has replies. Each thread's guide is its own subpath, so it never connects to the thread above. Each reply's segment covers its own rows and bends between nesting levels, with the segment at your reading position (the middle of the viewport) drawn in `threadActive` while the rest stays `threadMuted`. Lines ride the middle of the list's and each reply group's gutter, so they never cross comment content, and a folded reply group keeps a short stub beside its trigger so hidden replies stay visible in the guide. Replies carry a `Replying to @author` caption, so a reply always reads as attached to the comment it answers. Every reply group collapses: while hidden the trigger shows an overlapping stack of reply-author avatars (up to three, then `+N`) plus the reply count, and while open it hides them behind a `Hide N replies` label. The count covers every reply in the group whatever its state, and moderators additionally see the composition inline (`4 replies · 1 pinned · 1 hidden · 1 deleted`, hidden below `sm` so the row never crowds). Timestamps are Reddit-style short ages (`just now`, `5m ago`, `3h ago`, `2d ago`, `2mo ago`, `1y ago`) with the full local time on hover, via the shared `formatRelativeTime` helper. Actions render as icon only, icon with label, or label only through `actionMode`.
+
 Lists page through **threads**, not rows: a page shows `limit` top-level comments (default 20) together with their replies, and the pager (`‹ Previous` / `Page N` / `Next ›`) appears once there is more than one page. The list endpoint returns no total, so the pager shows the current page instead of numbered links; `Next` disables once the stream ends. Rows are fetched only for the page you visit and kept in memory, so `Previous` is instant and never re-requests. A reply written after the stream moved past its thread's page is not shown until more rows load — the list endpoint has no per-thread query, so exact thread pagination would need a server-side `threads` query.
 
 Loading states are skeletons rather than blank space: three skeleton cards on first load, two more below the list while the next page arrives (the pager disables in flight), and a skeleton chip in the identity control — with posting disabled — until the API answers `get-session`, so a comment can never be posted with a guessed identity.
@@ -166,40 +201,41 @@ Loading states are skeletons rather than blank space: three skeleton cards on fi
 
 ## Moderation
 
-Pass `viewerRole` (`admin` or `moderator`, typically with `viewerUserId`) to render inline moderation controls: the thread lists every status with `hidden`/`deleted` badges, each row offers Hide/Restore, Pin/Unpin, Delete and Block/Unblock user, and a page lock/unlock bar appears above the list. Voting is hidden in this mode because the moderation payload carries no vote data. The server authorizes every action, so an account without permission sees the `FORBIDDEN` copy and nothing changes. Moderation requires the comments API to be served from the widget page's own origin: `/api/moderation` sends no CORS headers and its POST is origin-checked, so dev proxies must rewrite the `Origin` header (see `examples/react/vite.config.ts`); a cross-origin embed cannot moderate.
+Pass `viewerRole` (`admin` or `moderator`, typically with `viewerUserId`) to render inline moderation controls: the composer posts and edits through `/api/moderation` (so a dashboard origin does not need to be in the site's allow-list), `pageId` addresses the thread directly instead of matching `pageUrl` against the site's capped page list, and `onModerated` (React prop, Vue `@moderated`, Angular `(moderated)`, vanilla `onModerated`) fires after a successful action so the host can refresh its own thread list. Moderators get the same `Comment as` control as any signed-in viewer and may post as themselves or anonymously (`createModerationComment` forwards `anonymous` and the guest `authorName`); an anonymous moderator post is stored as a guest row with an edit key. Delete is a soft status (`deleted`, restorable through `Restore`) and acts immediately from the row menu — no confirmation dialog. the thread lists every status with `hidden`/`deleted` badges, each row offers Hide/Restore, Pin/Unpin, Delete and Block/Unblock user, and a page lock/unlock bar appears above the list. Moderators see and cast votes in place: the moderation payload carries each row's score and the moderator's own vote, and votes post through the moderation endpoint (hidden/deleted rows and locked pages never offer them). The server authorizes every action, so an account without permission sees the `FORBIDDEN` copy and nothing changes. Comment rows carry the author's site role as `authorRole` (`admin` | `moderator` | `null`); the React widget colours site-admin names and appends an `[Admin]` badge (`.lc-admin-badge` styling hook). Moderation requires the comments API to be served from the widget page's own origin: `/api/moderation` sends no CORS headers and its POST is origin-checked, so dev proxies must rewrite the `Origin` header (see `examples/react/vite.config.ts`); a cross-origin embed cannot moderate.
 
 ## Read-only viewer
 
 `CommentViewer` (Vue `CommentViewer`, Angular `lc-comment-viewer`, vanilla `data-lc-viewer` + `renderCommentViewer`) renders the same list with no composer and no Reply/Edit/Delete/vote buttons — import it where the page only shows comments. Same `site`/`baseUrl`/`pageUrl`/`limit`/`lazy`/`theme`/`themeVars`, same thread pager and skeletons; voting UI stays available via the exported `VoteButtons` for hosts that opt in.
 
 ```tsx
-import { CommentViewer } from '@lst97-oss/last-comments-widgets/react'
+import { CommentViewer } from "@lst97-oss/last-comments-widgets/react";
 
-<CommentViewer site="demo" baseUrl="https://comments.example.com" />
+<CommentViewer site="demo" baseUrl="https://comments.example.com" />;
 ```
 
 ## Client API
 
 `@lst97-oss/last-comments-widgets/client` (the bare package name resolves to the same entry point) is what the four widgets are built on; hosts rendering their own UI can import it directly. Every widget subpath depends on it at runtime, which is why all four frameworks ship inside one package and share its version.
 
-| Export | Purpose |
-| --- | --- |
-| `createClient({ site, baseUrl, fetchImpl })` | list, post, edit and delete comments, vote, and run moderation calls |
-| `listCommentsPage({ …, offset, limit })` | one page of rows plus `hasMore` (probes one extra row; the API returns no total) |
-| `loadThreadWindow({ …, pages, existing })` | rows accumulated until N whole threads are present — the loader behind the widget pager |
-| `fetchViewerThreads({ … })` | one-shot fetch of the flat stream |
-| `buildCommentTree(rows)` | group that stream into thread nodes (orphan replies become roots) |
-| `describeError(error, overrides?)` | the title/message/action copy every widget renders |
-| `beginOAuthSignIn` · `fetchViewerSession` · `signOutViewerSession` | the flow behind the identity control |
-| `renderMarkdown` · `safeUrl` | markdown rendering (raw HTML stripped) and URL sanitising |
-| `themeVarsToStyle` · `THEME_CSS_VARIABLES` | map `themeVars` onto the widget's CSS variables |
-| `isEditWindowOpen` · `DEFAULT_EDIT_WINDOW_MINUTES` · `canModerate` · `moderationCommentToComment` | shared widget rules |
+| Export                                                                                            | Purpose                                                                                 |
+| ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `createClient({ site, baseUrl, fetchImpl })`                                                      | list, post, edit and delete comments, vote, and run moderation calls                    |
+| `listCommentsPage({ …, offset, limit })`                                                          | one page of rows plus `hasMore` (probes one extra row; the API returns no total)        |
+| `loadThreadWindow({ …, pages, existing })`                                                        | rows accumulated until N whole threads are present — the loader behind the widget pager |
+| `fetchViewerThreads({ … })`                                                                       | one-shot fetch of the flat stream                                                       |
+| `buildCommentTree(rows)`                                                                          | group that stream into thread nodes (orphan replies become roots)                       |
+| `describeError(error, overrides?)`                                                                | the title/message/action copy every widget renders                                      |
+| `beginOAuthSignIn` · `fetchViewerSession` · `signOutViewerSession`                                | the flow behind the identity control                                                    |
+| `renderMarkdown` · `safeUrl`                                                                      | markdown rendering (raw HTML stripped) and URL sanitising                               |
+| `themeVarsToStyle` · `THEME_CSS_VARIABLES`                                                        | map `themeVars` onto the widget's CSS variables                                         |
+| `isEditWindowOpen` · `DEFAULT_EDIT_WINDOW_MINUTES` · `canModerate` · `moderationCommentToComment` · `sortThreadTree` | shared widget rules                                              |
+| `formatRelativeTime` · `collectThreadParticipants`                                                | Reddit-style short ages and the unique authors inside a reply subtree                    |
 
 Signatures and the complete type list live in `packages/client/src/index.ts`.
 
 ## Markdown
 
-Bodies render GitHub-flavored markdown (bold, italic, strikethrough, code, links, images, lists, quotes, tables, newlines) via a shared renderer in `@lst97-oss/last-comments-widgets/client`. Raw HTML is stripped, links allow `http(s):`/`mailto:` only. Every composer is a muted panel with icon toolbar (Bold/Italic/Quote/Code/Link/Bullet/Numbered), Write/Preview toggle, and a `Styling with Markdown is supported` hint.
+Bodies render GitHub-flavored markdown (bold, italic, strikethrough, code, links, images, lists, quotes, tables, newlines) via a shared renderer in `@lst97-oss/last-comments-widgets/client`. Raw HTML is stripped, links allow `http(s):`/`mailto:` only. Every composer is a muted panel with icon toolbar (Bold/Italic/Quote/Code/Link/Bullet/Numbered), Write/Preview toggle, a right-aligned live character count against the `bodyLimit` (default 10,000, counted before trimming; red once over, with the submit button disabled and the composer refusing to post), and a `Styling with Markdown is supported` hint.
 
 ## Requirements
 
@@ -234,13 +270,13 @@ bun run test:theme    # Build + browser theme regressions (Chrome installed)
 bun run build
 ```
 
-| Package | Linter | Formatter |
-| --- | --- | --- |
-| `react` | Biome recommended React rules + React Doctor (`check`) | Biome |
-| `vue` | ESLint + TypeScript ESLint + Vue recommended rules | Prettier (whole SFCs) |
-| `angular` | ESLint + TypeScript ESLint + Angular recommended and template accessibility rules | Prettier (including inline templates) |
-| `client`, `vanilla`, `theme` | Biome recommended rules | Biome |
-| `last-comments-widgets` (published) | — no source of its own; its `dist` is assembled from the others | — |
+| Package                             | Linter                                                                            | Formatter                             |
+| ----------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------- |
+| `react`                             | Biome recommended React rules + React Doctor (`check`)                            | Biome                                 |
+| `vue`                               | ESLint + TypeScript ESLint + Vue recommended rules                                | Prettier (whole SFCs)                 |
+| `angular`                           | ESLint + TypeScript ESLint + Angular recommended and template accessibility rules | Prettier (including inline templates) |
+| `client`, `vanilla`, `theme`        | Biome recommended rules                                                           | Biome                                 |
+| `last-comments-widgets` (published) | — no source of its own; its `dist` is assembled from the others                   | —                                     |
 
 Each package with source exposes `lint`, `lint:fix`, `format`, `format:check`, and `check` scripts — the published package has only `build`, since there is nothing in it to lint. TypeScript packages also expose `typecheck`. React, Angular, the client, and vanilla use `bun --check` (the direct form of `bun check`) so it always invokes the typechecker rather than the package's `check` script. Vue uses `vue-tsc` because Bun cannot resolve `.vue` imports or check SFC templates. Angular ESLint checks Angular templates; Angular template typechecking remains part of the Angular build. Biome excludes the Vue and Angular packages so the formatters do not overlap. Generated `dist` files are excluded from both toolchains.
 
@@ -266,4 +302,3 @@ Demos: `examples/react` (`bun run dev`, :5173), `examples/vue` (:5174), `example
 ## License
 
 MIT
-
