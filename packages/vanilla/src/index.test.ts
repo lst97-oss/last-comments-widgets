@@ -1,13 +1,18 @@
 import { describe, expect, test } from 'bun:test'
 import { buildCommentTree, type Comment, renderMarkdown } from '@last-comments-widgets/client'
 import {
+  applyVotes,
   errorMarkup,
   escapeHtml,
   insertPrefix,
   insertWrap,
+  observeInView,
+  pagerMarkup,
   parseThemeAttrs,
   renderCommentNode,
   renderCommentTree,
+  transition,
+  UI_INITIAL,
 } from './index'
 
 function comment(id: string, parentId: string | null, bodyMarkdown: string, extra?: Partial<Comment>): Comment {
@@ -24,9 +29,127 @@ function comment(id: string, parentId: string | null, bodyMarkdown: string, extr
     editedAt: null,
     score: 0,
     viewerVote: null,
+    authorRole: null,
     ...extra,
   }
 }
+
+describe('observeInView', () => {
+  const node = {} as Element
+  function fakeObserver() {
+    const state = {
+      constructed: 0,
+      observed: [] as Element[],
+      disconnected: 0,
+      callback: undefined as ((entries: { isIntersecting: boolean }[]) => void) | undefined,
+    }
+    class FakeObserver {
+      constructor(callback: (entries: { isIntersecting: boolean }[]) => void) {
+        state.constructed += 1
+        state.callback = callback
+      }
+      observe(value: Element) {
+        state.observed.push(value)
+      }
+      disconnect() {
+        state.disconnected += 1
+        state.callback = undefined
+      }
+    }
+    return { state, ctor: FakeObserver as unknown as typeof IntersectionObserver }
+  }
+
+  test('resolves immediately without lazy or an observer', () => {
+    const { state, ctor } = fakeObserver()
+    let entered = 0
+    expect(
+      observeInView(node, false, ctor, () => {
+        entered += 1
+      }),
+    ).toBeUndefined()
+    observeInView(node, true, undefined, () => {
+      entered += 1
+    })
+    expect(entered).toBe(2)
+    expect(state.constructed).toBe(0)
+  })
+
+  test('enters once when intersecting, then disconnects', () => {
+    const { state, ctor } = fakeObserver()
+    let entered = 0
+    observeInView(node, true, ctor, () => {
+      entered += 1
+    })
+    expect(state.observed).toEqual([node])
+    state.callback?.([{ isIntersecting: false }])
+    state.callback?.([{ isIntersecting: true }])
+    state.callback?.([{ isIntersecting: true }])
+    expect(entered).toBe(1)
+    expect(state.disconnected).toBe(1)
+  })
+})
+
+describe('pagerMarkup', () => {
+  test('shows a page label and disables edges', () => {
+    expect(pagerMarkup(1, 20, 5, false, false)).toBe('')
+    const pager = pagerMarkup(1, 20, 25, true, false)
+    expect(pager).toContain('Page <span aria-current="page"')
+    expect(pager).toContain('>1</span>')
+    expect(pager).toContain('data-action="page-prev" disabled')
+    expect(pager).not.toContain('data-action="page-next" disabled')
+    expect(pagerMarkup(2, 20, 25, false, true)).toContain('data-action="page-next" disabled')
+  })
+})
+
+describe('transition', () => {
+  test('one flag moves without touching the others', () => {
+    const next = transition(UI_INITIAL, { type: 'reply', value: 'c1' })
+    expect(next.replyTo).toBe('c1')
+    expect(next.editingId).toBeNull()
+    expect(UI_INITIAL.replyTo).toBeNull()
+    expect(transition(next, { type: 'moderation/pending', id: 'c1', value: true }).pendingModeration).toEqual({
+      c1: true,
+    })
+    expect(transition(next, { type: 'moderation/pending', id: 'c2', value: false }).pendingModeration).toEqual({
+      c2: false,
+    })
+  })
+
+  test('the latest error wins and a null clears only the action error', () => {
+    const first = transition(UI_INITIAL, {
+      type: 'error',
+      value: { code: null, title: 'A', message: 'a', action: 'none' },
+    })
+    const second = transition(first, { type: 'error', value: { code: null, title: 'B', message: 'b', action: 'none' } })
+    expect(second.actionError?.title).toBe('B')
+    expect(transition(second, { type: 'error', value: null }).actionError).toBeNull()
+  })
+
+  test('unknown actions throw', () => {
+    expect(() => transition(UI_INITIAL, { type: 'nope' } as never)).toThrow('Unknown UI action')
+  })
+})
+
+describe('applyVotes', () => {
+  const rows = [comment('a', null, 'A'), comment('b', null, 'B')]
+
+  test('patches only the voted row and keeps untouched rows by identity', () => {
+    const next = applyVotes(rows, { a: { score: 2, viewerVote: 1 } })
+    expect(next).not.toBe(rows)
+    expect(next[0]).not.toBe(rows[0])
+    expect(next[0].score).toBe(2)
+    expect(next[0].viewerVote).toBe(1)
+    expect(next[1]).toBe(rows[1])
+  })
+
+  test('empty overlay returns the input array', () => {
+    expect(applyVotes(rows, {})).toBe(rows)
+  })
+
+  test('unknown ids are ignored', () => {
+    expect(applyVotes(rows, { missing: { score: 9, viewerVote: -1 } })).toBe(rows)
+  })
+})
 
 describe('vanilla renderer', () => {
   test('nests replies under parents', () => {
@@ -121,7 +244,7 @@ describe('vanilla renderer', () => {
   test('panel composer has preview toggle and full toolbar', () => {
     const tree = buildCommentTree([comment('p', null, 'hi')])
     const html = renderCommentNode(tree[0], 0, { replyTo: 'p' })
-    expect(html).toContain('bg-muted/60')
+    expect(html).toContain('lc-composer')
     expect(html).toContain('data-action="preview"')
     expect(html).toContain('Write a reply…')
     expect(html).toContain('Styling with')
@@ -149,21 +272,27 @@ describe('vanilla renderer', () => {
     expect(signedIn).not.toContain('lc-turnstile')
   })
 
-  test('moderator rows render status-appropriate actions and hide votes', () => {
-    const visible = buildCommentTree([comment('v', null, 'hi', { userId: 'u1' })])
+  test('moderator rows render status-appropriate actions and votes', () => {
+    const visible = buildCommentTree([comment('v', null, 'hi', { userId: 'u1', score: 2, viewerVote: 1 })])
     const admin = renderCommentTree(visible, { viewerUserId: 'u1', viewerRole: 'admin' })
     expect(admin).toContain('data-moderation-action="hide"')
     expect(admin).toContain('data-moderation-action="pin"')
     expect(admin).toContain('data-moderation-action="delete"')
     expect(admin).toContain('data-action="block-user"')
-    expect(admin).not.toContain('data-action="vote"')
+    // The moderation payload carries vote state, so moderators vote in place.
+    expect(admin).toContain('data-action="vote"')
+    expect(admin).toContain('aria-pressed="true"')
+    expect(admin).toContain('>2</span>')
     expect(admin).not.toContain('data-action="delete" data-comment-id="v"')
 
+    // Hidden, deleted and locked-page rows never offer a vote: the endpoint
+    // rejects those clicks.
     const hidden = buildCommentTree([comment('h', null, 'hi', { status: 'hidden' })])
     const hiddenHtml = renderCommentTree(hidden, { viewerRole: 'moderator' })
     expect(hiddenHtml).toContain('data-moderation-action="restore"')
     expect(hiddenHtml).not.toContain('data-moderation-action="hide"')
     expect(hiddenHtml).toContain('>hidden</span>')
+    expect(hiddenHtml).not.toContain('data-action="vote"')
 
     const deleted = buildCommentTree([comment('d', null, 'hi', { status: 'deleted' })])
     const deletedHtml = renderCommentTree(deleted, { viewerRole: 'moderator' })
@@ -171,6 +300,10 @@ describe('vanilla renderer', () => {
     expect(deletedHtml).not.toContain('data-moderation-action="delete"')
     expect(deletedHtml).toContain('>deleted</span>')
     expect(deletedHtml).not.toContain('data-action="reply"')
+    expect(deletedHtml).not.toContain('data-action="vote"')
+
+    const locked = renderCommentTree(visible, { viewerRole: 'admin', hideVotes: true })
+    expect(locked).not.toContain('data-action="vote"')
   })
 
   test('pending moderation disables the row buttons', () => {

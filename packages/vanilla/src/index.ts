@@ -39,6 +39,9 @@ export type MountOptions = {
   site: string
   baseUrl: string
   pageUrl?: string
+  // Host-known thread id: moderator mode then addresses this page directly
+  // instead of matching `pageUrl` against the site's (capped) page list.
+  pageId?: string
   turnstileSiteKey?: string
   limit?: number
   theme?: Theme
@@ -50,6 +53,8 @@ export type MountOptions = {
   /** Embed below the fold: fetch only once the widget scrolls into view. */
   lazy?: boolean
   fetchImpl?: typeof fetch
+  /** Fires after a successful moderation action, lock change or moderator post. */
+  onModerated?: () => void
 }
 
 export type WidgetHandle = {
@@ -113,9 +118,32 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
 }
 
+function voteButtonClass(active: boolean): string {
+  return `rounded border border-border px-2 py-1 text-sm ${active ? 'bg-primary font-bold text-primary-foreground' : 'text-muted-foreground'}`
+}
+
 function voteButton(comment: Comment, value: VoteValue, label: string, glyph: string): string {
   const active = comment.viewerVote === value
-  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}" class="rounded border border-border px-2 py-1 text-sm ${active ? 'bg-primary font-bold text-primary-foreground' : 'text-muted-foreground'}">${glyph}</button>`
+  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}" class="${voteButtonClass(active)}">${glyph}</button>`
+}
+
+type RowParts = { body: string; date: string; initials: string; avatar: string | null }
+// Markdown, dates and avatars only change when the row object changes: a vote
+// patch or a reload creates new objects, so a WeakMap keeps repaints cheap.
+const rowPartsCache = new WeakMap<Comment, RowParts>()
+
+function commentParts(comment: Comment): RowParts {
+  let parts = rowPartsCache.get(comment)
+  if (!parts) {
+    parts = {
+      body: renderMarkdown(comment.bodyMarkdown),
+      date: formatDate(comment.createdAt),
+      initials: initials(comment.authorName),
+      avatar: safeUrl(comment.avatarUrl) ?? null,
+    }
+    rowPartsCache.set(comment, parts)
+  }
+  return parts
 }
 
 function initials(name: string): string {
@@ -173,15 +201,18 @@ export type CommentNodeOptions = {
   readOnly?: boolean
   pendingModeration?: Record<string, boolean>
   submitDisabled?: boolean
+  // Host-level flag (page locked); hidden/deleted rows hide votes regardless.
+  hideVotes?: boolean
 }
 
 function moderationButton(comment: Comment, action: ModerationAction, label: string, pending: boolean): string {
-  return `<button type="button" data-action="moderate" data-moderation-action="${action}" data-comment-id="${escapeHtml(comment.id)}" ${pending ? 'disabled' : ''} class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50">${label}</button>`
+  const destructive = action === 'delete' ? ' lc-action-destructive' : ''
+  return `<button type="button" data-action="moderate" data-moderation-action="${action}" data-comment-id="${escapeHtml(comment.id)}" ${pending ? 'disabled' : ''} class="lc-action${destructive} underline-offset-4 hover:underline disabled:opacity-50">${label}</button>`
 }
 
 function blockButton(comment: Comment, pending: boolean): string {
   const blocked = Boolean(comment.userBlocked)
-  return `<button type="button" data-action="block-user" data-comment-id="${escapeHtml(comment.id)}" data-blocked="${blocked}" ${pending ? 'disabled' : ''} class="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50">${blocked ? 'Unblock user' : 'Block user'}</button>`
+  return `<button type="button" data-action="block-user" data-comment-id="${escapeHtml(comment.id)}" data-blocked="${blocked}" ${pending ? 'disabled' : ''} class="lc-action underline-offset-4 hover:underline disabled:opacity-50">${blocked ? 'Unblock user' : 'Block user'}</button>`
 }
 
 export function renderCommentNode(node: ThreadNode, depth: number, options: CommentNodeOptions = {}): string {
@@ -210,11 +241,13 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   const canEdit = isOwner && isEditWindowOpen(comment.createdAt, Date.now(), editWindowMinutes)
   const canReplyHere = !(viewerRole && comment.status !== 'visible')
   const moderationPending = pendingModeration?.[comment.id] ?? false
-  const hideVotes = Boolean(viewerRole)
-  const avatarUrl = safeUrl(comment.avatarUrl)
-  const avatar = avatarUrl
-    ? `<img src="${escapeHtml(avatarUrl)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" class="h-8 w-8 rounded-full object-cover" />`
-    : `<span class="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium" aria-hidden="true">${escapeHtml(initials(comment.authorName))}</span>`
+  // The host hides votes list-wide (locked page) and hidden/deleted rows never
+  // offer them: voting is rejected in both cases.
+  const hideVotes = Boolean(options.hideVotes) || (Boolean(viewerRole) && comment.status !== 'visible')
+  const parts = commentParts(comment)
+  const avatar = parts.avatar
+    ? `<img src="${escapeHtml(parts.avatar)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" class="lc-avatar h-8 w-8 rounded-full object-cover" />`
+    : `<span class="lc-avatar flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium" aria-hidden="true">${escapeHtml(parts.initials)}</span>`
   const badges = `${comment.editedAt ? '<span class="text-xs text-muted-foreground">edited</span>' : ''}${comment.pinnedAt ? '<span class="text-xs text-muted-foreground">pinned</span>' : ''}${comment.status === 'hidden' ? '<span class="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">hidden</span>' : ''}${comment.status === 'deleted' ? '<span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">deleted</span>' : ''}`
   const score = readOnly
     ? `<span class="text-sm text-muted-foreground">${escapeHtml(String(comment.score))}</span>`
@@ -227,16 +260,16 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
       : `<div class="flex flex-wrap items-center gap-3 text-sm">
     ${
       canReplyHere
-        ? `<button type="button" data-action="reply" data-comment-id="${escapeHtml(comment.id)}" aria-expanded="${replyTo === comment.id}" class="font-medium text-primary underline-offset-4 hover:underline">Reply</button>`
+        ? `<button type="button" data-action="reply" data-comment-id="${escapeHtml(comment.id)}" aria-expanded="${replyTo === comment.id}" class="lc-action font-medium underline-offset-4 hover:underline">Reply</button>`
         : ''
     }
     ${
       canEdit
-        ? `<button type="button" data-action="edit" data-comment-id="${escapeHtml(comment.id)}" class="text-muted-foreground underline-offset-4 hover:underline">Edit</button>`
+        ? `<button type="button" data-action="edit" data-comment-id="${escapeHtml(comment.id)}" class="lc-action underline-offset-4 hover:underline">Edit</button>`
         : ''
     }${
       isOwner && !viewerRole
-        ? `<button type="button" data-action="delete" data-comment-id="${escapeHtml(comment.id)}" class="text-muted-foreground underline-offset-4 hover:underline">Delete</button>`
+        ? `<button type="button" data-action="delete" data-comment-id="${escapeHtml(comment.id)}" class="lc-action lc-action-destructive underline-offset-4 hover:underline">Delete</button>`
         : ''
     }
   </div>`
@@ -263,14 +296,14 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
     !readOnly && editingId === comment.id
       ? `<div class="my-3">${renderForm({ formId: `edit-${comment.id}`, initialBody: comment.bodyMarkdown, submitLabel: 'Save' })}
       <div class="mt-2"><button type="button" data-action="cancel-edit" class="rounded border border-border px-3 py-1 text-sm text-muted-foreground">Cancel</button></div></div>`
-      : `<div class="lc-markdown my-3 font-sans text-sm">${renderMarkdown(comment.bodyMarkdown)}</div>`
-  return `<article data-comment-id="${escapeHtml(comment.id)}" class="lc-comment min-w-0 ${depth > 0 ? 'lc-reply ml-6 border-l border-border pl-4' : ''}">
+      : `<div class="lc-markdown my-3 font-sans text-sm">${parts.body}</div>`
+  return `<article data-comment-id="${escapeHtml(comment.id)}" class="lc-comment min-w-0 ${depth > 0 ? 'lc-reply ml-6 border-l border-border' : ''}">
   <div class="flex flex-wrap items-center gap-2">
     ${avatar}
     <span class="min-w-0 break-words font-medium">${escapeHtml(comment.authorName)}</span>
-    <time class="text-xs text-muted-foreground" dateTime="${escapeHtml(comment.createdAt)}">${escapeHtml(formatDate(comment.createdAt))}</time>
+    <time class="text-xs text-muted-foreground" dateTime="${escapeHtml(comment.createdAt)}">${escapeHtml(parts.date)}</time>
     ${badges}
-    ${hideVotes ? '' : `<span class="ml-auto flex items-center gap-1">${score}</span>`}
+    ${hideVotes ? '' : `<span class="lc-vote ml-auto flex items-center gap-1">${score}</span>`}
   </div>
   ${body}
   ${actions}
@@ -282,6 +315,133 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
 
 export function renderCommentTree(nodes: ThreadNode[], options: CommentNodeOptions = {}): string {
   return nodes.map((n) => renderCommentNode(n, 0, options)).join('')
+}
+
+export type UiState = {
+  replyTo: string | null
+  editingId: string | null
+  identityOpen: boolean
+  needsSignIn: boolean
+  actionError: ErrorInfo | null
+  pendingModeration: Record<string, boolean>
+  lockPending: boolean
+  signInPending: boolean
+  signOutPending: boolean
+  // The identity error plus the flow its own retry button must re-run.
+  identityError: { info: ErrorInfo; retry: 'signin' | 'signout' } | null
+}
+
+export type UiAction =
+  | { type: 'reply'; value: string | null }
+  | { type: 'edit'; value: string | null }
+  | { type: 'identity/open'; value: boolean }
+  | { type: 'identity/error'; value: UiState['identityError'] }
+  | { type: 'signin/pending'; value: boolean }
+  | { type: 'signout/pending'; value: boolean }
+  | { type: 'signin/needed'; value: boolean }
+  | { type: 'error'; value: ErrorInfo | null }
+  | { type: 'moderation/pending'; id: string; value: boolean }
+  | { type: 'lock/pending'; value: boolean }
+
+export const UI_INITIAL: UiState = {
+  replyTo: null,
+  editingId: null,
+  identityOpen: false,
+  needsSignIn: false,
+  actionError: null,
+  pendingModeration: {},
+  lockPending: false,
+  signInPending: false,
+  signOutPending: false,
+  identityError: null,
+}
+
+// Pure so bun test covers every transition without a browser.
+export function transition(state: UiState, action: UiAction): UiState {
+  switch (action.type) {
+    case 'reply':
+      return { ...state, replyTo: action.value }
+    case 'edit':
+      return { ...state, editingId: action.value }
+    case 'identity/open':
+      return { ...state, identityOpen: action.value }
+    case 'identity/error':
+      return { ...state, identityError: action.value }
+    case 'signin/pending':
+      return { ...state, signInPending: action.value }
+    case 'signout/pending':
+      return { ...state, signOutPending: action.value }
+    case 'signin/needed':
+      return { ...state, needsSignIn: action.value }
+    case 'error':
+      return { ...state, actionError: action.value }
+    case 'moderation/pending':
+      return {
+        ...state,
+        pendingModeration: { ...state.pendingModeration, [action.id]: action.value },
+      }
+    case 'lock/pending':
+      return { ...state, lockPending: action.value }
+    default:
+      throw new Error(`Unknown UI action: ${JSON.stringify(action)}`)
+  }
+}
+
+type ObserverCtor = typeof IntersectionObserver
+
+// One-shot viewport gate shared by the list and the viewer; split out so the
+// three branches are testable without a DOM.
+export function observeInView(
+  element: Element | null,
+  lazy: boolean,
+  observerCtor: ObserverCtor | undefined,
+  onEnter: () => void,
+): (() => void) | undefined {
+  if (!lazy || !observerCtor) {
+    onEnter()
+    return
+  }
+  if (!element) return
+  const observer = new observerCtor(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        onEnter()
+        observer.disconnect()
+      }
+    },
+    { rootMargin: '200px' },
+  )
+  observer.observe(element)
+  return () => observer.disconnect()
+}
+
+export function pagerMarkup(page: number, limit: number, threads: number, hasMore: boolean, loading: boolean): string {
+  // `threads > limit` keeps the nav reachable after Prev returns to an
+  // exhausted page 1 (hasMore false), else Next is stranded.
+  if (!(page > 1 || hasMore || threads > limit)) return ''
+  const canPrev = page > 1 && !loading
+  const canNext = !loading && (hasMore || threads > page * limit)
+  return `<nav aria-label="Comments pagination" class="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <button type="button" data-action="page-prev" ${canPrev ? '' : 'disabled'} class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-50"><span aria-hidden="true">&lsaquo;</span> Previous</button>
+      <span class="text-muted-foreground">Page <span aria-current="page" class="font-medium text-foreground">${page}</span></span>
+      <button type="button" data-action="page-next" ${canNext ? '' : 'disabled'} class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-50">Next <span aria-hidden="true">&rsaquo;</span></button>
+    </nav>`
+}
+
+export type VotePatch = Record<string, { score: number; viewerVote: VoteValue | null }>
+
+// Vote results overlay the row cache: untouched rows keep their object, so
+// their cached markdown/date reuse on the next repaint.
+export function applyVotes(comments: Comment[], votes: VotePatch): Comment[] {
+  if (Object.keys(votes).length === 0) return comments
+  let changed = false
+  const next = comments.map((comment) => {
+    const patch = votes[comment.id]
+    if (!patch) return comment
+    changed = true
+    return { ...comment, score: patch.score, viewerVote: patch.viewerVote }
+  })
+  return changed ? next : comments
 }
 
 function renderForm(opts: {
@@ -303,7 +463,7 @@ function renderForm(opts: {
     ? `<button type="button" data-action="cancel-reply" class="rounded border border-border px-3 py-2 text-sm text-muted-foreground">Cancel</button>`
     : ''
   const submitLabel = escapeHtml(opts.submitLabel ?? (opts.parentId ? 'Post reply' : 'Post comment'))
-  return `<form data-lc-form="${escapeHtml(opts.formId)}" class="lc-composer rounded-xl border border-border bg-muted/60 p-3">
+  return `<form data-lc-form="${escapeHtml(opts.formId)}" class="lc-composer rounded-xl border border-border p-3">
     ${opts.parentId ? `<input type="hidden" name="parentId" value="${escapeHtml(opts.parentId)}" />` : ''}
     <div class="mb-1 flex items-center justify-end gap-0.5">
       <div class="mr-auto flex gap-0.5">
@@ -358,15 +518,15 @@ function skeletonBlock(count: number): string {
   const card = `<div class="rounded-lg border border-border p-4">
       <div class="flex items-center gap-3">
         <div class="h-8 w-8 shrink-0 animate-pulse rounded-full bg-muted"></div>
-        <div class="h-4 w-32 animate-pulse rounded bg-muted"></div>
+        <div class="h-4 w-32 lc-skeleton animate-pulse bg-muted"></div>
       </div>
       <div class="mt-3 space-y-2">
-        <div class="h-4 w-full animate-pulse rounded bg-muted"></div>
-        <div class="h-4 w-4/5 animate-pulse rounded bg-muted"></div>
+        <div class="h-4 w-full lc-skeleton animate-pulse bg-muted"></div>
+        <div class="h-4 w-4/5 lc-skeleton animate-pulse bg-muted"></div>
       </div>
       <div class="mt-3 flex gap-2">
-        <div class="h-6 w-16 animate-pulse rounded bg-muted"></div>
-        <div class="h-6 w-20 animate-pulse rounded bg-muted"></div>
+        <div class="h-6 w-16 lc-skeleton animate-pulse bg-muted"></div>
+        <div class="h-6 w-20 lc-skeleton animate-pulse bg-muted"></div>
       </div>
     </div>`
   return `<div role="status" aria-busy="true" class="grid gap-3">
@@ -430,8 +590,16 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   const pageUrl = options.pageUrl ?? (typeof window !== 'undefined' ? window.location.href : '')
   const viewerRole = options.viewerRole
   const moderator = canModerate(viewerRole)
+  // Thread the moderator UI is pointed at: the `pageId` option, or the page the
+  // URL matched. Rows and moderator posts both address it.
+  let threadPageId: string | null = null
 
   let comments: Comment[] = []
+  // Pending vote results, merged over the row cache on every paint.
+  let votes: VotePatch = {}
+  // The tree is derived from the row cache: reuse it while both inputs hold.
+  let treeKey: { comments: Comment[]; votes: VotePatch } | null = null
+  let treeCache: ThreadNode[] = []
   let status: 'loading' | 'ready' | 'error' = 'loading'
   let error: ErrorInfo | null = null
   let hasMore = true
@@ -439,22 +607,13 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   // from the tree built over it.
   let page = 1
   let loadingPage = false
-  let replyTo: string | null = null
-  let needsSignIn = false
-  let editingId: string | null = null
   let destroyed = false
   let pageLock: { pageId: string; locked: boolean } | null = null
-  let lockPending = false
-  let pendingModeration: Record<string, boolean> = {}
-  let actionError: ErrorInfo | null = null
-  let signInPending = false
-  // The identity error plus the flow its own retry button must re-run.
-  let identityError: { info: ErrorInfo; retry: 'signin' | 'signout' } | null = null
-  let signOutPending = false
   let session: ViewerSession | null = null
   let sessionStatus: 'loading' | 'ready' = 'loading'
   let commentAs: 'account' | 'anonymous' = 'account'
-  let identityOpen = false
+  // UI flags live in one immutable record; reads go through the current value.
+  let ui: UiState = UI_INITIAL
   // Shared by every render path so the composer, the turnstile box and the
   // nested reply forms never disagree about who is posting.
   function composerIdentity() {
@@ -468,15 +627,22 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
   const tokens = new Map<string, string>()
   const widgetIds = new Map<string, string>()
+  // Load generation: a response from an older load never commits.
+  let loadSeq = 0
   let mediaQuery: MediaQueryList | null = null
-  let observer: IntersectionObserver | null = null
 
   const { apply: applyTheme, cleanup: cleanupTheme } = setupTheme(el, theme, options)
+  // Theme variables are instance state: apply at mount and on media changes,
+  // never on every paint.
+  applyTheme()
 
   // First child of the composer form: which identity the comment posts as,
   // plus sign-in/sign-out. The panel is hand-rolled HTML driven by
   // `identityOpen` so a re-render keeps it consistent with the row.
   function signInRow(): string {
+    // Moderators post as themselves through the moderation endpoint: the
+    // anonymous/account switcher does not apply.
+    if (moderator) return ''
     const { signed, label } = composerIdentity()
     const signInUrl = safeUrl(options.signInUrl)
     // The identity is unknown until the session request settles; showing a
@@ -493,21 +659,21 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       ? `<button type="button" role="menuitemradio" aria-checked="${commentAs === 'account'}" data-action="identity-account" data-selected="${commentAs === 'account'}" class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent">${escapeHtml(label)} (you)</button>`
       : signInUrl
         ? `<a role="menuitem" href="${escapeHtml(signInUrl)}" class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent">Sign in…</a>`
-        : `<button type="button" role="menuitem" data-action="signin" ${signInPending ? 'disabled' : ''} class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50">${signInPending ? 'Signing in…' : 'Sign in…'}</button>`
+        : `<button type="button" role="menuitem" data-action="signin" ${ui.signInPending ? 'disabled' : ''} class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50">${ui.signInPending ? 'Signing in…' : 'Sign in…'}</button>`
     const signOut = session
       ? `<div role="separator" class="my-1 border-t border-border"></div>
-      <button type="button" role="menuitem" data-action="signout" ${signOutPending ? 'disabled' : ''} class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50">${signOutPending ? 'Signing out…' : 'Sign out'}</button>`
+      <button type="button" role="menuitem" data-action="signout" ${ui.signOutPending ? 'disabled' : ''} class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50">${ui.signOutPending ? 'Signing out…' : 'Sign out'}</button>`
       : ''
-    const panel = identityOpen
-      ? `<div role="menu" class="lc-identity-menu absolute left-0 top-full z-10 mt-1 max-w-[calc(100vw-2rem)] min-w-40 rounded-md border border-border bg-card p-1 shadow-md">${anonymous}${account}${signOut}</div>`
+    const panel = ui.identityOpen
+      ? `<div role="menu" class="lc-identity-menu absolute left-0 top-full mt-1 max-w-[calc(var(--spacing)*8)] min-w-40 rounded-md border border-border bg-card p-1">${anonymous}${account}${signOut}</div>`
       : ''
-    const alert = identityError
-      ? `<div class="w-full">${errorMarkup(identityError.info, { retryAction: identityError.retry })}</div>`
+    const alert = ui.identityError
+      ? `<div class="w-full">${errorMarkup(ui.identityError.info, { retryAction: ui.identityError.retry })}</div>`
       : ''
     return `<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span class="text-xs text-muted-foreground">Comment as</span>
       <div class="relative">
-        <button type="button" data-action="identity" aria-haspopup="menu" aria-expanded="${identityOpen}" ${sessionStatus === 'loading' || signInPending || signOutPending ? 'disabled' : ''} class="lc-identity-trigger max-w-[10rem] truncate rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">${trigger}</button>
+        <button type="button" data-action="identity" aria-haspopup="menu" aria-expanded="${ui.identityOpen}" ${sessionStatus === 'loading' || ui.signInPending || ui.signOutPending ? 'disabled' : ''} class="lc-identity-trigger max-w-[calc(var(--spacing)*40)] truncate rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">${trigger}</button>
         ${panel}
       </div>
     </div>${alert}`
@@ -521,7 +687,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   // A wide markdown table would otherwise widen the page (overflow is ignored
   // on a display:table box); scroll it inside its own box, which keeps the
   // table's own full-width layout intact on wide viewports.
-  function wrapMarkdownTables(root: HTMLElement) {
+  function wrapMarkdownTables(root: ParentNode) {
     for (const table of root.querySelectorAll<HTMLTableElement>('.lc-markdown table')) {
       const wrap = document.createElement('div')
       wrap.className = 'w-full overflow-x-auto'
@@ -530,21 +696,23 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     }
   }
 
-  // Switching identity toggles the guest name input, the turnstile box and any
-  // open reply forms, so the composer must be rebuilt — but from HTML, so put
-  // back whatever the visitor already typed in every composer.
-  function renderPreservingComposer() {
+  // A region repaint replaces its forms, so what the visitor already typed is
+  // restored afterwards; the top composer itself is never remounted.
+  function captureDrafts(root: ParentNode): Map<string, { body?: string; name?: string }> {
     const drafts = new Map<string, { body?: string; name?: string }>()
-    for (const form of el.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) {
+    for (const form of root.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) {
       const id = form.getAttribute('data-lc-form')
       if (!id) continue
       const body = form.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')?.value
       const name = form.querySelector<HTMLInputElement>('input[name="authorName"]')?.value
       if (body !== undefined || name !== undefined) drafts.set(id, { body, name })
     }
-    render()
+    return drafts
+  }
+
+  function restoreDrafts(root: ParentNode, drafts: Map<string, { body?: string; name?: string }>) {
     for (const [id, draft] of drafts) {
-      const form = el.querySelector<HTMLFormElement>(`form[data-lc-form="${CSS.escape(id)}"]`)
+      const form = root.querySelector<HTMLFormElement>(`form[data-lc-form="${CSS.escape(id)}"]`)
       const area = form?.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
       const input = form?.querySelector<HTMLInputElement>('input[name="authorName"]')
       if (area && draft.body !== undefined) area.value = draft.body
@@ -552,65 +720,97 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     }
   }
 
+  // Turnstile ids key DOM that a region repaint is about to remove.
+  function clearTurnstileWidgets(root: ParentNode) {
+    for (const form of root.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) {
+      const formId = form.getAttribute('data-lc-form') ?? 'top'
+      const id = widgetIds.get(formId)
+      if (id === undefined) continue
+      try {
+        window.turnstile?.remove?.(id)
+      } catch {
+        // Already gone with its DOM.
+      }
+      widgetIds.delete(formId)
+      tokens.delete(formId)
+    }
+  }
+
   function setIdentity(next: 'account' | 'anonymous') {
-    identityOpen = false
+    ui = transition(ui, { type: 'identity/open', value: false })
     if (commentAs !== next) {
       commentAs = next
       // A token minted for the previous identity must not be posted with this one.
       resetTurnstile('top')
-      renderPreservingComposer()
+      renderComposer()
+      renderList()
       return
     }
     refreshSignInRow()
   }
 
   async function signOut() {
-    signOutPending = true
-    identityError = null
-    identityOpen = false
+    ui = transition(ui, { type: 'signout/pending', value: true })
+    ui = transition(ui, { type: 'identity/error', value: null })
+    ui = transition(ui, { type: 'identity/open', value: false })
     refreshSignInRow()
     try {
       await signOutViewerSession({ baseUrl: options.baseUrl, fetchImpl: options.fetchImpl })
       session = null
       commentAs = 'anonymous'
     } catch (err) {
-      identityError = { info: describeError(err, { title: "Sign-out didn't work" }), retry: 'signout' }
+      ui = transition(ui, {
+        type: 'identity/error',
+        value: { info: describeError(err, { title: "Sign-out didn't work" }), retry: 'signout' },
+      })
     } finally {
-      signOutPending = false
+      ui = transition(ui, { type: 'signout/pending', value: false })
     }
-    renderPreservingComposer()
+    renderComposer()
+    renderList()
   }
 
   // Capture phase: the delegated click handler below runs on bubble, so the
   // menu must be tested against its pre-click state here.
   function onDocumentClick(ev: Event) {
-    if (!identityOpen) return
+    if (!ui.identityOpen) return
     const host = el.querySelector('[data-lc-signin]')
     if (ev.target instanceof Node && host?.contains(ev.target)) return
-    identityOpen = false
+    ui = transition(ui, { type: 'identity/open', value: false })
     refreshSignInRow()
   }
 
   function onDocumentKeydown(ev: KeyboardEvent) {
-    if (ev.key !== 'Escape' || !identityOpen) return
-    identityOpen = false
+    if (ev.key !== 'Escape' || !ui.identityOpen) return
+    ui = transition(ui, { type: 'identity/open', value: false })
     refreshSignInRow()
   }
 
   async function signIn() {
-    signInPending = true
-    identityError = null
-    identityOpen = false
+    ui = transition(ui, { type: 'signin/pending', value: true })
+    ui = transition(ui, { type: 'identity/error', value: null })
+    ui = transition(ui, { type: 'identity/open', value: false })
     refreshSignInRow()
     try {
       const url = await beginOAuthSignIn({ baseUrl: options.baseUrl, pageUrl, fetchImpl: options.fetchImpl })
       window.location.assign(url)
     } catch (err) {
-      identityError = { info: describeError(err, { title: "Sign-in didn't start" }), retry: 'signin' }
+      ui = transition(ui, {
+        type: 'identity/error',
+        value: { info: describeError(err, { title: "Sign-in didn't start" }), retry: 'signin' },
+      })
     } finally {
-      signInPending = false
+      ui = transition(ui, { type: 'signin/pending', value: false })
     }
     refreshSignInRow()
+  }
+
+  function currentTree(): ThreadNode[] {
+    if (!treeKey || treeKey.comments !== comments || treeKey.votes !== votes) {
+      treeKey = { comments, votes }
+      treeCache = buildCommentTree(applyVotes(comments, votes))
+    }
+    return treeCache
   }
 
   function listBody(): string {
@@ -620,57 +820,84 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       moderator && pageLock
         ? `<div class="flex items-center gap-2 rounded-lg border border-border p-3 text-sm">
         <span class="text-muted-foreground">${pageLock.locked ? 'Comments are locked on this page.' : 'Comments are open on this page.'}</span>
-        <button type="button" data-action="toggle-lock" ${lockPending ? 'disabled' : ''} class="ml-auto rounded border border-border px-3 py-1 text-sm disabled:opacity-50">${pageLock.locked ? 'Unlock' : 'Lock'}</button>
+        <button type="button" data-action="toggle-lock" ${ui.lockPending ? 'disabled' : ''} class="ml-auto rounded border border-border px-3 py-1 text-sm disabled:opacity-50">${pageLock.locked ? 'Unlock' : 'Lock'}</button>
       </div>`
         : ''
-    const actionBanner = actionError ? errorMarkup(actionError, { signInUrl }) : ''
+    const actionBanner = ui.actionError ? errorMarkup(ui.actionError, { signInUrl }) : ''
     if (status === 'loading' && comments.length === 0) return skeletonBlock(3)
     if (status === 'error' && comments.length === 0 && error) return errorMarkup(error, { signInUrl })
     if (status === 'ready' && comments.length === 0)
       return `${lockBar}${actionBanner}<p class="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground">No comments yet.</p>`
     // A page is a window over ROOTS: cutting rows would split a thread and
     // render its replies as phantom top-level comments.
-    const roots = buildCommentTree(comments)
+    const roots = currentTree()
     // A local vote/edit/delete empties the window without a refetch; fall back
     // to the last page that still has a thread instead of a blank list.
     if (page > 1 && roots.length <= (page - 1) * limit) page = Math.max(1, Math.ceil(roots.length / limit))
     const tree = renderCommentTree(roots.slice((page - 1) * limit, page * limit), {
-      replyTo,
+      replyTo: ui.replyTo,
       turnstileSiteKey: options.turnstileSiteKey,
       guest,
       viewerUserId,
       viewerRole,
-      editingId,
+      editingId: ui.editingId,
       editWindowMinutes: options.editWindowMinutes ?? DEFAULT_EDIT_WINDOW_MINUTES,
-      pendingModeration,
+      pendingModeration: ui.pendingModeration,
       submitDisabled: sessionStatus === 'loading',
+      hideVotes: Boolean(viewerRole) && Boolean(pageLock?.locked),
     })
-    const signIn = needsSignIn
+    const signIn = ui.needsSignIn
       ? `<p class="rounded-lg border border-border bg-card p-5 text-sm">Please sign in to vote. ${signInUrl ? `<a href="${escapeHtml(signInUrl)}" class="underline">Sign in</a>` : ''}</p>`
       : ''
-    const canPrev = page > 1 && !loadingPage
-    const canNext = !loadingPage && (hasMore || roots.length > page * limit)
-    // `roots.length > limit` keeps the nav reachable after Prev returns to an
-    // exhausted page 1 (hasMore false), else Next is stranded.
-    const pager =
-      page > 1 || hasMore || roots.length > limit
-        ? `<nav aria-label="Comments pagination" class="flex flex-wrap items-center justify-between gap-2 text-sm">
-      <button type="button" data-action="page-prev" ${canPrev ? '' : 'disabled'} class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-50"><span aria-hidden="true">&lsaquo;</span> Previous</button>
-      <span class="text-muted-foreground">Page <span aria-current="page" class="font-medium text-foreground">${page}</span></span>
-      <button type="button" data-action="page-next" ${canNext ? '' : 'disabled'} class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-50">Next <span aria-hidden="true">&rsaquo;</span></button>
-    </nav>`
-        : ''
+    const pager = pagerMarkup(page, limit, roots.length, hasMore, loadingPage)
     return `${lockBar}${actionBanner}${signIn}<div class="space-y-3">${tree}</div>${loadingPage ? `<div class="mt-3">${skeletonBlock(2)}</div>` : ''}<div class="mt-3">${pager}</div>`
+  }
+
+  function composerHtml(): string {
+    const { guest } = composerIdentity()
+    const signInHtml = `<div data-lc-signin>${signInRow()}</div>`
+    return renderForm({
+      turnstileSiteKey: options.turnstileSiteKey,
+      guest,
+      formId: 'top',
+      signInHtml,
+      submitDisabled: sessionStatus === 'loading',
+    })
+  }
+
+  // Identity-only repaint: the top composer keeps focus, selection and drafts.
+  function renderComposer() {
+    const composer = el.querySelector<HTMLElement>('[data-lc-composer]')
+    if (!composer) return
+    clearTurnstileWidgets(composer)
+    composer.innerHTML = composerHtml()
+    hydrateTurnstile()
+  }
+
+  // List-only repaint: the composer is never touched.
+  function renderList() {
+    const list = el.querySelector<HTMLElement>('[data-lc-list]')
+    if (!list) return
+    clearTurnstileWidgets(list)
+    const drafts = captureDrafts(list)
+    list.innerHTML = listBody()
+    restoreDrafts(list, drafts)
+    wrapMarkdownTables(list)
+    hydrateTurnstile()
   }
 
   function render() {
     if (destroyed) return
-    applyTheme()
-    const { guest } = composerIdentity()
-    const signInHtml = `<div data-lc-signin>${signInRow()}</div>`
-    el.innerHTML = `<section aria-label="Comments" class="space-y-4">${renderForm({ turnstileSiteKey: options.turnstileSiteKey, guest, formId: 'top', signInHtml, submitDisabled: sessionStatus === 'loading' })}${listBody()}</section>`
+    clearTurnstileWidgets(el)
+    el.innerHTML = `<section aria-label="Comments" class="space-y-4"><div data-lc-composer>${composerHtml()}</div><div data-lc-list>${listBody()}</div></section>`
     wrapMarkdownTables(el)
     hydrateTurnstile()
+  }
+
+  // Both regions exist after the first paint; later paints only refresh the list.
+  function paint() {
+    if (el.querySelector('[data-lc-composer]')) renderList()
+    else render()
   }
 
   function hydrateTurnstile() {
@@ -714,7 +941,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   // Known limit of this API: a reply created after its thread's page is passed
   // stays hidden until more rows load (the list endpoint has no per-thread
   // query).
-  async function loadWindow(pages: number) {
+  async function loadWindow(pages: number, seq: number): Promise<'ok' | 'stale'> {
     const window = await loadThreadWindow({
       site: options.site,
       baseUrl: options.baseUrl,
@@ -724,38 +951,51 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       pages,
       ...(pages > 1 ? { existing: comments } : {}),
     })
+    if (seq !== loadSeq) return 'stale'
     comments = window.comments
     hasMore = window.hasMore
+    return 'ok'
   }
 
   // Moderator branch: resolve this page from the site's page list, then read
   // its thread including hidden/deleted rows. `total` is exact, so the window
   // is filled by row count.
-  async function loadModeration(offset: number) {
+  async function loadModeration(offset: number, seq: number): Promise<'ok' | 'stale'> {
+    // A host-supplied `pageId` wins over the URL match: the page list is
+    // capped, so a match can miss on a busy site.
     const overview = await client.listModeration({ limit: 1 })
+    if (seq !== loadSeq) return 'stale'
     const normalized = normalizePageUrl(pageUrl)
-    const match = overview.pages.find((p) => normalizePageUrl(p.canonicalUrl) === normalized) ?? null
+    const match = options.pageId
+      ? (overview.pages.find((p) => p.id === options.pageId) ?? null)
+      : (overview.pages.find((p) => normalizePageUrl(p.canonicalUrl) === normalized) ?? null)
+    // Unknown lock state stays unknown: the lock bar is hidden rather than
+    // claiming the thread is open.
     pageLock = match ? { pageId: match.id, locked: match.isLocked } : null
-    if (!match) {
+    threadPageId = options.pageId ?? match?.id ?? null
+    if (!threadPageId) {
       if (offset === 0) comments = []
       hasMore = false
       status = 'ready'
-      return
+      return 'ok'
     }
-    const list = await client.listModeration({ pageId: match.id, limit, offset })
+    const list = await client.listModeration({ pageId: threadPageId, limit, offset })
+    if (seq !== loadSeq) return 'stale'
     const rows = list.comments.map(moderationCommentToComment)
     comments = offset === 0 ? rows : [...comments, ...rows]
     hasMore = comments.length < list.total
     status = 'ready'
+    return 'ok'
   }
 
-  async function fillModeration(target: number) {
+  async function fillModeration(target: number, seq: number): Promise<'ok' | 'stale'> {
     let before = comments.length
-    while (hasMore && buildCommentTree(comments).length < target) {
-      await loadModeration(comments.length)
+    while (hasMore && currentTree().length < target) {
+      if ((await loadModeration(comments.length, seq)) === 'stale') return 'stale'
       if (comments.length === before) break
       before = comments.length
     }
+    return 'ok'
   }
 
   // A failed page fetch keeps the cache on screen; only a failed first load
@@ -779,45 +1019,48 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   // whenever the stream holds them. Every reload goes through here (page = 1);
   // `preserveDraft` is for reloads the user triggered while a failure was on
   // screen, which must not take a half-written comment with them.
-  async function initialLoad(preserveDraft = false) {
-    const repaint = preserveDraft ? renderPreservingComposer : render
+  async function initialLoad() {
+    const seq = ++loadSeq
     loadingPage = true
     page = 1
     status = 'loading'
     error = null
-    actionError = null
-    repaint()
+    ui = transition(ui, { type: 'error', value: null })
+    paint()
     try {
-      if (moderator) {
-        await loadModeration(0)
-        await fillModeration(limit)
-      } else {
-        await loadWindow(1)
-      }
+      const result = moderator
+        ? (await loadModeration(0, seq)) === 'stale'
+          ? 'stale'
+          : await fillModeration(limit, seq)
+        : await loadWindow(1, seq)
+      if (destroyed || result === 'stale' || seq !== loadSeq) return
       status = 'ready'
+      // A committed reload supersedes every pending vote patch.
+      votes = {}
     } catch (err) {
-      if (destroyed) return
+      if (destroyed || seq !== loadSeq) return
       loadFailure(err, true)
     }
     loadingPage = false
-    repaint()
+    paint()
   }
 
   async function nextPage() {
     if (loadingPage) return
+    const seq = ++loadSeq
     loadingPage = true
-    renderPreservingComposer()
+    renderList()
     // Fill the DESTINATION window before rendering it.
     try {
-      if (moderator) await fillModeration((page + 1) * limit)
-      else await loadWindow(page + 1)
+      const result = moderator ? await fillModeration((page + 1) * limit, seq) : await loadWindow(page + 1, seq)
+      if (destroyed || result === 'stale' || seq !== loadSeq) return
     } catch (err) {
-      if (destroyed) return
+      if (destroyed || seq !== loadSeq) return
       loadFailure(err, false)
     }
     loadingPage = false
-    if (buildCommentTree(comments).length > page * limit) page += 1
-    renderPreservingComposer()
+    if (currentTree().length > page * limit) page += 1
+    renderList()
   }
 
   async function submit(form: HTMLFormElement) {
@@ -845,23 +1088,39 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const anonymous = composerIdentity().guest
     try {
       const isTopLevel = typeof parent !== 'string' || !parent
-      await client.postComment({
-        url: pageUrl,
-        bodyMarkdown,
-        anonymous,
-        ...(isTopLevel && typeof document !== 'undefined' ? { title: document.title } : {}),
-        ...(authorName ? { authorName } : {}),
-        ...(typeof parent === 'string' && parent ? { parentId: parent } : {}),
-        ...(tokens.get(formId) ? { verificationToken: tokens.get(formId) } : {}),
-      })
+      // Moderators post through the moderation endpoint: the public create path
+      // checks the site's origin allow-list, which a dashboard origin is not on.
+      if (moderator && threadPageId) {
+        await client.createModerationComment({
+          pageId: threadPageId,
+          bodyMarkdown,
+          ...(typeof parent === 'string' && parent ? { parentId: parent } : {}),
+        })
+      } else {
+        await client.postComment({
+          url: pageUrl,
+          bodyMarkdown,
+          anonymous,
+          ...(isTopLevel && typeof document !== 'undefined' ? { title: document.title } : {}),
+          ...(authorName ? { authorName } : {}),
+          ...(typeof parent === 'string' && parent ? { parentId: parent } : {}),
+          ...(tokens.get(formId) ? { verificationToken: tokens.get(formId) } : {}),
+        })
+      }
       resetTurnstile(formId)
-      replyTo = null
+      // The composer stays mounted, so clear the submitted fields by hand.
+      const area = form.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
+      if (area) area.value = ''
+      const nameInput = form.querySelector<HTMLInputElement>('input[name="authorName"]')
+      if (nameInput) nameInput.value = ''
+      ui = transition(ui, { type: 'reply', value: null })
       await initialLoad()
+      if (moderator) options.onModerated?.()
     } catch (err) {
       resetTurnstile(formId)
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED' && options.signInUrl) {
-        needsSignIn = true
-        renderPreservingComposer()
+        ui = transition(ui, { type: 'signin/needed', value: true })
+        renderList()
         return
       }
       fail(describeError(err, { title: "Your comment wasn't posted" }))
@@ -871,22 +1130,54 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
 
   async function vote(commentId: string, value: VoteValue) {
     const current = comments.find((c) => c.id === commentId)
-    actionError = null
+    ui = transition(ui, { type: 'error', value: null })
     try {
-      const summary =
-        current?.viewerVote === value ? await client.clearVote(commentId) : await client.castVote(commentId, value)
-      comments = comments.map((c) =>
-        c.id === commentId ? { ...c, score: summary.score, viewerVote: summary.viewerVote } : c,
-      )
-      needsSignIn = false
+      // Moderators vote through the moderation endpoint: the public vote route
+      // checks the site's origin allow-list, which a dashboard origin is not on.
+      const clear = current?.viewerVote === value
+      const summary = moderator
+        ? await client.setModerationVote({ commentId, value: clear ? null : value })
+        : clear
+          ? await client.clearVote(commentId)
+          : await client.castVote(commentId, value)
+      // Only the voted row changes: patch its DOM instead of repainting the
+      // list (a full repaint would drop composer focus and every draft).
+      const hadNotice = ui.needsSignIn || ui.actionError !== null
+      votes = { ...votes, [commentId]: { score: summary.score, viewerVote: summary.viewerVote } }
+      ui = transition(ui, { type: 'signin/needed', value: false })
+      ui = transition(ui, { type: 'error', value: null })
+      if (hadNotice) {
+        renderList()
+        return
+      }
+      patchVoteRow(commentId)
+      return
     } catch (err) {
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') {
-        needsSignIn = true
+        ui = transition(ui, { type: 'signin/needed', value: true })
       } else {
-        actionError = describeError(err, { title: "Your vote wasn't saved" })
+        ui = transition(ui, {
+          type: 'error',
+          value: describeError(err, { title: "Your vote wasn't saved" }),
+        })
       }
     }
-    renderPreservingComposer()
+    renderList()
+  }
+
+  function patchVoteRow(commentId: string) {
+    const patch = votes[commentId]
+    const article = el.querySelector(`article[data-comment-id="${CSS.escape(commentId)}"]`)
+    const header = article?.firstElementChild
+    if (!patch || !header) return
+    const score = header.querySelector('[aria-label="Score"]')
+    if (score) score.textContent = String(patch.score)
+    // `firstElementChild` scopes this to the row's own headline, never a nested reply.
+    for (const button of header.querySelectorAll<HTMLElement>('button[data-action="vote"]')) {
+      const active = patch.viewerVote === Number(button.getAttribute('data-value'))
+      button.setAttribute('aria-pressed', String(active))
+      button.className = voteButtonClass(active)
+    }
   }
 
   function applyTextEdit(
@@ -946,7 +1237,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     if (!article || !form) return
     const raw = String(new FormData(form).get('bodyMarkdown') ?? '').trim()
     const errBox = article.querySelector('[data-lc-form-error]')
-    actionError = null
+    ui = transition(ui, { type: 'error', value: null })
     if (!raw) {
       if (errBox) {
         errBox.innerHTML = errorMarkup(INVALID_BODY)
@@ -955,9 +1246,13 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       return
     }
     try {
-      const updated = await client.editOwnComment({ commentId, bodyMarkdown: raw })
+      // Moderators edit through the moderation endpoint for the same reason they
+      // post through it: the public PATCH checks the site's origins.
+      const updated = moderator
+        ? await client.editModerationComment({ commentId, bodyMarkdown: raw })
+        : await client.editOwnComment({ commentId, bodyMarkdown: raw })
       comments = comments.map((c) => (c.id === commentId ? updated : c))
-      editingId = null
+      ui = transition(ui, { type: 'edit', value: null })
     } catch (err) {
       const info = describeError(err, { title: "Your edit wasn't saved" })
       // The editor stays open (including when the window expired, so the copy
@@ -968,74 +1263,89 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         errBox.classList.remove('hidden')
         return
       }
-      actionError = info
-      renderPreservingComposer()
+      ui = transition(ui, { type: 'error', value: info })
+      renderList()
       return
     }
-    renderPreservingComposer()
+    renderList()
   }
 
   async function removeComment(commentId: string) {
     if (typeof confirm !== 'undefined' && !confirm('Delete this comment?')) return
-    actionError = null
+    ui = transition(ui, { type: 'error', value: null })
     try {
       await client.deleteOwnComment(commentId)
       comments = comments.filter((c) => c.id !== commentId)
-      if (editingId === commentId) editingId = null
+      if (ui.editingId === commentId) ui = transition(ui, { type: 'edit', value: null })
     } catch (err) {
-      actionError = describeError(err, { title: "Your comment wasn't deleted" })
+      ui = transition(ui, {
+        type: 'error',
+        value: describeError(err, { title: "Your comment wasn't deleted" }),
+      })
     }
-    renderPreservingComposer()
+    renderList()
   }
 
   async function moderate(commentId: string, action: ModerationAction) {
-    pendingModeration = { ...pendingModeration, [commentId]: true }
-    actionError = null
-    renderPreservingComposer()
+    ui = transition(ui, { type: 'moderation/pending', id: commentId, value: true })
+    ui = transition(ui, { type: 'error', value: null })
+    renderList()
     try {
       const patch = await client.moderateComment({ commentId, action })
       comments = comments.map((c) =>
         c.id === commentId ? { ...c, status: patch.status, pinnedAt: patch.pinnedAt } : c,
       )
+      options.onModerated?.()
     } catch (err) {
-      actionError = describeError(err, { title: 'That moderation action failed' })
+      ui = transition(ui, {
+        type: 'error',
+        value: describeError(err, { title: 'That moderation action failed' }),
+      })
     } finally {
-      pendingModeration = { ...pendingModeration, [commentId]: false }
+      ui = transition(ui, { type: 'moderation/pending', id: commentId, value: false })
     }
-    renderPreservingComposer()
+    renderList()
   }
 
   async function blockUser(commentId: string, blocked: boolean) {
     const userId = comments.find((c) => c.id === commentId)?.userId
     if (!userId) return
-    pendingModeration = { ...pendingModeration, [commentId]: true }
-    actionError = null
-    renderPreservingComposer()
+    ui = transition(ui, { type: 'moderation/pending', id: commentId, value: true })
+    ui = transition(ui, { type: 'error', value: null })
+    renderList()
     try {
       await client.setUserBlocked({ userId, blocked })
       comments = comments.map((c) => (c.userId === userId ? { ...c, userBlocked: blocked } : c))
+      options.onModerated?.()
     } catch (err) {
-      actionError = describeError(err, { title: 'That moderation action failed' })
+      ui = transition(ui, {
+        type: 'error',
+        value: describeError(err, { title: 'That moderation action failed' }),
+      })
     } finally {
-      pendingModeration = { ...pendingModeration, [commentId]: false }
+      ui = transition(ui, { type: 'moderation/pending', id: commentId, value: false })
     }
-    renderPreservingComposer()
+    renderList()
   }
 
   async function toggleLock() {
     if (!pageLock) return
-    lockPending = true
-    actionError = null
-    renderPreservingComposer()
+    ui = transition(ui, { type: 'lock/pending', value: true })
+    ui = transition(ui, { type: 'error', value: null })
+    renderList()
     try {
       const next = await client.setPageLocked({ pageId: pageLock.pageId, locked: !pageLock.locked })
       pageLock = { pageId: next.id, locked: next.isLocked }
+      options.onModerated?.()
     } catch (err) {
-      actionError = describeError(err, { title: 'That moderation action failed' })
+      ui = transition(ui, {
+        type: 'error',
+        value: describeError(err, { title: 'That moderation action failed' }),
+      })
     } finally {
-      lockPending = false
+      ui = transition(ui, { type: 'lock/pending', value: false })
     }
-    renderPreservingComposer()
+    renderList()
   }
 
   function onClick(ev: Event) {
@@ -1043,11 +1353,11 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     if (!target || !el.contains(target)) return
     const action = target.getAttribute('data-action')
     if (action === 'preview') togglePreview(target, target.getAttribute('aria-pressed') !== 'true')
-    else if (action === 'error-retry') void initialLoad(true)
+    else if (action === 'error-retry') void initialLoad()
     else if (action === 'error-sign-in') void signIn()
     else if (action === 'signin') void signIn()
     else if (action === 'identity') {
-      identityOpen = !identityOpen
+      ui = transition(ui, { type: 'identity/open', value: !ui.identityOpen })
       refreshSignInRow()
     } else if (action === 'identity-anonymous') setIdentity('anonymous')
     else if (action === 'identity-account') setIdentity('account')
@@ -1055,25 +1365,25 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     else if (action === 'page-prev') {
       if (page > 1 && !loadingPage) {
         page -= 1
-        renderPreservingComposer()
+        renderList()
       }
     } else if (action === 'page-next') void nextPage()
     else if (action === 'reply') {
-      replyTo = target.getAttribute('data-comment-id')
-      renderPreservingComposer()
+      ui = transition(ui, { type: 'reply', value: target.getAttribute('data-comment-id') })
+      renderList()
     } else if (action === 'cancel-reply') {
-      replyTo = null
-      renderPreservingComposer()
+      ui = transition(ui, { type: 'reply', value: null })
+      renderList()
     } else if (action === 'vote') {
       const id = target.getAttribute('data-comment-id')
       const value = Number(target.getAttribute('data-value')) as VoteValue
       if (id && (value === 1 || value === -1)) void vote(id, value)
     } else if (action === 'edit') {
-      editingId = target.getAttribute('data-comment-id')
-      renderPreservingComposer()
+      ui = transition(ui, { type: 'edit', value: target.getAttribute('data-comment-id') })
+      renderList()
     } else if (action === 'cancel-edit') {
-      editingId = null
-      renderPreservingComposer()
+      ui = transition(ui, { type: 'edit', value: null })
+      renderList()
     } else if (action === 'delete') {
       const id = target.getAttribute('data-comment-id')
       if (id) void removeComment(id)
@@ -1125,7 +1435,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       // Only the composer's guest fields move without an identity change, and
       // rebuilding the whole widget would drop what was typed while we waited.
       if (composerIdentity().guest !== wasGuest) {
-        renderPreservingComposer()
+        renderComposer()
+        renderList()
         return
       }
       refreshSignInRow()
@@ -1135,28 +1446,20 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     })
     void initialLoad()
   }
-  if (!options.lazy || typeof IntersectionObserver === 'undefined') {
-    startLoading()
-  } else {
-    // Paint the placeholder so a zero-height root still has an intersection
-    // to report, then fetch on the first hit only.
-    render()
-    observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return
-        observer?.disconnect()
-        observer = null
-        startLoading()
-      },
-      { rootMargin: '200px' },
-    )
-    observer.observe(el)
-  }
+  // Paint the placeholder so a zero-height root still has an intersection to
+  // report, then fetch on the first hit only.
+  if (options.lazy && typeof IntersectionObserver !== 'undefined') render()
+  const stopObserver = observeInView(
+    el,
+    Boolean(options.lazy),
+    typeof IntersectionObserver === 'undefined' ? undefined : IntersectionObserver,
+    startLoading,
+  )
 
   return {
     destroy() {
       destroyed = true
-      observer?.disconnect()
+      stopObserver?.()
       mediaQuery?.removeEventListener('change', applyTheme)
       cleanupTheme()
       el.removeEventListener('click', onClick)
@@ -1177,6 +1480,9 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
   // Read-only twin of the list's window model: `rows` is the accumulated row
   // cache, a page shows `limit` threads cut from the tree built over it.
   let rows: Comment[] = []
+  // The tree is derived from the row cache: reuse it while the cache holds.
+  let treeKey: Comment[] | null = null
+  let treeCache: ThreadNode[] = []
   let page = 1
   let hasMore = true
   let loadingPage = false
@@ -1190,14 +1496,23 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
   }
   let destroyed = false
   let mediaQuery: MediaQueryList | null = null
-  let observer: IntersectionObserver | null = null
+  // Load generation: a response from an older load never commits.
+  let loadSeq = 0
 
   const { apply: applyTheme, cleanup: cleanupTheme } = setupTheme(el, theme, options)
+  applyTheme()
+
+  function currentTree(): ThreadNode[] {
+    if (treeKey !== rows) {
+      treeKey = rows
+      treeCache = buildCommentTree(rows)
+    }
+    return treeCache
+  }
 
   function paint() {
     if (destroyed) return
-    applyTheme()
-    const roots = buildCommentTree(rows)
+    const roots = currentTree()
     const body =
       status === 'loading'
         ? skeletonBlock(3)
@@ -1207,24 +1522,13 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
           : roots.length === 0
             ? `<p class="text-sm text-muted-foreground">No comments yet.</p>`
             : `<div class="grid gap-4">${renderCommentTree(roots.slice((page - 1) * limit, page * limit), { readOnly: true })}</div>`
-    const canPrev = page > 1 && !loadingPage
-    const canNext = !loadingPage && (hasMore || roots.length > page * limit)
-    // `roots.length > limit` keeps the nav reachable after Prev returns to an
-    // exhausted page 1 (hasMore false), else Next is stranded.
-    const pager =
-      page > 1 || hasMore || roots.length > limit
-        ? `<nav aria-label="Comments pagination" class="flex flex-wrap items-center justify-between gap-2 text-sm">
-      <button type="button" data-action="page-prev" ${canPrev ? '' : 'disabled'} class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-50"><span aria-hidden="true">&lsaquo;</span> Previous</button>
-      <span class="text-muted-foreground">Page <span aria-current="page" class="font-medium text-foreground">${page}</span></span>
-      <button type="button" data-action="page-next" ${canNext ? '' : 'disabled'} class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-50">Next <span aria-hidden="true">&rsaquo;</span></button>
-    </nav>`
-        : ''
+    const pager = pagerMarkup(page, limit, roots.length, hasMore, loadingPage)
     const pending = loadingPage && status === 'ready' ? `<div>${skeletonBlock(2)}</div>` : ''
     el.innerHTML = `<section aria-label="Comments" class="grid gap-4">${body}${pending}${pager}</section>`
   }
 
   // Same shared loader as the list, so the viewer cannot drift from it.
-  async function loadWindow(pages: number) {
+  async function loadWindow(pages: number, seq: number): Promise<'ok' | 'stale'> {
     const window = await loadThreadWindow({
       site: options.site,
       baseUrl: options.baseUrl,
@@ -1234,20 +1538,23 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
       pages,
       ...(pages > 1 ? { existing: rows } : {}),
     })
+    if (seq !== loadSeq) return 'stale'
     rows = window.comments
     hasMore = window.hasMore
+    return 'ok'
   }
 
   async function load() {
+    const seq = ++loadSeq
     loadingPage = true
     page = 1
     status = 'loading'
     paint()
     try {
-      await loadWindow(1)
+      if ((await loadWindow(1, seq)) === 'stale' || destroyed || seq !== loadSeq) return
       status = 'ready'
     } catch (err) {
-      if (destroyed) return
+      if (destroyed || seq !== loadSeq) return
       status = 'error'
       failure = describeError(err, { title: 'Comments failed to load' })
     }
@@ -1257,15 +1564,17 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
 
   async function nextPage() {
     if (loadingPage) return
+    const seq = ++loadSeq
     loadingPage = true
     paint()
     try {
-      await loadWindow(page + 1)
+      if ((await loadWindow(page + 1, seq)) === 'stale' || destroyed || seq !== loadSeq) return
     } catch {
+      if (destroyed || seq !== loadSeq) return
       // Keep the loaded page; the nav simply stays put.
     }
     loadingPage = false
-    if (buildCommentTree(rows).length > page * limit) page += 1
+    if (currentTree().length > page * limit) page += 1
     paint()
   }
 
@@ -1287,28 +1596,20 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
     mediaQuery.addEventListener('change', applyTheme)
   }
-  if (!options.lazy || typeof IntersectionObserver === 'undefined') {
-    void load()
-  } else {
-    // Paint the placeholder so a zero-height root still has an intersection
-    // to report, then fetch on the first hit only.
-    paint()
-    observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return
-        observer?.disconnect()
-        observer = null
-        void load()
-      },
-      { rootMargin: '200px' },
-    )
-    observer.observe(el)
-  }
+  // Paint the placeholder so a zero-height root still has an intersection to
+  // report, then fetch on the first hit only.
+  if (options.lazy && typeof IntersectionObserver !== 'undefined') paint()
+  const stopObserver = observeInView(
+    el,
+    Boolean(options.lazy),
+    typeof IntersectionObserver === 'undefined' ? undefined : IntersectionObserver,
+    () => void load(),
+  )
 
   return {
     destroy() {
       destroyed = true
-      observer?.disconnect()
+      stopObserver?.()
       mediaQuery?.removeEventListener('change', applyTheme)
       cleanupTheme()
       el.removeEventListener('click', onClick)
