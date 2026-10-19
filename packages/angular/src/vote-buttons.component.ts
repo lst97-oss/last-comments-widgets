@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core'
+import { Component, input, output } from '@angular/core'
 import type { Comment, VoteValue } from '@last-comments-widgets/client'
 
 export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: true }
@@ -8,7 +8,7 @@ export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: 
   selector: 'lc-vote-buttons',
   standalone: true,
   template: `
-    <div class="flex items-center gap-1" role="group" aria-label="Vote on comment">
+    <div class="lc-vote flex items-center gap-1" role="group" aria-label="Vote on comment">
       <button
         type="button"
         [attr.aria-pressed]="comment().viewerVote === 1"
@@ -42,8 +42,6 @@ export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: 
 export class LcVoteButtonsComponent {
   comment = input.required<Comment>()
   vote = output<VoteEvent>()
-  scoreLabel = computed(() => String(this.comment().score))
-
   cast(value: VoteValue): void {
     const comment = this.comment()
     if (comment.viewerVote === value) this.vote.emit({ id: comment.id, clear: true })

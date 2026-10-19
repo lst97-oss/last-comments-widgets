@@ -1,15 +1,12 @@
-import { CommonModule } from '@angular/common'
 import {
-  type AfterViewInit,
+  afterNextRender,
   Component,
   computed,
+  DestroyRef,
   ElementRef,
   effect,
-  HostListener,
   inject,
   input,
-  type OnDestroy,
-  type OnInit,
   output,
   signal,
   viewChild,
@@ -39,9 +36,12 @@ import {
   type WidgetTheme,
 } from '@last-comments-widgets/client'
 import { LcCommentErrorComponent } from './comment-error.component'
+import { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
 import { LcCommentListComponent } from './comment-list.component'
-import type { Theme } from './types'
+import { observeInView } from './observe-in-view'
+import { prefersDark, subscribeSystemTheme } from './theme-media'
+import { applyVoteOverlay, type Theme, type VoteOverlay, resolvePageUrl } from './types'
 import type { VoteEvent } from './vote-buttons.component'
 
 type Status = 'loading' | 'ready' | 'error'
@@ -52,9 +52,9 @@ type Status = 'loading' | 'ready' | 'error'
 @Component({
   selector: 'lc-comments',
   standalone: true,
-  imports: [CommonModule, LcCommentFormComponent, LcCommentListComponent, LcCommentErrorComponent],
+  imports: [LcCommentFormComponent, LcCommentListComponent, LcCommentErrorComponent, LcCommentSkeletonsComponent],
   template: `
-    <div class="lc-comments grid gap-4" [class.dark]="dark()" [ngStyle]="themeStyle()">
+    <div class="lc-comments grid gap-4" [class.dark]="dark()" [style]="themeStyle()">
       @if (moderator() && pageLock(); as lock) {
         <div class="flex flex-wrap items-center gap-2 rounded-lg border border-border p-3 text-sm">
           <span class="text-muted-foreground">
@@ -88,83 +88,87 @@ type Status = 'loading' | 'ready' | 'error'
         (submitted)="onTopLevelSubmit($event)"
         (signIn)="signInFromError()"
       >
-        <!-- One root node per block: NG8011 refuses to match the [lcSignIn] slot otherwise. -->
+        <!-- One root node per block: NG8011 refuses to match the [lcSignIn] slot otherwise.
+             Moderators post as themselves through the moderation endpoint, so the
+             anonymous/account switcher does not apply and the block stays empty. -->
         <div lcSignIn class="flex min-w-0 items-center gap-2 text-sm">
-          <span class="text-muted-foreground">Comment as</span>
-          <div #identityMenu class="relative">
-            <button
-              type="button"
-              aria-haspopup="menu"
-              [attr.aria-expanded]="identityOpen()"
-              [disabled]="sessionLoading() || signInPending() || signOutPending()"
-              (click)="identityOpen.set(!identityOpen())"
-              class="lc-identity-trigger inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
-            >
-              @if (sessionLoading()) {
-                <span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
-              } @else {
-                <span class="max-w-[10rem] truncate">{{ identityLabel() }}</span>
-              }
-              <span aria-hidden="true">▾</span>
-            </button>
-            @if (identityOpen()) {
-              <div
-                role="menu"
-                class="lc-identity-menu absolute left-0 z-10 mt-1 w-48 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-1 text-sm shadow-md"
+          @if (!moderator()) {
+            <span class="text-muted-foreground">Comment as</span>
+            <div #identityMenu class="relative">
+              <button
+                type="button"
+                aria-haspopup="menu"
+                [attr.aria-expanded]="identityOpen()"
+                [disabled]="sessionLoading() || signInPending() || signOutPending()"
+                (click)="identityOpen.set(!identityOpen())"
+                class="lc-identity-trigger inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
               >
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  [attr.aria-checked]="commentAs() === 'anonymous'"
-                  (click)="selectIdentity('anonymous')"
-                  class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                @if (sessionLoading()) {
+                  <span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
+                } @else {
+                  <span class="max-w-[calc(var(--spacing)*40)] truncate">{{ identityLabel() }}</span>
+                }
+                <span aria-hidden="true">▾</span>
+              </button>
+              @if (identityOpen()) {
+                <div
+                  role="menu"
+                  class="lc-identity-menu absolute left-0 mt-1 w-48 max-w-[calc(var(--spacing)*8)] rounded-lg border border-border bg-popover p-1 text-sm"
                 >
-                  Anonymous
-                </button>
-                @if (signedIn()) {
                   <button
                     type="button"
                     role="menuitemradio"
-                    [attr.aria-checked]="commentAs() === 'account'"
-                    (click)="selectIdentity('account')"
-                    class="lc-identity-item block w-full truncate rounded-md px-2 py-1.5 text-left hover:bg-accent"
-                  >
-                    {{ identityName() }} (you)
-                  </button>
-                } @else if (safeSignInUrl(); as signInHref) {
-                  <a
-                    role="menuitem"
-                    [href]="signInHref"
-                    (click)="identityOpen.set(false)"
+                    [attr.aria-checked]="commentAs() === 'anonymous'"
+                    (click)="selectIdentity('anonymous')"
                     class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent"
-                    >Sign in…</a
                   >
-                } @else {
-                  <button
-                    type="button"
-                    role="menuitem"
-                    [disabled]="signInPending()"
-                    (click)="startOAuthSignIn()"
-                    class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
-                  >
-                    Sign in…
+                    Anonymous
                   </button>
-                }
-                @if (session() !== null) {
-                  <div role="separator" class="my-1 h-px bg-border"></div>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    [disabled]="signOutPending()"
-                    (click)="signOut()"
-                    class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
-                  >
-                    Sign out
-                  </button>
-                }
-              </div>
-            }
-          </div>
+                  @if (signedIn()) {
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      [attr.aria-checked]="commentAs() === 'account'"
+                      (click)="selectIdentity('account')"
+                      class="lc-identity-item block w-full truncate rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                    >
+                      {{ identityName() }} (you)
+                    </button>
+                  } @else if (safeSignInUrl(); as signInHref) {
+                    <a
+                      role="menuitem"
+                      [href]="signInHref"
+                      (click)="identityOpen.set(false)"
+                      class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                      >Sign in…</a
+                    >
+                  } @else {
+                    <button
+                      type="button"
+                      role="menuitem"
+                      [disabled]="signInPending()"
+                      (click)="startOAuthSignIn()"
+                      class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
+                    >
+                      Sign in…
+                    </button>
+                  }
+                  @if (session() !== null) {
+                    <div role="separator" class="my-1 h-px bg-border"></div>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      [disabled]="signOutPending()"
+                      (click)="signOut()"
+                      class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
+                    >
+                      Sign out
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
         </div>
         @if (signInError(); as identityFailure) {
           <lc-comment-error
@@ -177,27 +181,7 @@ type Status = 'loading' | 'ready' | 'error'
         }
       </lc-comment-form>
       @if (status() === 'loading') {
-        <div role="status" aria-busy="true" class="grid gap-3">
-          <span class="sr-only">Loading comments…</span>
-          <div class="grid gap-3" aria-hidden="true">
-            @for (card of skeletonCards; track card) {
-              <div class="rounded-lg border border-border p-4">
-                <div class="flex items-center gap-3">
-                  <div class="h-8 w-8 shrink-0 animate-pulse rounded-full bg-muted"></div>
-                  <div class="h-4 w-32 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 space-y-2">
-                  <div class="h-4 w-full animate-pulse rounded bg-muted"></div>
-                  <div class="h-4 w-4/5 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 flex gap-2">
-                  <div class="h-6 w-16 animate-pulse rounded bg-muted"></div>
-                  <div class="h-6 w-20 animate-pulse rounded bg-muted"></div>
-                </div>
-              </div>
-            }
-          </div>
-        </div>
+        <lc-comment-skeletons [count]="3" />
       }
       @if (status() === 'error') {
         <lc-comment-error
@@ -217,7 +201,7 @@ type Status = 'loading' | 'ready' | 'error'
           [turnstileSiteKey]="turnstileSiteKey()"
           [viewerUserId]="viewerIdentity()"
           [viewerRole]="viewerRole()"
-          [hideVotes]="moderator()"
+          [hideVotes]="votesHidden()"
           [pendingModeration]="pendingModeration()"
           [editWindowMinutes]="editWindowMinutes()"
           [replySubmitting]="posting()"
@@ -233,27 +217,7 @@ type Status = 'loading' | 'ready' | 'error'
         />
       }
       @if (loadingPage()) {
-        <div role="status" aria-busy="true" class="grid gap-3">
-          <span class="sr-only">Loading comments…</span>
-          <div class="grid gap-3" aria-hidden="true">
-            @for (card of pageSkeletonCards; track card) {
-              <div class="rounded-lg border border-border p-4">
-                <div class="flex items-center gap-3">
-                  <div class="h-8 w-8 shrink-0 animate-pulse rounded-full bg-muted"></div>
-                  <div class="h-4 w-32 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 space-y-2">
-                  <div class="h-4 w-full animate-pulse rounded bg-muted"></div>
-                  <div class="h-4 w-4/5 animate-pulse rounded bg-muted"></div>
-                </div>
-                <div class="mt-3 flex gap-2">
-                  <div class="h-6 w-16 animate-pulse rounded bg-muted"></div>
-                  <div class="h-6 w-20 animate-pulse rounded bg-muted"></div>
-                </div>
-              </div>
-            }
-          </div>
-        </div>
+        <lc-comment-skeletons [count]="2" />
       }
       @if (displayPage() > 1 || hasMore() || roots().length > limit()) {
         <nav aria-label="Comments pagination" class="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -282,10 +246,13 @@ type Status = 'loading' | 'ready' | 'error'
     </div>
   `,
 })
-export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
+export class LcCommentsComponent {
   site = input.required<string>()
   baseUrl = input.required<string>()
   pageUrl = input<string | undefined>(undefined)
+  // Host-known thread id: moderator mode then addresses this page directly
+  // instead of matching `pageUrl` against the site's (capped) page list.
+  pageId = input<string | undefined>(undefined)
   turnstileSiteKey = input<string | undefined>(undefined)
   limit = input(20)
   theme = input<Theme>('system')
@@ -297,11 +264,18 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
   fetchImpl = input<typeof fetch | undefined>(undefined)
   lazy = input(false)
   signIn = output<void>()
+  // Fires after a successful moderation action, lock change or moderator post,
+  // so a dashboard can refresh its own thread list (counts, lock badge).
+  moderated = output<void>()
 
-  dark = signal(false)
+  readonly systemDark = prefersDark()
+  dark = computed(() => (this.theme() === 'dark' ? true : this.theme() === 'light' ? false : this.systemDark()))
   themeStyle = computed<Record<string, string>>(() => themeVarsToStyle(this.themeVars(), this.dark()))
   safeSignInUrl = computed(() => safeUrl(this.signInUrl()))
   moderator = computed(() => canModerate(this.viewerRole()))
+  // Only the page lock hides votes list-wide; single rows are handled by the
+  // list component (voting is rejected on hidden/deleted comments).
+  votesHidden = computed(() => this.moderator() && Boolean(this.pageLock()?.locked))
   session = signal<ViewerSession | null>(null)
   sessionStatus = signal<'loading' | 'ready'>('loading')
   sessionLoading = computed(() => this.sessionStatus() === 'loading')
@@ -315,8 +289,15 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.commentAs() === 'anonymous' || !this.signedIn() ? 'Anonymous' : this.identityName(),
   )
   guest = computed(() => !this.signedIn() || this.commentAs() === 'anonymous')
+  // Thread the moderator UI is pointed at: the `pageId` input, or the page the
+  // URL matched. Rows and moderator posts both address it.
+  threadPageId = signal<string | null>(null)
   comments = signal<Comment[]>([])
-  roots = computed<ThreadNode[]>(() => buildCommentTree(this.comments()))
+  // Votes land in an overlay over the cached tree: rebuilding the tree on each
+  // vote would hand every row a fresh node object and defeat OnPush.
+  votes = signal<VoteOverlay>({})
+  baseRoots = computed<ThreadNode[]>(() => buildCommentTree(this.comments()))
+  roots = computed<ThreadNode[]>(() => applyVoteOverlay(this.baseRoots(), this.votes()))
   // A page is a window over roots: pages over raw rows would either grow the
   // list (prefix) or split threads (replies without their parent).
   // shortcut: a reply created after the stream moved past its thread's page
@@ -334,9 +315,6 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.roots().slice((this.displayPage() - 1) * this.limit(), this.displayPage() * this.limit()),
   )
   hasNext = computed(() => this.roots().length > this.displayPage() * this.limit() || this.hasMore())
-  // Skeleton card counts: 3 for the initial load, 2 for an in-flight page fetch.
-  readonly skeletonCards = [0, 1, 2]
-  readonly pageSkeletonCards = [0, 1]
   page = signal(1)
   status = signal<Status>('loading')
   error = signal<ErrorInfo | null>(null)
@@ -359,56 +337,44 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
 
   #client: LastCommentsClient | null = null
   #host = inject<ElementRef<HTMLElement>>(ElementRef)
-  #observer: IntersectionObserver | null = null
-  #media: MediaQueryList | null = null
-  #mediaListener: ((event: MediaQueryListEvent) => void) | null = null
+  #destroyRef = inject(DestroyRef)
+  // Load generation: a response from an older load never commits.
+  #seq = 0
 
   constructor() {
-    effect(() => {
-      const mode = this.theme()
-      if (this.#media && this.#mediaListener) this.#media.removeEventListener('change', this.#mediaListener)
-      this.#media = null
-      this.#mediaListener = null
-      if (mode !== 'system' || typeof window === 'undefined') {
-        this.dark.set(mode === 'dark')
-        return
-      }
-      const query = window.matchMedia('(prefers-color-scheme: dark)')
-      this.#media = query
-      this.dark.set(query.matches)
-      this.#mediaListener = (event: MediaQueryListEvent) => this.dark.set(event.matches)
-      query.addEventListener('change', this.#mediaListener)
+    // The media query is a shared singleton; only system-themed instances join it.
+    effect((onCleanup) => {
+      if (this.theme() !== 'system') return
+      onCleanup(subscribeSystemTheme())
     })
-  }
-
-  ngOnInit(): void {
-    if (!this.lazy()) this.#start()
-  }
-
-  // Below-the-fold embeds defer the first request until the root is near the
-  // viewport; no IntersectionObserver (SSR/test) loads immediately.
-  ngAfterViewInit(): void {
-    if (!this.lazy()) return
-    if (typeof IntersectionObserver === 'undefined') {
-      this.#start()
-      return
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return
-        observer.disconnect()
-        this.#observer = null
-        this.#start()
-      },
-      { rootMargin: '200px' },
-    )
-    this.#observer = observer
-    observer.observe(this.#host.nativeElement)
-  }
-
-  ngOnDestroy(): void {
-    this.#observer?.disconnect()
-    if (this.#media && this.#mediaListener) this.#media.removeEventListener('change', this.#mediaListener)
+    // Below-the-fold embeds defer the first request until the root is near the
+    // viewport; no IntersectionObserver (SSR/test) loads immediately.
+    afterNextRender(() => {
+      const cleanup = observeInView(
+        this.#host.nativeElement,
+        this.lazy(),
+        typeof IntersectionObserver === 'undefined' ? undefined : IntersectionObserver,
+        () => this.#start(),
+      )
+      if (cleanup) this.#destroyRef.onDestroy(cleanup)
+    })
+    // Menu dismissal listeners exist only while the menu is open, so idle page
+    // clicks never mark the widget dirty.
+    effect((onCleanup) => {
+      if (!this.identityOpen() || typeof document === 'undefined') return
+      const onKey = (event: KeyboardEvent) => {
+        if (event.key === 'Escape') this.identityOpen.set(false)
+      }
+      const onClick = (event: MouseEvent) => {
+        if (!this.identityMenu()?.nativeElement.contains(event.target as Node)) this.identityOpen.set(false)
+      }
+      document.addEventListener('keydown', onKey)
+      document.addEventListener('click', onClick)
+      onCleanup(() => {
+        document.removeEventListener('keydown', onKey)
+        document.removeEventListener('click', onClick)
+      })
+    })
   }
 
   #start(): void {
@@ -447,18 +413,6 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  // Both listeners stay registered for the widget's lifetime; they no-op while the menu is closed.
-  @HostListener('document:keydown.escape')
-  onEscape(): void {
-    this.identityOpen.set(false)
-  }
-
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    if (this.identityOpen() && !this.identityMenu()?.nativeElement.contains(event.target as Node))
-      this.identityOpen.set(false)
-  }
-
   client(): LastCommentsClient {
     if (!this.#client)
       this.#client = createClient({ baseUrl: this.baseUrl(), site: this.site(), fetchImpl: this.fetchImpl() })
@@ -466,7 +420,7 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   url(): string {
-    return this.pageUrl() ?? window.location.href
+    return resolvePageUrl(this.pageUrl())
   }
 
   // better-auth's social sign-in endpoint is POST-only, so the guest row must
@@ -506,6 +460,7 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async load(): Promise<void> {
+    const seq = ++this.#seq
     this.status.set('loading')
     this.error.set(null)
     this.actionError.set(null)
@@ -515,21 +470,35 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
       if (this.moderator()) {
         // Resolve this page from the site's page list, then read its thread
         // including hidden/deleted rows.
+        // A host-supplied `pageId` wins over the URL match: the page list is
+        // capped, so a match can miss on a busy site.
         const overview = await this.client().listModeration({ limit: 1 })
+        if (seq !== this.#seq) return
         const normalized = normalizePageUrl(this.url())
-        const match = overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized) ?? null
+        const hostPageId = this.pageId()
+        const match = hostPageId
+          ? (overview.pages.find((page) => page.id === hostPageId) ?? null)
+          : (overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized) ?? null)
+        const threadId = hostPageId ?? match?.id ?? null
+        // Unknown lock state stays unknown: the lock bar is hidden rather than
+        // claiming the thread is open.
         this.pageLock.set(match ? { pageId: match.id, locked: match.isLocked } : null)
-        if (!match) {
+        this.threadPageId.set(threadId)
+        if (!threadId) {
           this.comments.set([])
+          this.votes.set({})
           this.hasMore.set(false)
           this.status.set('ready')
           return
         }
-        const page = await this.client().listModeration({ pageId: match.id, limit, offset: 0 })
+        const page = await this.client().listModeration({ pageId: threadId, limit, offset: 0 })
+        if (seq !== this.#seq) return
         const rows = page.comments.map(moderationCommentToComment)
         this.comments.set(rows)
+        this.votes.set({})
         this.hasMore.set(rows.length < page.total)
-        await this.#fillModerationWindow(limit, limit)
+        await this.#fillModerationWindow(limit, limit, seq)
+        if (seq !== this.#seq) return
         this.status.set('ready')
         return
       }
@@ -543,10 +512,13 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
         fetchImpl: this.fetchImpl(),
         pages: 1,
       })
+      if (seq !== this.#seq) return
       this.comments.set(window.comments)
+      this.votes.set({})
       this.hasMore.set(window.hasMore)
       this.status.set('ready')
     } catch (err) {
+      if (seq !== this.#seq) return
       this.error.set(this.#loadFailure(err))
       this.status.set('error')
     }
@@ -563,6 +535,7 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   async nextPage(): Promise<void> {
+    const seq = ++this.#seq
     const limit = this.limit()
     // Anchor on the clamped page: the page state can sit above the last
     // non-empty window after a delete emptied it.
@@ -578,7 +551,7 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
       // Fill the window being ENTERED, not the one being left: a fetch returns
       // `limit` rows but a page shows `limit` roots, and replies eat rows.
       if (this.moderator()) {
-        await this.#fillModerationWindow((page + 1) * limit, limit)
+        await this.#fillModerationWindow((page + 1) * limit, limit, seq)
       } else {
         const window = await loadThreadWindow({
           site: this.site(),
@@ -589,11 +562,14 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
           pages: page + 1,
           existing: this.comments(),
         })
+        if (seq !== this.#seq) return
         this.comments.set(window.comments)
         this.hasMore.set(window.hasMore)
       }
+      if (seq !== this.#seq) return
       this.page.set(page + 1)
     } catch (err) {
+      if (seq !== this.#seq) return
       this.error.set(describeError(err))
       this.status.set('error')
     } finally {
@@ -604,14 +580,15 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
   // Moderation rows come from listModeration, which loadThreadWindow cannot
   // read; keep its own loop. Fetches `limit`-row batches until `target` roots
   // are loaded or the stream ends, recomputing roots on every pass.
-  async #fillModerationWindow(target: number, limit: number): Promise<void> {
+  async #fillModerationWindow(target: number, limit: number, seq: number): Promise<void> {
     while (this.roots().length < target && this.hasMore()) {
       const before = this.comments().length
       const next = await this.client().listModeration({
-        pageId: this.pageLock()?.pageId,
+        pageId: this.threadPageId() ?? undefined,
         limit,
         offset: before,
       })
+      if (seq !== this.#seq) return
       const rows = next.comments.map(moderationCommentToComment)
       this.comments.set([...this.comments(), ...rows])
       this.hasMore.set(this.comments().length < next.total)
@@ -633,20 +610,31 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.posting.set(true)
     this.formError.set(null)
     try {
-      const created = await this.client().postComment({
-        url: this.url(),
-        bodyMarkdown: input.body,
-        // Guest posts never carry the session cookie (covers an unreachable session endpoint with a cookie present).
-        anonymous: this.guest(),
-        ...(parentId ? { parentId } : { title: typeof document !== 'undefined' ? document.title : undefined }),
-        ...(input.authorName ? { authorName: input.authorName } : {}),
-        ...(input.token ? { verificationToken: input.token } : {}),
-      })
+      // Moderators post through the moderation endpoint: the public create path
+      // checks the site's origin allow-list, which a dashboard origin is not on.
+      const threadId = this.threadPageId()
+      const created =
+        this.moderator() && threadId
+          ? await this.client().createModerationComment({
+              pageId: threadId,
+              bodyMarkdown: input.body,
+              ...(parentId ? { parentId } : {}),
+            })
+          : await this.client().postComment({
+              url: this.url(),
+              bodyMarkdown: input.body,
+              // Guest posts never carry the session cookie (covers an unreachable session endpoint with a cookie present).
+              anonymous: this.guest(),
+              ...(parentId ? { parentId } : { title: typeof document !== 'undefined' ? document.title : undefined }),
+              ...(input.authorName ? { authorName: input.authorName } : {}),
+              ...(input.token ? { verificationToken: input.token } : {}),
+            })
       this.comments.set([...this.comments(), created])
       this.replyTo.set(null)
       // Reply/edit drafts clear by unmounting with the rebuilt thread.
       if (parentId === null) this.composer()?.reset()
       if (this.status() !== 'ready') this.status.set('ready')
+      if (this.moderator()) this.moderated.emit()
     } catch (err) {
       this.formError.set(describeError(err, { title: "Your comment wasn't posted" }))
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
@@ -666,11 +654,17 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
   async onVote(event: VoteEvent): Promise<void> {
     this.actionError.set(null)
     try {
-      const vote =
-        'clear' in event ? await this.client().clearVote(event.id) : await this.client().castVote(event.id, event.value)
-      this.comments.set(
-        this.comments().map((c) => (c.id === event.id ? { ...c, score: vote.score, viewerVote: vote.viewerVote } : c)),
-      )
+      // Moderators vote through the moderation endpoint: the public vote route
+      // checks the site's origin allow-list, which a dashboard origin is not on.
+      const vote = this.moderator()
+        ? await this.client().setModerationVote({
+            commentId: event.id,
+            value: 'clear' in event ? null : event.value,
+          })
+        : 'clear' in event
+          ? await this.client().clearVote(event.id)
+          : await this.client().castVote(event.id, event.value)
+      this.votes.set({ ...this.votes(), [event.id]: { score: vote.score, viewerVote: vote.viewerVote } })
     } catch (err) {
       this.actionError.set(describeError(err, { title: "Your vote wasn't saved" }))
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
@@ -681,7 +675,11 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.editing.set(true)
     this.actionError.set(null)
     try {
-      const updated = await this.client().editOwnComment({ commentId: event.id, bodyMarkdown: event.submit.body })
+      // Moderators edit through the moderation endpoint for the same reason they
+      // post through it: the public PATCH checks the site's origins.
+      const updated = this.moderator()
+        ? await this.client().editModerationComment({ commentId: event.id, bodyMarkdown: event.submit.body })
+        : await this.client().editOwnComment({ commentId: event.id, bodyMarkdown: event.submit.body })
       this.comments.set(this.comments().map((c) => (c.id === event.id ? updated : c)))
     } catch (err) {
       // The editor closes on submit, so the failure belongs in the page-level block.
@@ -710,6 +708,7 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
       this.comments.set(
         this.comments().map((c) => (c.id === id ? { ...c, status: patch.status, pinnedAt: patch.pinnedAt } : c)),
       )
+      this.moderated.emit()
     } catch (err) {
       this.actionError.set(describeError(err, { title: 'That moderation action failed' }))
     } finally {
@@ -726,6 +725,7 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
     try {
       await this.client().setUserBlocked({ userId, blocked: event.blocked })
       this.comments.set(this.comments().map((c) => (c.userId === userId ? { ...c, userBlocked: event.blocked } : c)))
+      this.moderated.emit()
     } catch (err) {
       this.actionError.set(describeError(err, { title: 'That moderation action failed' }))
     } finally {
@@ -741,6 +741,7 @@ export class LcCommentsComponent implements OnInit, AfterViewInit, OnDestroy {
     try {
       const next = await this.client().setPageLocked({ pageId: lock.pageId, locked: !lock.locked })
       this.pageLock.set({ pageId: next.id, locked: next.isLocked })
+      this.moderated.emit()
     } catch (err) {
       this.actionError.set(describeError(err, { title: 'That moderation action failed' }))
     } finally {
