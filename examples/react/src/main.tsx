@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Comments, CommentViewer } from '@lst97-oss/last-comments-widgets/react'
+import { Comments, CommentViewer, type ActionMode } from '@lst97-oss/last-comments-widgets/react'
 import type { WidgetTheme } from '@lst97-oss/last-comments-widgets/client'
 import '@lst97-oss/last-comments-widgets/react/styles.css'
 
@@ -17,6 +17,11 @@ function Demo() {
   const [viewerUserId, setViewerUserId] = useState('')
   const [viewerRole, setViewerRole] = useState('')
   const [signInUrl, setSignInUrl] = useState('')
+  const [actionMode, setActionMode] = useState<ActionMode>('icon-text')
+  // ?bodyLimit=40 narrows the composer cap, mirroring a host server limit
+  const [bodyLimit, setBodyLimit] = useState(
+    () => Number(new URLSearchParams(window.location.search).get('bodyLimit')) || 10_000,
+  )
   // mount-time only: ?lazy makes the demo probe the deferred fetch path
   const [lazy, setLazy] = useState(() => new URLSearchParams(window.location.search).has('lazy'))
   const [preset, setPreset] = useState('Default')
@@ -45,6 +50,8 @@ function Demo() {
         site={site}
         baseUrl={baseUrl}
         pageUrl={pageUrl}
+        actionMode={actionMode}
+        bodyLimit={bodyLimit}
         turnstileSiteKey={turnstileSiteKey || undefined}
         viewerUserId={viewerUserId || undefined}
         signInUrl={signInUrl || undefined}
@@ -95,6 +102,28 @@ function Demo() {
               className="rounded border border-input px-2 py-1"
               value={viewerUserId}
               onChange={(e) => setViewerUserId(e.target.value)}
+            />
+          </label>
+          <label className="grid gap-1">
+            Action style
+            <select
+              className="rounded border border-input px-2 py-1"
+              value={actionMode}
+              onChange={(e) => setActionMode(e.target.value as ActionMode)}
+            >
+              <option value="icon-text">icon + text</option>
+              <option value="icon">icon only</option>
+              <option value="text">text only</option>
+            </select>
+          </label>
+          <label className="grid gap-1">
+            Body limit (characters, must match the server)
+            <input
+              className="rounded border border-input px-2 py-1"
+              type="number"
+              min={1}
+              value={bodyLimit}
+              onChange={(e) => setBodyLimit(Number(e.target.value) || 10_000)}
             />
           </label>
           <label className="grid gap-1">

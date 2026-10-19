@@ -1,8 +1,9 @@
+import { memo } from 'react'
 import { Button } from './ui/button'
 
 // Thread-window pager shared by the list widget and the read-only viewer: one
 // page is `limit` threads, the API has no total, so there are no page numbers.
-export function CommentsPager({
+export const CommentsPager = memo(function CommentsPager({
   page,
   limit,
   threads,
@@ -38,4 +39,4 @@ export function CommentsPager({
       </Button>
     </nav>
   )
-}
+})

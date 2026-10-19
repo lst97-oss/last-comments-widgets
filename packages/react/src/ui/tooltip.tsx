@@ -1,6 +1,6 @@
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import { cn } from 'cn'
-import { useContext } from 'react'
+import { use } from 'react'
 import { WidgetRootContext } from '../WidgetRootContext'
 
 function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
@@ -25,7 +25,7 @@ function TooltipContent({
   ...props
 }: TooltipPrimitive.Popup.Props &
   Pick<TooltipPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
-  const container = useContext(WidgetRootContext)
+  const container = use(WidgetRootContext)
   return (
     <TooltipPrimitive.Portal data-slot="tooltip-portal" container={container}>
       <TooltipPrimitive.Positioner

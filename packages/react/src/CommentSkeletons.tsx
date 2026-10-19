@@ -1,10 +1,11 @@
+import { memo } from 'react'
 import { Skeleton } from './ui/skeleton'
 
 // shortcut: fixed keys cap the block at 3 cards (initial load); page fetches render 2.
 const SKELETON_CARDS = ['card-1', 'card-2', 'card-3']
 
 // Placeholder card geometry shared by initial loads (3 cards) and page fetches (2).
-export function CommentSkeletons({ count }: { count: number }) {
+export const CommentSkeletons = memo(function CommentSkeletons({ count }: { count: number }) {
   return (
     <div role="status" aria-busy="true" className="grid gap-3">
       <span className="sr-only">Loading comments…</span>
@@ -28,4 +29,4 @@ export function CommentSkeletons({ count }: { count: number }) {
       </div>
     </div>
   )
-}
+})

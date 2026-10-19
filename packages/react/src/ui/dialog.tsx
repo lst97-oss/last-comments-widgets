@@ -2,7 +2,7 @@ import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { cn } from 'cn'
 import { XIcon } from 'lucide-react'
 import type * as React from 'react'
-import { useContext } from 'react'
+import { use } from 'react'
 import { WidgetRootContext } from '../WidgetRootContext'
 import { Button } from './button'
 
@@ -15,7 +15,7 @@ function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
 }
 
 function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
-  const container = useContext(WidgetRootContext)
+  const container = use(WidgetRootContext)
   return <DialogPrimitive.Portal container={container} data-slot="dialog-portal" {...props} />
 }
 
