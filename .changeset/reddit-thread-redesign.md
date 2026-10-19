@@ -1,0 +1,12 @@
+---
+'@lst97-oss/last-comments-widgets': minor
+---
+
+Reddit-style thread design for the React widget:
+
+- Replies hang off their parent through measured Fumadocs-style connector lines: a cubic Bézier guide drawn in the gutter of each thread's replies, with a line down a top-level comment's own rows only when it has replies and a fresh subpath per thread, so threads never connect; the segment at the middle of the viewport draws in `threadActive` while the rest stays `threadMuted`, and folded reply groups keep a stub beside their trigger, with a `Replying to @author` caption so a reply reads as attached to its parent. Guides re-measure whenever the render order changes, so a vote that re-ranks a thread under `best` never leaves stale rails behind.
+- Reply groups collapse through the shadcn Base UI `Accordion`: while hidden the trigger shows an overlapping stack of reply-author avatars (three, then `+N`), and while open it shows `Hide N replies`.
+- Timestamps render as short ages (`5m ago`, `2d ago`) with the full local time on hover, via the new `formatRelativeTime` client helper; `collectThreadParticipants` backs the avatar stack.
+- `actionMode` (`icon` | `icon-text` | `text`, default `icon-text`) picks how Reply/Edit/Delete and moderator actions render their lucide icons.
+- Comment actions move behind a `⋮` popover next to the timestamp (Reply stays in its row), pinning reorders a comment within its own depth, `best` joins the sort modes, the reply editor opens inline under its target, and site admins get a coloured name plus an `[Admin]` badge. Delete entries and their confirmation buttons use the destructive colour, the collapse control beside the avatar is an outline ring rather than a filled disc, and a blocked author shows a `blocked` badge (moderation rows). Reply groups are summarised by an avatar stack that counts pinned, hidden and deleted replies too; moderators also see the per-state counts. Composers show a live character count under the body against `bodyLimit` (default 10,000, counted before trimming); over the limit the count turns destructive, the submit button disables and the form refuses to post, so the widget agrees with the host server's own cap.
+- New theme tokens keep the components stylable: `commentBorder`, `replyBackground`, `threadActive`, `threadMuted`, `avatarRing`, `voteBackground`, `voteBorder`, `voteShadow`, `actionColor`, `actionHoverColor`, `actionHoverBackground`, with public hooks `.lc-replies-trigger`, `.lc-thread-overlay`, `.lc-reply-stack`, `.lc-vote` and `.lc-action`.
