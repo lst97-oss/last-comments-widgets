@@ -38,7 +38,6 @@
         "@angular/compiler": "22.2.3",
         "@angular/compiler-cli": "22.2.3",
         "typescript": "~6.0.3",
-        "zone.js": "^0.16.3",
       },
     },
     "examples/react": {
@@ -77,21 +76,20 @@
       "name": "@last-comments-widgets/angular",
       "version": "0.1.0",
       "dependencies": {
-        "@last-comments-widgets/client": "^0.1.0",
+        "@last-comments-widgets/client": "workspace:*",
       },
       "devDependencies": {
         "@angular/common": "22.2.3",
         "@angular/compiler": "22.2.3",
         "@angular/compiler-cli": "22.2.3",
         "@angular/core": "22.2.3",
-        "@last-comments-widgets/theme": "^0.1.0",
+        "@last-comments-widgets/theme": "workspace:*",
         "@tailwindcss/cli": "4.3.3",
         "ng-packagr": "22.2.4",
         "rxjs": "^7.8.2",
         "tailwindcss": "4.3.3",
         "tslib": "^2.8.1",
         "typescript": "~6.0.3",
-        "zone.js": "^0.16.3",
       },
       "peerDependencies": {
         "@angular/common": "^22.0.0",
@@ -695,6 +693,18 @@
 
     "@keyv/serialize": ["@keyv/serialize@1.1.1", "", {}, "sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA=="],
 
+    "@last-comments-widgets/angular": ["@last-comments-widgets/angular@workspace:packages/angular"],
+
+    "@last-comments-widgets/client": ["@last-comments-widgets/client@workspace:packages/client"],
+
+    "@last-comments-widgets/react": ["@last-comments-widgets/react@workspace:packages/react"],
+
+    "@last-comments-widgets/theme": ["@last-comments-widgets/theme@workspace:packages/theme"],
+
+    "@last-comments-widgets/vanilla": ["@last-comments-widgets/vanilla@workspace:packages/vanilla"],
+
+    "@last-comments-widgets/vue": ["@last-comments-widgets/vue@workspace:packages/vue"],
+
     "@leichtgewicht/ip-codec": ["@leichtgewicht/ip-codec@2.0.5", "", {}, "sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw=="],
 
     "@listr2/prompt-adapter-inquirer": ["@listr2/prompt-adapter-inquirer@4.2.7", "", { "dependencies": { "@inquirer/type": "^4.0.7" }, "peerDependencies": { "@inquirer/prompts": ">= 3 < 9", "listr2": "11.1.0" } }, "sha512-k180vxSv2KqmnDxoato6pCqEJsov4U5C0EVmldZkAdNeVBxY48A/LM6TCNPGIzDK/iZSfsZP0Mw+gbWc5hXLyA=="],
@@ -713,19 +723,7 @@
 
     "@lmdb/lmdb-win32-x64": ["@lmdb/lmdb-win32-x64@3.5.6", "", { "os": "win32", "cpu": "x64" }, "sha512-1g7G0knRX2iV/voDu54yxrGqw5Dk0w2oIYb7dgJq8IkOi+m7wbD8Q3QpPFjh0C01G58S88dqGn03len6UPCXsg=="],
 
-    "@last-comments-widgets/angular": ["@last-comments-widgets/angular@workspace:packages/angular"],
-
-    "@last-comments-widgets/client": ["@last-comments-widgets/client@workspace:packages/client"],
-
     "@lst97-oss/last-comments-widgets": ["@lst97-oss/last-comments-widgets@workspace:packages/last-comments-widgets"],
-
-    "@last-comments-widgets/react": ["@last-comments-widgets/react@workspace:packages/react"],
-
-    "@last-comments-widgets/theme": ["@last-comments-widgets/theme@workspace:packages/theme"],
-
-    "@last-comments-widgets/vanilla": ["@last-comments-widgets/vanilla@workspace:packages/vanilla"],
-
-    "@last-comments-widgets/vue": ["@last-comments-widgets/vue@workspace:packages/vue"],
 
     "@manypkg/find-root": ["@manypkg/find-root@3.1.0", "", { "dependencies": { "@manypkg/tools": "^2.1.0" } }, "sha512-BcSqCyKhBVZ5YkSzOiheMCV41kqAFptW6xGqYSTjkVTl9XQpr+pqHhwgGCOHQtjDCv7Is6EFyA14Sm5GVbVABA=="],
 
@@ -2516,8 +2514,6 @@
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
     "zod-validation-error": ["zod-validation-error@4.0.2", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-Q6/nZLe6jxuU80qb/4uJ4t5v2VEZ44lzQjPDhYJNztRQ4wyWc6VF3D3Kb/fAuPetZQnhS3hnajCf9CsWesghLQ=="],
-
-    "zone.js": ["zone.js@0.16.3", "", {}, "sha512-ihXL9+vhYyEhXz4TDNpHeAOZN9FVrbog0Il64OIEI28UP/n5AaI6gsccRuOHBfx+206agzyoK527bYIO0Foy6A=="],
 
     "@angular-devkit/build-angular/@babel/core": ["@babel/core@8.0.5", "", { "dependencies": { "@babel/code-frame": "^8.0.0", "@babel/generator": "^8.0.5", "@babel/helper-compilation-targets": "^8.0.5", "@babel/helpers": "^8.0.5", "@babel/parser": "^8.0.5", "@babel/template": "^8.0.0", "@babel/traverse": "^8.0.5", "@babel/types": "^8.0.5", "@types/gensync": "^1.0.5", "convert-source-map": "^2.0.0", "empathic": "^2.0.1", "gensync": "^1.0.0-beta.2", "import-meta-resolve": "^4.2.0", "json5": "^2.2.3", "obug": "^2.1.1", "verkit": "^0.3.2" } }, "sha512-2/oWkgTbBYoqioCWAE4XJobOrzwxTDa5/XjDP3tJ1BhDr/owcd9qnXBp4xc3/2G5X4bvXM04nrxbRJxFcXAxFQ=="],
 
