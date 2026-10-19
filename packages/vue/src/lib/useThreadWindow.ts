@@ -1,4 +1,4 @@
-import { computed, ref, shallowRef } from 'vue'
+import { computed, type ComputedRef, ref, type Ref, shallowRef, type ShallowRef } from 'vue'
 import { buildCommentTree, type Comment, type ErrorInfo, type ThreadNode } from '@last-comments-widgets/client'
 
 export type ThreadWindowLoad = {
@@ -9,10 +9,34 @@ export type ThreadWindowLoad = {
 
 export type ThreadWindowFailure<S extends string> = { status: S; info: ErrorInfo }
 
+// Status variants the window can end in. A plain union (no generic member) so
+// Vue's `ref`/`UnwrapRef` keeps it intact.
+export type ThreadWindowFailureStatus = 'error' | 'locked' | 'blocked'
+export type ThreadWindowStatus = 'loading' | 'ready' | ThreadWindowFailureStatus
+
+// Explicit return type: the inferred one leaks Vue's internal `IfAny` through
+// the generic and breaks the declaration emit (`TS2883`).
+export interface ThreadWindowState {
+  rows: ShallowRef<Comment[]>
+  page: Ref<number>
+  hasMore: Ref<boolean>
+  loadingPage: Ref<boolean>
+  status: Ref<ThreadWindowStatus>
+  errorInfo: Ref<ErrorInfo | null>
+  limit: ComputedRef<number>
+  roots: ComputedRef<ThreadNode[]>
+  pageRoots: ComputedRef<ThreadNode[]>
+  nextDisabled: ComputedRef<boolean>
+  load: (reset: boolean, pages?: number) => Promise<boolean>
+  loadFirstPage: () => Promise<void>
+  nextPage: () => Promise<void>
+  previousPage: () => void
+}
+
 // Thread-window state shared by the composer and the read-only viewer: rows are
 // the cache, a page is a window over roots (replies consume rows, so a raw row
 // page would split threads).
-export function useThreadWindow<S extends string = 'error'>(config: {
+export function useThreadWindow<S extends ThreadWindowFailureStatus = 'error'>(config: {
   limit: () => number
   load: (input: ThreadWindowLoad) => Promise<{ comments: Comment[]; hasMore: boolean }>
   failure: (error: unknown) => ThreadWindowFailure<S>
@@ -20,12 +44,12 @@ export function useThreadWindow<S extends string = 'error'>(config: {
   transform?: (nodes: ThreadNode[]) => ThreadNode[]
   onBeforeLoad?: (reset: boolean) => void
   onLoaded?: (reset: boolean) => void
-}) {
+}): ThreadWindowState {
   const rows = shallowRef<Comment[]>([])
   const page = ref(1)
   const hasMore = ref(true)
   const loadingPage = ref(false)
-  const status = ref<'loading' | 'ready' | S>('loading')
+  const status = ref<ThreadWindowStatus>('loading')
   const errorInfo = ref<ErrorInfo | null>(null)
   // Bumped on every load: a response that lost the race never commits.
   let loadSeq = 0

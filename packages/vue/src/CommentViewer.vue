@@ -1,11 +1,20 @@
 <script setup lang="ts">
 import { useTheme } from './lib/useTheme'
-import { describeError, loadThreadWindow, themeVarsToStyle } from '@last-comments-widgets/client'
-import { computed, useTemplateRef, watch } from 'vue'
+import {
+  describeError,
+  loadThreadWindow,
+  sortCommentRoots,
+  themeVarsToStyle,
+  type ThreadSort,
+} from '@last-comments-widgets/client'
+import { computed, ref, useTemplateRef, watch } from 'vue'
 import CommentError from './CommentError.vue'
 import CommentList from './CommentList.vue'
 import CommentSkeleton from './CommentSkeleton.vue'
 import CommentsPager from './CommentsPager.vue'
+import ThreadGuides from './ThreadGuides.vue'
+import ThreadSortToggle from './ThreadSortToggle.vue'
+import { threadSignature } from './lib/useGuides'
 import { useLazyLoad } from './lib/useLazyLoad'
 import { useThreadWindow } from './lib/useThreadWindow'
 import type { CommentViewerProps } from './types'
@@ -32,6 +41,7 @@ const {
   previousPage,
 } = useThreadWindow({
   limit: () => props.limit ?? 20,
+  transform: (nodes) => sortCommentRoots(nodes, sort.value),
   load: async ({ reset, pages, existing }) => {
     const result = await loadThreadWindow({
       site: props.site,
@@ -49,13 +59,24 @@ const {
 
 const dark = useTheme(() => props.theme)
 const rootStyle = computed(() => themeVarsToStyle(props.themeVars, dark.value))
+const sort = ref<ThreadSort>('newest')
+
+function handleSortChange(next: ThreadSort) {
+  sort.value = next
+  // Window boundaries follow the new order, so start from its first page.
+  page.value = 1
+}
 
 function noop(): void {}
 function noopAsync(): Promise<void> {
   return Promise.resolve()
 }
+function noopEdit(): Promise<null> {
+  return Promise.resolve(null)
+}
 
 const rootEl = useTemplateRef<HTMLElement>('rootEl')
+const listEl = useTemplateRef<HTMLElement>('listEl')
 const { started } = useLazyLoad(
   rootEl,
   () => props.lazy,
@@ -78,13 +99,15 @@ watch(
     :style="rootStyle"
     aria-label="Comments"
   >
+    <ThreadSortToggle v-if="status !== 'error' && roots.length > 0" :value="sort" :on-change="handleSortChange" />
     <div v-if="status === 'loading'" class="grid gap-3">
       <CommentSkeleton :count="3" />
     </div>
     <CommentError v-else-if="errorInfo" :info="errorInfo" @retry="loadFirstPage" />
     <p v-else-if="pageRoots.length === 0 && !loadingPage" class="text-sm text-muted-foreground">No comments yet.</p>
     <template v-else>
-      <section aria-label="Comments" class="grid gap-4">
+      <section ref="listEl" aria-label="Comments" class="lc-thread-guides relative grid grid-cols-1 gap-3">
+        <ThreadGuides :key="`${page}:${sort}:${threadSignature(pageRoots)}`" :list-el="listEl" />
         <CommentList
           v-if="pageRoots.length > 0"
           :nodes="pageRoots"
@@ -92,7 +115,7 @@ watch(
           :read-only="true"
           :on-vote="noop"
           :on-reply="noop"
-          :on-edit="noopAsync"
+          :on-edit="noopEdit"
           :on-delete="noopAsync"
         />
       </section>
