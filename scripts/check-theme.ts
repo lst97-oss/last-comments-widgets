@@ -140,9 +140,8 @@ try {
     expect(await style(root.locator('.lc-avatar').first(), 'border-radius')).toBe('5px')
     expect(await style(root.locator('.lc-comment .font-medium').first(), 'font-weight')).toBe('650')
     expect(await style(root.locator('.lc-composer').first(), 'background-color')).toBe('rgb(7, 8, 9)')
-    if (framework === 'react') {
-      expect(await style(root.locator('.lc-thread-guides').first(), 'padding-inline-start')).toBe('13px')
-    }
+    // Every port draws the reply guides in the same measured container.
+    expect(await style(root.locator('.lc-thread-guides').first(), 'padding-inline-start')).toBe('13px')
     // Every port routes its secondary actions through the same hover hook.
     const action = root.locator('.lc-comment .lc-action').first()
     expect(await style(action, 'color')).toBe('rgb(11, 22, 33)')
@@ -184,17 +183,16 @@ try {
     expect(await style(anonymous, 'background-color')).toBe('rgb(202, 254, 0)')
     expect(await style(anonymous, 'color')).toBe('rgb(17, 0, 34)')
     await page.keyboard.press('Escape')
-    if (framework === 'react') {
-      // Delete acts immediately, so the themed surface behind the secondary
-      // actions is the popover rather than a confirmation dialog.
-      await root.getByRole('button', { name: 'More actions', exact: true }).first().click()
-      const actions = root.locator('[data-slot="popover-content"]').first()
-      await actions.waitFor({ state: 'visible' })
-      expect(await style(actions, 'font-family')).toContain('Georgia')
-      expect(await style(actions, 'background-color')).toBe('rgb(51, 34, 17)')
-      expect(await style(actions, 'box-shadow')).toBe('none')
-      await page.keyboard.press('Escape')
-    }
+    // Every port routes its secondary actions through the same themed menu.
+    // Delete acts immediately, so the themed surface behind the secondary
+    // actions is the menu rather than a confirmation dialog.
+    await root.getByRole('button', { name: 'More actions', exact: true }).first().click()
+    const actions = root.locator('.lc-actions-menu').first()
+    await actions.waitFor({ state: 'visible' })
+    expect(await style(actions, 'font-family')).toContain('Georgia')
+    expect(await style(actions, 'background-color')).toBe('rgb(51, 34, 17)')
+    expect(await style(actions, 'box-shadow')).toBe('none')
+    await page.keyboard.press('Escape')
     await page.emulateMedia({ colorScheme: 'light' })
     await page.waitForFunction(
       () => !document.querySelector('#a.lc-comments, #a .lc-comments')?.classList.contains('dark'),

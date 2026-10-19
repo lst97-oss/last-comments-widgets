@@ -21,6 +21,7 @@
     "changeset:status": "changeset status --verbose",
     "versions:check": "bun scripts/check-versions.ts",
     "pack:check": "bun scripts/check-pack.ts",
+    "update:deps": "bun scripts/update-deps.ts",
     "version": "changeset version && bun install && bun run versions:check",
     "release": "bun run versions:check && bun run check && bun test && bun run build && bun run pack:check && changeset publish",
     "test:theme": "bun run build && bun scripts/check-theme.ts"
