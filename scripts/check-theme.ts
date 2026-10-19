@@ -70,10 +70,19 @@ try {
     const page = await browser.newPage({ colorScheme: 'dark' })
     const pageErrors: Error[] = []
     page.on('pageerror', (error) => pageErrors.push(error))
+    // Hold the first list fetch so the loading placeholders can be inspected.
+    let releaseComments = () => {}
+    const commentsHeld = new Promise<void>((resolve) => {
+      releaseComments = resolve
+    })
+    await page.route('**/api/comments*', async (route) => {
+      await commentsHeld
+      await route.continue()
+    })
     await page.goto(server.url.href)
-    await page.waitForFunction(() =>
-      ['a', 'b', 'viewer'].every((id) => document.querySelectorAll(`#${id} .lc-comment`).length === 2),
-    )
+    // Placeholders are unstyled (zero height) until the stylesheet lands below.
+    const skeleton = page.locator('.lc-skeleton:not(.rounded-full)').first()
+    await skeleton.waitFor({ state: 'attached' })
     const hostStyles = () =>
       page.locator('#host, #host-button, body').evaluateAll((elements) =>
         elements.map((element) => {
@@ -101,6 +110,11 @@ try {
     const before = await hostStyles()
     await page.addStyleTag({ url: `${server.url}styles.css` })
     expect(await hostStyles()).toEqual(before)
+    expect(await skeleton.evaluate((element) => getComputedStyle(element).borderRadius)).toBe('9px')
+    releaseComments()
+    await page.waitForFunction(() =>
+      ['a', 'b', 'viewer'].every((id) => document.querySelectorAll(`#${id} .lc-comment`).length === 2),
+    )
     const root = page.locator('#a.lc-comments, #a .lc-comments').first()
     const viewer = page.locator('#viewer.lc-comments, #viewer .lc-comments').first()
     const other = page.locator('#b.lc-comments, #b .lc-comments').first()
@@ -122,6 +136,18 @@ try {
     const trigger = root.locator('.lc-identity-trigger')
     expect(await style(trigger, 'min-height')).toBe('44px')
     expect(await style(trigger, 'border-radius')).toBe('7px')
+    expect(await style(trigger, 'border-top-width')).toBe('3px')
+    expect(await style(root.locator('.lc-avatar').first(), 'border-radius')).toBe('5px')
+    expect(await style(root.locator('.lc-comment .font-medium').first(), 'font-weight')).toBe('650')
+    expect(await style(root.locator('.lc-composer').first(), 'background-color')).toBe('rgb(7, 8, 9)')
+    if (framework === 'react') {
+      expect(await style(root.locator('.lc-thread-guides').first(), 'padding-inline-start')).toBe('13px')
+    }
+    // Every port routes its secondary actions through the same hover hook.
+    const action = root.locator('.lc-comment .lc-action').first()
+    expect(await style(action, 'color')).toBe('rgb(11, 22, 33)')
+    await action.hover()
+    expect(await style(action, 'color')).toBe('rgb(255, 0, 0)')
     const otherTrigger = other.locator('.lc-identity-trigger')
     const withDarkHost = await style(otherTrigger, 'background-color')
     await page.locator('body').evaluate((element) => element.classList.remove('dark'))
@@ -151,6 +177,7 @@ try {
     expect(await style(menu, 'color')).toBe('rgb(17, 34, 51)')
     expect(await style(menu, 'box-shadow')).toBe('none')
     expect(await style(menu, 'font-family')).toContain('Georgia')
+    expect(await style(menu, 'z-index')).toBe('37')
     expect(await root.evaluate((element) => element.getBoundingClientRect().height)).toBe(beforeMenuHeight)
     const anonymous = menu.getByRole('menuitemradio', { name: 'Anonymous', exact: true })
     await anonymous.hover()
@@ -158,19 +185,15 @@ try {
     expect(await style(anonymous, 'color')).toBe('rgb(17, 0, 34)')
     await page.keyboard.press('Escape')
     if (framework === 'react') {
-      await root.getByRole('button', { name: 'Delete', exact: true }).first().click()
-      const dialog = root.getByRole('alertdialog')
-      await dialog.waitFor({ state: 'visible' })
-      expect(await style(dialog, 'font-family')).toContain('Georgia')
-      expect(await style(dialog, 'background-color')).toBe('rgb(51, 34, 17)')
-      expect(await style(dialog, 'box-shadow')).toBe('none')
-      await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
-      const standalone = page.locator('#standalone')
-      await standalone.getByRole('button', { name: 'Delete', exact: true }).click()
-      const standaloneDialog = standalone.getByRole('alertdialog')
-      await standaloneDialog.waitFor({ state: 'visible' })
-      expect(await style(standaloneDialog, 'background-color')).toBe('rgb(51, 34, 17)')
-      await standaloneDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+      // Delete acts immediately, so the themed surface behind the secondary
+      // actions is the popover rather than a confirmation dialog.
+      await root.getByRole('button', { name: 'More actions', exact: true }).first().click()
+      const actions = root.locator('[data-slot="popover-content"]').first()
+      await actions.waitFor({ state: 'visible' })
+      expect(await style(actions, 'font-family')).toContain('Georgia')
+      expect(await style(actions, 'background-color')).toBe('rgb(51, 34, 17)')
+      expect(await style(actions, 'box-shadow')).toBe('none')
+      await page.keyboard.press('Escape')
     }
     await page.emulateMedia({ colorScheme: 'light' })
     await page.waitForFunction(

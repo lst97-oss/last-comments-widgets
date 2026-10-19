@@ -12,6 +12,40 @@
   @import "tailwindcss/preflight.css" layer(base);
   @import "tailwindcss/utilities.css" layer(utilities);
 
+  /* Knobs for utilities Tailwind fixes at build time. Declared after the
+     imported utilities layer, so equal-specificity rules here win; scoped to
+     the widget roots, so host pages keep their own utilities. */
+  @layer utilities {
+    .border {
+      border-width: var(--lc-border-width, 1px);
+    }
+    .border-l {
+      border-left-width: var(--lc-border-width, 1px);
+    }
+    .border-r {
+      border-right-width: var(--lc-border-width, 1px);
+    }
+    .border-t {
+      border-top-width: var(--lc-border-width, 1px);
+    }
+    .border-b {
+      border-bottom-width: var(--lc-border-width, 1px);
+    }
+    .border-x {
+      border-inline-width: var(--lc-border-width, 1px);
+    }
+    .border-y {
+      border-block-width: var(--lc-border-width, 1px);
+    }
+    /* Bare `rounded` is the fixed 0.25rem utility; keep it proportional to --radius. */
+    .rounded {
+      border-radius: calc(var(--radius) * 0.4);
+    }
+    .font-medium {
+      font-weight: var(--lc-font-weight-medium, 500);
+    }
+  }
+
   @layer theme {
     :scope {
       --spacing: var(--lc-spacing, 0.25rem);
@@ -181,7 +215,8 @@
         [data-slot="dropdown-menu-portal"],
         [data-slot="dialog-portal"],
         [data-slot="alert-dialog-portal"],
-        [data-slot="tooltip-portal"]
+        [data-slot="tooltip-portal"],
+        [data-slot="popover-portal"]
       ) {
       display: contents;
     }
@@ -189,15 +224,108 @@
     .lc-comment {
       background: var(--card);
       color: var(--card-foreground);
+      border: var(--lc-comment-border, 0) solid var(--border);
       border-radius: var(--radius);
       box-shadow: var(--lc-card-shadow, none);
       padding: var(--lc-card-padding, 0);
     }
     .lc-comment.lc-reply {
+      background: var(--lc-reply-background, var(--card));
       padding-inline-start: calc(var(--lc-card-padding, 0px) + var(--lc-spacing, 0.25rem) * 4);
+    }
+    /* Reply connectors: one measured Fumadocs-style guide line per comment
+       (drawn by ThreadGuides), muted by default with the segment at the
+       reader's scroll position drawn in the active color. */
+    .lc-thread-guides {
+      padding-inline-start: var(--lc-thread-indent, 1rem);
+    }
+    .lc-thread-overlay {
+      position: absolute;
+      inset-inline-start: 0;
+      top: 0;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+    .lc-thread-overlay svg {
+      overflow: visible;
+    }
+    .lc-thread-overlay .track {
+      stroke: var(--lc-thread-muted, var(--border));
+      stroke-width: 2;
+      fill: none;
+    }
+    .lc-thread-overlay .thumb {
+      stroke: var(--lc-thread-line, var(--primary));
+      stroke-width: 2;
+      fill: none;
+    }
+    /* Folded reply summary: the discs are ordinary avatars, only grouped and
+       overlapped so a hidden group still shows who is inside it. */
+    .lc-reply-stack [data-slot="avatar"],
+    .lc-reply-stack [data-slot="avatar-group-count"] {
+      --tw-ring-color: var(--lc-avatar-ring, var(--background));
+    }
+    .lc-vote {
+      background: var(--lc-vote-background, transparent);
+      border: var(--lc-vote-border, 0) solid var(--border);
+      border-radius: var(--lc-control-radius, 9999px);
+      box-shadow: var(--lc-vote-shadow, none);
+    }
+    .lc-action,
+    .lc-collapse {
+      color: var(--lc-action-color, var(--muted-foreground));
+    }
+    .lc-action:where(:hover, :focus-visible),
+    .lc-collapse:where(:hover, :focus-visible) {
+      color: var(--lc-action-hover-color, var(--foreground));
+      background: var(--lc-action-hover-background, transparent);
+    }
+    /* Admin flair hook: the Badge default variant already paints with
+       --primary/--primary-foreground; target .lc-admin-badge to restyle. */
+    /* biome-ignore lint/suspicious/noEmptyBlock: public styling hook, no defaults of its own. */
+    .lc-admin-badge {
+    }
+    /* Blocked-author indicator (moderation rows only). */
+    .lc-blocked-badge {
+      border-color: var(--border);
+      color: var(--muted-foreground);
+    }
+    /* The collapse control sits beside the author's avatar: an outline ring keeps
+       it from reading as one more avatar. */
+    .lc-collapse {
+      border: var(--lc-border-width, 1px) solid var(--border);
+      background: transparent;
+    }
+    .lc-collapse:where(:hover, :focus-visible) {
+      border-color: var(--lc-action-hover-color, var(--foreground));
+    }
+    /* Destructive menu entries (delete): same hook family, alarm colour. */
+    .lc-action-destructive {
+      color: var(--destructive);
+    }
+    .lc-action-destructive:where(:hover, :focus-visible) {
+      color: var(--destructive);
+      background: color-mix(in oklab, var(--destructive) 10%, transparent);
+    }
+    .lc-replies-trigger {
+      color: var(--muted-foreground);
+    }
+    .lc-replies-trigger:where(:hover, :focus-visible) {
+      color: var(--foreground);
     }
     .lc-composer {
       padding: var(--lc-composer-padding, calc(var(--lc-spacing, 0.25rem) * 3));
+      background: var(--lc-composer-background, color-mix(in oklab, var(--muted) 60%, transparent));
+    }
+    .lc-avatar,
+    .lc-avatar > *,
+    .lc-avatar::after {
+      border-radius: var(--lc-avatar-radius, 9999px);
+    }
+    /* Opt-in so circle placeholders keep their shape. */
+    .lc-skeleton:not(.rounded-full) {
+      border-radius: var(--lc-skeleton-radius, calc(var(--radius) * 0.8));
     }
     :where(button, input, select) {
       min-height: var(--lc-control-height, 0);
@@ -205,9 +333,13 @@
     :where(button, input, textarea, select) {
       border-radius: var(--lc-control-radius, var(--radius));
     }
+    .lc-actions-menu {
+      box-shadow: var(--lc-dropdown-shadow, 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1));
+    }
     .lc-identity-menu {
       background: var(--popover);
       color: var(--popover-foreground);
+      z-index: var(--lc-menu-z-index, 10);
       box-shadow: var(--lc-dropdown-shadow, 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1));
     }
     .lc-identity-item:where(:hover, :focus-visible, [data-highlighted]) {
@@ -230,7 +362,8 @@
       @apply text-primary underline underline-offset-4;
     }
     .lc-markdown code {
-      @apply rounded bg-muted px-1 font-mono text-[0.85em];
+      border-radius: calc(var(--radius) * 0.4);
+      @apply bg-muted px-1 font-mono text-[0.85em];
     }
     .lc-markdown pre {
       @apply overflow-x-auto rounded-lg bg-muted p-3;
