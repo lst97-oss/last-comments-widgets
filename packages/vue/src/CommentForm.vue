@@ -1,7 +1,13 @@
 <script setup lang="ts">
-import { ApiError, describeError, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
+import {
+  ApiError,
+  DEFAULT_BODY_LIMIT,
+  describeError,
+  type ErrorInfo,
+  renderMarkdown,
+} from '@last-comments-widgets/client'
 import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-vue-next'
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, useTemplateRef } from 'vue'
 import VueTurnstile from 'vue-turnstile'
 import CommentError from './CommentError.vue'
 
@@ -22,16 +28,18 @@ const props = defineProps<{
 
 const emit = defineEmits<{ submitted: [] }>()
 
+defineOptions({ name: 'CommentForm' })
+
 const authorName = ref('')
 const body = ref(props.initialBody ?? '')
 const token = ref('')
 const preview = ref(false)
-const turnstile = ref<{ reset: () => void } | null>(null)
+const turnstile = useTemplateRef<{ reset: () => void }>('turnstile')
 const busy = ref(false)
 const formError = ref<ErrorInfo | null>(null)
-const textareaEl = ref<HTMLTextAreaElement | null>(null)
+const textareaEl = useTemplateRef<HTMLTextAreaElement>('textareaEl')
 const showName = computed(() => props.guest ?? true)
-const bodyTooLong = computed(() => body.value.trim().length > 10_000)
+const bodyTooLong = computed(() => body.value.trim().length > DEFAULT_BODY_LIMIT)
 const submitDisabled = computed(
   () =>
     busy.value ||
@@ -44,32 +52,41 @@ const submitDisabled = computed(
 const iconBtn =
   'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors outline-none select-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4'
 
-function wrapSelection(before: string, after: string, placeholder = 'text') {
+// Wraps or prefixes the selection: the transform returns the inserted text and
+// where the caret ends up relative to it.
+function applyToSelection(
+  transform: (selected: string) => { text: string; anchor: number; head: number },
+  placeholder = 'text',
+) {
   const el = textareaEl.value
   if (!el) return
   const start = el.selectionStart ?? body.value.length
   const end = el.selectionEnd ?? body.value.length
   const selected = body.value.slice(start, end) || placeholder
-  body.value = `${body.value.slice(0, start)}${before}${selected}${after}${body.value.slice(end)}`
+  const { text, anchor, head } = transform(selected)
+  body.value = `${body.value.slice(0, start)}${text}${body.value.slice(end)}`
   void nextTick(() => {
     el.focus()
-    const pos = start + before.length + selected.length + after.length
-    el.setSelectionRange(pos, pos)
+    el.setSelectionRange(start + anchor, start + head)
   })
 }
 
+function wrapSelection(before: string, after: string, placeholder = 'text') {
+  applyToSelection((selected) => {
+    const text = `${before}${selected}${after}`
+    return { text, anchor: text.length, head: text.length }
+  }, placeholder)
+}
+
 function wrapLine(prefix: string, placeholder = 'text') {
-  const el = textareaEl.value
-  if (!el) return
-  const start = el.selectionStart ?? body.value.length
-  const end = el.selectionEnd ?? body.value.length
-  const selected = body.value.slice(start, end) || placeholder
-  const lines = selected.split('\n')
-  body.value = `${body.value.slice(0, start)}${prefix}${lines.join(`\n${prefix}`)}${body.value.slice(end)}`
-  void nextTick(() => {
-    el.focus()
-    el.setSelectionRange(start + prefix.length, start + prefix.length + selected.length + prefix.length * lines.length)
-  })
+  applyToSelection((selected) => {
+    const lines = selected.split('\n')
+    return {
+      text: `${prefix}${lines.join(`\n${prefix}`)}`,
+      anchor: prefix.length,
+      head: prefix.length + selected.length + prefix.length * lines.length,
+    }
+  }, placeholder)
 }
 
 const tools = [
@@ -119,7 +136,7 @@ async function submit() {
 </script>
 
 <template>
-  <form class="lc-composer rounded-xl border border-border bg-muted/60 p-3" @submit.prevent="submit">
+  <form class="lc-composer rounded-xl border border-border p-3" @submit.prevent="submit">
     <div v-if="props.parentId" class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
       <span>Replying to this comment</span>
       <button

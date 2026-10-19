@@ -4,7 +4,7 @@ import { onBeforeUnmount, onMounted, type Ref, ref } from 'vue'
 // for the widget root to near the viewport. `started` lets prop watchers skip
 // reloads before the first fetch.
 export function useLazyLoad(
-  rootEl: Ref<HTMLElement | null>,
+  rootEl: Readonly<Ref<HTMLElement | null>>,
   isLazy: () => boolean,
   load: () => void,
 ): { started: Ref<boolean> } {
