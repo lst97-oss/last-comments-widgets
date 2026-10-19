@@ -14,6 +14,7 @@ import {
   EDIT_WINDOW_CLOSED,
   fetchViewerSession,
   fetchViewerThreads,
+  foldReplySummary,
   forgetEditKey,
   formatRelativeTime,
   getEditKey,
@@ -92,6 +93,30 @@ describe('buildCommentTree', () => {
     const tree = buildCommentTree([parent, reply, orphan])
     expect(tree.map((n) => n.comment.id)).toEqual(['p', 'o'])
     expect(tree[0]?.children.map((n) => n.comment.id)).toEqual(['r'])
+  })
+})
+
+describe('foldReplySummary', () => {
+  test('counts every reply in the group, nested replies included', () => {
+    const parent = comment({ id: 'p' })
+    const reply = comment({ id: 'r', parentId: 'p' })
+    const nested = comment({ id: 'n', parentId: 'r' })
+    const sibling = comment({ id: 's', parentId: 'p' })
+    const group = buildCommentTree([parent, reply, nested, sibling])[0]?.children ?? []
+    expect(foldReplySummary(group)).toEqual({ count: 3, pinned: 0, hidden: 0, deleted: 0 })
+  })
+
+  test('an empty group is all zeros', () => {
+    expect(foldReplySummary([])).toEqual({ count: 0, pinned: 0, hidden: 0, deleted: 0 })
+  })
+
+  test('counts pinned, hidden and deleted rows only when present', () => {
+    const parent = comment({ id: 'p' })
+    const pinned = comment({ id: 'r1', parentId: 'p', pinnedAt: new Date().toISOString() })
+    const hidden = comment({ id: 'r2', parentId: 'p', status: 'hidden' })
+    const deleted = comment({ id: 'r3', parentId: 'p', status: 'deleted' })
+    const group = buildCommentTree([parent, pinned, hidden, deleted])[0]?.children ?? []
+    expect(foldReplySummary(group)).toEqual({ count: 3, pinned: 1, hidden: 1, deleted: 1 })
   })
 })
 
