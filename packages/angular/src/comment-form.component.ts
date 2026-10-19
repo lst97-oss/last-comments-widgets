@@ -1,10 +1,13 @@
 import type { ElementRef } from '@angular/core'
 import { Component, computed, input, type OnInit, output, signal, viewChild } from '@angular/core'
-import { type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
+import { DEFAULT_BODY_LIMIT, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcTurnstileDirective } from './turnstile.directive'
 
 export type CommentSubmit = { body: string; authorName?: string; token?: string }
+
+// One counter per composer: the counter `<p>` id must be unique per instance.
+let formSeq = 0
 
 // Panel composer: Write/Preview toggle + icon toolbar, borderless
 // textarea, guest name + markdown hint + submit row. Name + Turnstile
@@ -16,13 +19,13 @@ export type CommentSubmit = { body: string; authorName?: string; token?: string 
   imports: [LcTurnstileDirective, LcCommentErrorComponent],
   template: `
     <form (submit)="onSubmit($event)" class="lc-composer rounded-xl border border-border p-3">
-      @if (parentId() || showCancel()) {
-        <div class="mb-2 flex flex-wrap items-center justify-between text-xs text-muted-foreground">
-          <span>{{ parentId() ? 'Replying to this comment' : 'Editing comment' }}</span>
+      @if (parentId()) {
+        <div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+          <span>Replying to this comment</span>
           <button
             type="button"
             (click)="cancelReply.emit()"
-            class="rounded-md px-2 py-1 hover:bg-accent hover:text-foreground"
+            class="h-7 rounded-[min(var(--radius-md),12px)] px-2.5 text-[length:calc(var(--lc-font-size,1rem)*0.8)] font-medium hover:bg-muted hover:text-foreground"
           >
             Cancel
           </button>
@@ -278,11 +281,18 @@ export type CommentSubmit = { body: string; authorName?: string; token?: string 
           rows="4"
           required
           [attr.aria-label]="parentId() ? 'Reply body' : 'Comment body'"
+          [attr.aria-describedby]="counterId"
+          [attr.aria-invalid]="bodyTooLong() || null"
           class="w-full border-0 bg-transparent px-1 font-sans text-sm focus-visible:outline-none"
           [value]="body()"
           (input)="body.set($any($event.target).value)"
         ></textarea>
       }
+      <!-- Counts what the author typed: the server caps the same raw length. -->
+      <p [id]="counterId" data-lc-char-count class="mt-1 text-right text-xs text-muted-foreground tabular-nums">
+        <span [class.text-destructive]="bodyTooLong()">{{ body().length.toLocaleString() }}</span
+        >{{ ' / ' + bodyLimit().toLocaleString() }}
+      </p>
       @if (guest() && turnstileSiteKey()) {
         <div [lcTurnstile]="turnstileSiteKey()" (token)="token.set($event)" (expired)="token.set(undefined)"></div>
       }
@@ -306,12 +316,23 @@ export type CommentSubmit = { body: string; authorName?: string; token?: string 
         <p class="ml-auto hidden text-xs text-muted-foreground sm:block">
           Styling with <span class="font-medium text-primary">Markdown</span> is supported
         </p>
+        <!-- The reply form cancels from its header; a standalone editor needs this row. -->
+        @if (!parentId() && showCancel()) {
+          <button
+            type="button"
+            [disabled]="submitting()"
+            (click)="cancelReply.emit()"
+            class="h-7 rounded-[min(var(--radius-md),12px)] border border-border px-2.5 text-[length:calc(var(--lc-font-size,1rem)*0.8)] font-medium hover:bg-muted disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        }
         <button
           type="submit"
           [disabled]="
             submitting() || sessionPending() || bodyTooLong() || (guest() && turnstileSiteKey() ? !token() : false)
           "
-          class="ml-auto shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium whitespace-nowrap text-primary-foreground disabled:opacity-50"
+          class="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium whitespace-nowrap text-primary-foreground disabled:opacity-50"
         >
           {{ submitText() }}
         </button>
@@ -330,10 +351,14 @@ export class LcCommentFormComponent implements OnInit {
   initialBody = input('')
   submitLabel = input<string | undefined>(undefined)
   showCancel = input(false)
+  // Max body characters, counted before trimming to match the server routes.
+  bodyLimit = input(DEFAULT_BODY_LIMIT)
   submitted = output<CommentSubmit>()
   signIn = output<void>()
   cancelReply = output<void>()
 
+  // `<textarea>` describes itself with the counter's id.
+  readonly counterId = `lc-char-count-${++formSeq}`
   authorName = signal('')
   body = signal('')
   token = signal<string | undefined>(undefined)
@@ -341,7 +366,7 @@ export class LcCommentFormComponent implements OnInit {
   turnstile = viewChild(LcTurnstileDirective)
   box = viewChild<ElementRef<HTMLTextAreaElement>>('bodyEl')
 
-  readonly bodyTooLong = computed(() => this.body().trim().length > 10_000)
+  readonly bodyTooLong = computed(() => this.body().length > this.bodyLimit())
   readonly submitText = computed(() =>
     this.submitting() ? 'Posting…' : (this.submitLabel() ?? (this.parentId() ? 'Post reply' : 'Post comment')),
   )
@@ -398,6 +423,9 @@ export class LcCommentFormComponent implements OnInit {
 
   // Emits the current draft; the error block's "Try again" reuses the submit path.
   retrySubmit(): void {
+    // The submit button is already disabled; keep the guard so a stale render can
+    // never post a body the server would reject with a validation error.
+    if (this.bodyTooLong()) return
     const text = this.body().trim()
     if (text.length === 0) return
     this.submitted.emit({

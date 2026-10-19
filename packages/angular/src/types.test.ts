@@ -1,16 +1,35 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULT_EDIT_WINDOW_MINUTES } from '@last-comments-widgets/client'
+import { DEFAULT_ANON_EDIT_WINDOW_MINUTES } from '@last-comments-widgets/client'
 import { canEditComment } from './types'
 
 describe('canEditComment', () => {
-  test('Edit hidden on a 6-minute-old own comment with the default window', () => {
-    const createdAt = new Date(Date.now() - 6 * 60_000).toISOString()
-    expect(DEFAULT_EDIT_WINDOW_MINUTES).toBe(5)
-    expect(canEditComment({ userId: 'u1', createdAt }, 'u1')).toBe(false)
+  const oldButInside = new Date(Date.now() - 6 * 60_000).toISOString()
+  const expired = new Date(Date.now() - 11 * 60_000).toISOString()
+
+  test('signed-in owner edits any time', () => {
+    expect(DEFAULT_ANON_EDIT_WINDOW_MINUTES).toBe(10)
+    expect(canEditComment({ userId: 'u1', createdAt: expired }, 'u1')).toBe(true)
   })
 
-  test('Edit shown when editWindowMinutes is 0 (unlimited)', () => {
-    const createdAt = new Date(Date.now() - 6 * 60_000).toISOString()
-    expect(canEditComment({ userId: 'u1', createdAt }, 'u1', 0)).toBe(true)
+  test('another viewer never edits', () => {
+    expect(canEditComment({ userId: 'u1', createdAt: oldButInside }, 'u2')).toBe(false)
+  })
+
+  test('guest edits inside the anonymous window while the browser holds the key', () => {
+    expect(canEditComment({ userId: null, createdAt: oldButInside }, undefined, { hasEditKey: true })).toBe(true)
+  })
+
+  test('guest without the key is closed', () => {
+    expect(canEditComment({ userId: null, createdAt: oldButInside }, undefined)).toBe(false)
+  })
+
+  test('guest with the key but past the window is closed', () => {
+    expect(canEditComment({ userId: null, createdAt: expired }, undefined, { hasEditKey: true })).toBe(false)
+  })
+
+  test('anonWindowMinutes 0 means unlimited', () => {
+    expect(
+      canEditComment({ userId: null, createdAt: expired }, undefined, { hasEditKey: true, anonWindowMinutes: 0 }),
+    ).toBe(true)
   })
 })
