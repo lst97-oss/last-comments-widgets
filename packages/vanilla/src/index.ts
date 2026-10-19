@@ -6,7 +6,9 @@ import type {
   LastCommentsClient,
   ModerationAction,
   ThemeVars,
+  ThreadGuideItem,
   ThreadNode,
+  ThreadSort,
   ViewerOptions,
   ViewerRole,
   ViewerSession,
@@ -17,23 +19,37 @@ import {
   ApiError,
   beginOAuthSignIn,
   buildCommentTree,
+  buildThreadGuidePath,
   canModerate,
+  collectThreadParticipants,
   createClient,
-  DEFAULT_EDIT_WINDOW_MINUTES,
+  DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+  DEFAULT_BODY_LIMIT,
   describeError,
+  EDIT_WINDOW_CLOSED,
   fetchViewerSession,
+  foldReplySummary,
+  forgetEditKey,
+  formatRelativeTime,
+  getEditKey,
   isEditWindowOpen,
   loadThreadWindow,
   moderationCommentToComment,
   normalizePageUrl,
   renderMarkdown,
+  resolveEditWindow,
   safeUrl,
+  saveEditKey,
   signOutViewerSession,
+  sortCommentRoots,
   THEME_CSS_VARIABLES,
   themeVarsToStyle,
 } from '@last-comments-widgets/client'
 
 export type Theme = 'light' | 'dark' | 'system'
+
+// Comment action rendering: icon only, icon plus label, or label only.
+export type ActionMode = 'icon' | 'icon-text' | 'text'
 
 export type MountOptions = {
   site: string
@@ -49,7 +65,13 @@ export type MountOptions = {
   signInUrl?: string
   viewerUserId?: string
   viewerRole?: ViewerRole
-  editWindowMinutes?: number
+  // Guest-authored comments may be edited for this many minutes from this
+  // browser (default 10; 0 = unlimited). Signed-in authors have no window.
+  anonEditWindowMinutes?: number
+  // Reply/action rendering, default 'icon-text'.
+  actionMode?: ActionMode
+  // Max body characters, counted before trimming to match the server routes.
+  bodyLimit?: number
   /** Embed below the fold: fetch only once the widget scrolls into view. */
   lazy?: boolean
   fetchImpl?: typeof fetch
@@ -85,13 +107,14 @@ export function escapeHtml(raw: string): string {
 // describeError, this only owns the markup.
 const ERROR_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-px size-4 shrink-0"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>`
 
-// A local guard, not a server failure: it has nothing to retry.
+// Local guards, not server failures: they have nothing to retry.
 const INVALID_BODY: ErrorInfo = {
   code: null,
   title: "That didn't work",
   message: 'Please write a comment first.',
   action: 'none',
 }
+const INVALID_REPLY: ErrorInfo = { ...INVALID_BODY, message: 'Please write a reply first.' }
 
 export function errorMarkup(info: ErrorInfo, opts: { signInUrl?: string; retryAction?: string } = {}): string {
   const signInUrl = safeUrl(opts.signInUrl)
@@ -113,23 +136,104 @@ export function errorMarkup(info: ErrorInfo, opts: { signInUrl?: string; retryAc
 </div>`
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+// Lucide path data, inlined: the vanilla port ships no icon dependency.
+const ICONS: Record<string, string> = {
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  minus: '<path d="M5 12h14"/>',
+  'ellipsis-vertical': '<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>',
+  pencil:
+    '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  trash:
+    '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+  'eye-off':
+    '<path d="M10.73 5.08a10.74 10.74 0 0 1 11.2 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14"/><path d="m2 2 20 20"/>',
+  pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+  'pin-off':
+    '<path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0-1.42 3.42"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h9"/><path d="m2 2 20 20"/>',
+  ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  'circle-check': '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  reply: '<path d="M20 18v-2a4 4 0 0 0-4-4H4"/><path d="m9 17-5-5 5-5"/>',
+  'arrow-up': '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  'arrow-down': '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+  bold: '<path d="M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8"/>',
+  italic:
+    '<line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/>',
+  quote:
+    '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/>',
+  code: '<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  list: '<path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/>',
+  'list-ordered':
+    '<path d="M11 5h10"/><path d="M11 12h10"/><path d="M11 19h10"/><path d="M4 4h1v5"/><path d="M4 9h2"/><path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02"/>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+  'chevron-up': '<path d="m18 15-6-6-6 6"/>',
+}
+
+function icon(name: string, className = ''): string {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${className ? ` class="${className}"` : ''}>${ICONS[name] ?? ''}</svg>`
+}
+
+// The shared Button base (`lc-button` in the React primitives) plus the two
+// variants this port renders, spelled out once.
+const BTN =
+  "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+const BTN_GHOST = 'hover:bg-muted hover:text-foreground'
+const BTN_OUTLINE = 'border-border bg-background hover:bg-muted hover:text-foreground'
+const BTN_SECONDARY = 'bg-secondary text-secondary-foreground'
+const BTN_ICON_XS = "size-6 rounded-[min(var(--radius-md),10px)] [&_svg:not([class*='size-'])]:size-3"
+const BTN_ICON_SM = 'size-7 rounded-[min(var(--radius-md),12px)]'
+const BTN_XS = 'h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs'
+const BTN_SM =
+  "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[length:calc(var(--lc-font-size,1rem)*0.8)] [&_svg:not([class*='size-'])]:size-3.5"
+
+const MENU_ITEM_CLASS =
+  "lc-action flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+// Destructive entries (delete) take the alarm colour instead of the action tone.
+const MENU_ITEM_DESTRUCTIVE_CLASS = `${MENU_ITEM_CLASS} lc-action-destructive`
+
+const BADGE =
+  'group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all [&>svg]:pointer-events-none [&>svg]:size-3!'
+const BADGE_VARIANTS = {
+  default: 'bg-primary text-primary-foreground',
+  secondary: 'bg-secondary text-secondary-foreground',
+  destructive: 'bg-destructive/10 text-destructive',
+  outline: 'border-border text-foreground',
+} as const
+
+function badge(variant: keyof typeof BADGE_VARIANTS, className: string, inner: string): string {
+  return `<span class="${BADGE} ${BADGE_VARIANTS[variant]}${className ? ` ${className}` : ''}">${inner}</span>`
+}
+
+// Mirror of the React editGate: signed-in owners edit any time; a guest owns the
+// comment only while this browser still holds its key, inside the anon window.
+export function canEditComment(
+  comment: { userId?: string | null; createdAt: string },
+  viewerUserId?: string,
+  options: { anonWindowMinutes?: number; hasEditKey?: boolean } = {},
+): boolean {
+  const windowMinutes = resolveEditWindow({
+    commentUserId: comment.userId,
+    viewerUserId,
+    hasEditKey: options.hasEditKey,
+    ...(options.anonWindowMinutes === undefined ? {} : { anonymousWindowMinutes: options.anonWindowMinutes }),
+  })
+  if (windowMinutes === EDIT_WINDOW_CLOSED) return false
+  return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
 }
 
 function voteButtonClass(active: boolean): string {
-  return `rounded border border-border px-2 py-1 text-sm ${active ? 'bg-primary font-bold text-primary-foreground' : 'text-muted-foreground'}`
+  return `${BTN} ${BTN_SM} ${active ? 'bg-primary text-primary-foreground' : BTN_GHOST}`
 }
 
 function voteButton(comment: Comment, value: VoteValue, label: string, glyph: string): string {
   const active = comment.viewerVote === value
-  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}" class="${voteButtonClass(active)}">${glyph}</button>`
+  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}" class="${voteButtonClass(active)}">${icon(glyph)}</button>`
 }
 
-type RowParts = { body: string; date: string; initials: string; avatar: string | null }
-// Markdown, dates and avatars only change when the row object changes: a vote
-// patch or a reload creates new objects, so a WeakMap keeps repaints cheap.
+type RowParts = { body: string; initials: string; avatar: string | null }
+// Markdown and avatars only change when the row object changes: a vote patch or
+// a reload creates new objects, so a WeakMap keeps repaints cheap.
 const rowPartsCache = new WeakMap<Comment, RowParts>()
 
 function commentParts(comment: Comment): RowParts {
@@ -137,13 +241,37 @@ function commentParts(comment: Comment): RowParts {
   if (!parts) {
     parts = {
       body: renderMarkdown(comment.bodyMarkdown),
-      date: formatDate(comment.createdAt),
       initials: initials(comment.authorName),
       avatar: safeUrl(comment.avatarUrl) ?? null,
     }
     rowPartsCache.set(comment, parts)
   }
   return parts
+}
+
+function avatarMarkup(name: string, avatarUrl: string | null, size: 'sm' | 'default' = 'sm'): string {
+  const box = size === 'sm' ? 'size-6' : 'size-8'
+  const fallback = size === 'sm' ? 'text-xs' : 'text-sm'
+  const image = avatarUrl
+    ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" class="aspect-square size-full rounded-full object-cover" />`
+    : `<span class="flex size-full items-center justify-center rounded-full bg-muted ${fallback} text-muted-foreground" aria-hidden="true">${escapeHtml(initials(name))}</span>`
+  return `<span data-slot="avatar" data-size="${size}" class="lc-avatar relative flex ${box} shrink-0 rounded-full select-none">${image}</span>`
+}
+
+// Folded-group summary: who is inside the group, so a hidden group still shows
+// its participants. Moderated authors are counted in the label, not marked here.
+function replyStack(children: ThreadNode[]): string {
+  const participants = collectThreadParticipants(children)
+  const visible = participants.slice(0, 3)
+  const extra = participants.length - visible.length
+  const discs = visible
+    .map((participant) => avatarMarkup(participant.name, safeUrl(participant.avatarUrl) ?? null))
+    .join('')
+  const count =
+    extra > 0
+      ? `<span data-slot="avatar-group-count" class="relative flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground ring-2 ring-background">+${extra}</span>`
+      : ''
+  return `<div data-slot="avatar-group" class="lc-reply-stack flex -space-x-2 [&>*]:ring-2 [&>*]:ring-background">${discs}${count}</div>`
 }
 
 function initials(name: string): string {
@@ -196,23 +324,131 @@ export type CommentNodeOptions = {
   guest?: boolean
   viewerUserId?: string
   viewerRole?: ViewerRole
-  editingId?: string | null
-  editWindowMinutes?: number
+  // Per-row slot state (editor, reply, collapse), keyed by comment id.
+  items?: Record<string, ItemState>
+  anonWindowMinutes?: number
+  actionMode?: ActionMode
+  bodyLimit?: number
   readOnly?: boolean
   pendingModeration?: Record<string, boolean>
   submitDisabled?: boolean
   // Host-level flag (page locked); hidden/deleted rows hide votes regardless.
   hideVotes?: boolean
+  parentAuthorName?: string
 }
 
-function moderationButton(comment: Comment, action: ModerationAction, label: string, pending: boolean): string {
-  const destructive = action === 'delete' ? ' lc-action-destructive' : ''
-  return `<button type="button" data-action="moderate" data-moderation-action="${action}" data-comment-id="${escapeHtml(comment.id)}" ${pending ? 'disabled' : ''} class="lc-action${destructive} underline-offset-4 hover:underline disabled:opacity-50">${label}</button>`
+// The ⋮ menu: secondary actions live behind it so a comment reads as content
+// first. Reply stays outside — it is the one action worth a permanent target.
+function actionsMenu(
+  comment: Comment,
+  ctx: {
+    canEdit: boolean
+    editing: boolean
+    isOwn: boolean
+    viewerRole?: ViewerRole
+    pending: boolean
+  },
+): string {
+  const { canEdit, editing, isOwn, viewerRole, pending } = ctx
+  const id = escapeHtml(comment.id)
+  const entry = (attrs: string, iconName: string, label: string, destructive = false) =>
+    `<button type="button" role="menuitem" tabindex="-1" ${attrs} class="${destructive ? MENU_ITEM_DESTRUCTIVE_CLASS : MENU_ITEM_CLASS}">${icon(iconName)}${label}</button>`
+  const entries: string[] = []
+  if (canEdit && !editing) entries.push(entry(`data-action="menu-edit" data-comment-id="${id}"`, 'pencil', 'Edit'))
+  // Delete is soft (status 'deleted', restorable by a moderator), so the menu
+  // entry acts immediately instead of asking for confirmation.
+  if (isOwn && !viewerRole && !editing)
+    entries.push(entry(`data-action="delete" data-comment-id="${id}"`, 'trash', 'Delete', true))
+  if (viewerRole) {
+    const disabled = pending ? ' disabled' : ''
+    entries.push(
+      comment.status === 'visible'
+        ? entry(
+            `data-action="moderate" data-moderation-action="hide" data-comment-id="${id}"${disabled}`,
+            'eye-off',
+            'Hide',
+          )
+        : entry(
+            `data-action="moderate" data-moderation-action="restore" data-comment-id="${id}"${disabled}`,
+            'eye',
+            'Restore',
+          ),
+    )
+    if (comment.status === 'visible')
+      entries.push(
+        comment.pinnedAt
+          ? entry(
+              `data-action="moderate" data-moderation-action="unpin" data-comment-id="${id}"${disabled}`,
+              'pin-off',
+              'Unpin',
+            )
+          : entry(
+              `data-action="moderate" data-moderation-action="pin" data-comment-id="${id}"${disabled}`,
+              'pin',
+              'Pin',
+            ),
+      )
+    if (comment.status !== 'deleted')
+      entries.push(
+        entry(
+          `data-action="moderate" data-moderation-action="delete" data-comment-id="${id}"${disabled}`,
+          'trash',
+          'Delete',
+          true,
+        ),
+      )
+    if (comment.userId)
+      entries.push(
+        comment.userBlocked
+          ? entry(`data-action="block-user" data-comment-id="${id}"${disabled}`, 'circle-check', 'Unblock user')
+          : entry(`data-action="block-user" data-comment-id="${id}"${disabled}`, 'ban', 'Block user'),
+      )
+  }
+  if (entries.length === 0) return ''
+  // No popover API in the supported baseline (Firefox 121), so the panel is an
+  // in-flow absolute block toggled by hand; it stays inside the widget root so
+  // the theme's `.lc-actions-menu` hook applies.
+  return `<div class="relative" data-lc-menu>
+      <button type="button" data-action="menu-toggle" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" class="lc-action lc-actions-trigger ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon('ellipsis-vertical')}</button>
+      <div role="menu" class="lc-actions-menu absolute right-0 top-full z-10 mt-1 min-w-36 rounded-lg bg-popover p-1 text-sm text-popover-foreground ring-1 ring-foreground/10" hidden>${entries.join('')}</div>
+    </div>`
 }
 
-function blockButton(comment: Comment, pending: boolean): string {
-  const blocked = Boolean(comment.userBlocked)
-  return `<button type="button" data-action="block-user" data-comment-id="${escapeHtml(comment.id)}" data-blocked="${blocked}" ${pending ? 'disabled' : ''} class="lc-action underline-offset-4 hover:underline disabled:opacity-50">${blocked ? 'Unblock user' : 'Block user'}</button>`
+// Reply group: hand-rolled disclosure (no popover/`@starting-style` in the
+// supported baseline) whose panel keeps the `data-slot` the guide measurement
+// clips rows against.
+function replyGroup(node: ThreadNode, depth: number, options: CommentNodeOptions): string {
+  const { comment, children } = node
+  const summary = foldReplySummary(children)
+  const label = `${summary.count} ${summary.count === 1 ? 'reply' : 'replies'}`
+  // Statuses only exist for moderators: the public list returns visible rows.
+  const states = options.viewerRole
+    ? [
+        summary.pinned > 0 ? `${summary.pinned} pinned` : '',
+        summary.hidden > 0 ? `${summary.hidden} hidden` : '',
+        summary.deleted > 0 ? `${summary.deleted} deleted` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : ''
+  const panelId = `lc-replies-${comment.id}`
+  const nested = children
+    .map((child) => renderCommentNode(child, depth + 1, { ...options, parentAuthorName: comment.authorName }))
+    .join('')
+  return `<div class="mt-2 flex w-full flex-col" data-lc-replies="">
+      <div class="border-0">
+        <div style="padding-inline-start: 16px">
+          <button type="button" data-action="replies-toggle" aria-expanded="true" aria-controls="${escapeHtml(panelId)}" class="lc-replies-trigger relative flex w-full items-center justify-between rounded-lg border border-transparent py-1 text-left text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+            <span data-lc-replies-folded class="hidden"><span class="flex min-w-0 items-center gap-2">${replyStack(children)}<span class="truncate text-xs">${label}</span>${states ? `<span class="hidden truncate text-xs sm:inline">${states}</span>` : ''}</span></span>
+            <span data-lc-replies-open class="text-xs">Hide ${label}</span>
+            ${icon('chevron-down', 'ml-auto hidden size-4 shrink-0 text-muted-foreground')}${icon('chevron-up', 'ml-auto size-4 shrink-0 text-muted-foreground')}
+          </button>
+          <div id="${escapeHtml(panelId)}" data-slot="accordion-content" data-state="open" class="grid grid-rows-[1fr]">
+            <div class="overflow-hidden"><div class="grid grid-cols-1 gap-4 pt-1">${nested}</div></div>
+          </div>
+        </div>
+      </div>
+    </div>`
 }
 
 export function renderCommentNode(node: ThreadNode, depth: number, options: CommentNodeOptions = {}): string {
@@ -223,93 +459,116 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
     guest = true,
     viewerUserId,
     viewerRole,
-    editingId = null,
-    editWindowMinutes = DEFAULT_EDIT_WINDOW_MINUTES,
+    items = {},
+    anonWindowMinutes,
+    actionMode = 'icon-text',
+    bodyLimit = DEFAULT_BODY_LIMIT,
     readOnly = false,
     pendingModeration,
     submitDisabled = false,
+    parentAuthorName,
   } = options
-  const kids =
-    children.length > 0
-      ? `<div class="mt-3 grid gap-4">${children.map((c) => renderCommentNode(c, depth + 1, options)).join('')}</div>`
-      : ''
-  const replyForm =
-    !readOnly && replyTo === comment.id
-      ? `<div class="mt-3">${renderForm({ parentId: comment.id, turnstileSiteKey, guest, formId: `reply-${comment.id}`, submitDisabled })}</div>`
-      : ''
-  const isOwner = !!viewerUserId && !!comment.userId && viewerUserId === comment.userId
-  const canEdit = isOwner && isEditWindowOpen(comment.createdAt, Date.now(), editWindowMinutes)
-  const canReplyHere = !(viewerRole && comment.status !== 'visible')
+  const item = items[comment.id] ?? ITEM_INITIAL
+  const { editing, saving, editError, replying, replyError, collapsedOverride } = item
+  const id = escapeHtml(comment.id)
+  const isOwn = Boolean(viewerUserId && comment.userId && viewerUserId === comment.userId)
+  const canEdit = canEditComment(comment, viewerUserId, {
+    anonWindowMinutes,
+    hasEditKey: getEditKey(comment.id) !== null,
+  })
   const moderationPending = pendingModeration?.[comment.id] ?? false
+  const canReplyHere = !(viewerRole && comment.status !== 'visible')
   // The host hides votes list-wide (locked page) and hidden/deleted rows never
   // offer them: voting is rejected in both cases.
   const hideVotes = Boolean(options.hideVotes) || (Boolean(viewerRole) && comment.status !== 'visible')
+  // Negative net score collapses in every sort mode; 0 stays expanded.
+  const collapsed = collapsedOverride ?? comment.score < 0
   const parts = commentParts(comment)
-  const avatar = parts.avatar
-    ? `<img src="${escapeHtml(parts.avatar)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" class="lc-avatar h-8 w-8 rounded-full object-cover" />`
-    : `<span class="lc-avatar flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium" aria-hidden="true">${escapeHtml(parts.initials)}</span>`
-  const badges = `${comment.editedAt ? '<span class="text-xs text-muted-foreground">edited</span>' : ''}${comment.pinnedAt ? '<span class="text-xs text-muted-foreground">pinned</span>' : ''}${comment.status === 'hidden' ? '<span class="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">hidden</span>' : ''}${comment.status === 'deleted' ? '<span class="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">deleted</span>' : ''}`
   const score = readOnly
     ? `<span class="text-sm text-muted-foreground">${escapeHtml(String(comment.score))}</span>`
-    : `${voteButton(comment, 1, 'Upvote', '▲')}
-    <span class="text-sm text-muted-foreground" aria-label="Score">${escapeHtml(String(comment.score))}</span>
-    ${voteButton(comment, -1, 'Downvote', '▼')}`
-  const actions =
-    readOnly || editingId === comment.id
-      ? ''
-      : `<div class="flex flex-wrap items-center gap-3 text-sm">
-    ${
-      canReplyHere
-        ? `<button type="button" data-action="reply" data-comment-id="${escapeHtml(comment.id)}" aria-expanded="${replyTo === comment.id}" class="lc-action font-medium underline-offset-4 hover:underline">Reply</button>`
-        : ''
-    }
-    ${
-      canEdit
-        ? `<button type="button" data-action="edit" data-comment-id="${escapeHtml(comment.id)}" class="lc-action underline-offset-4 hover:underline">Edit</button>`
-        : ''
-    }${
-      isOwner && !viewerRole
-        ? `<button type="button" data-action="delete" data-comment-id="${escapeHtml(comment.id)}" class="lc-action lc-action-destructive underline-offset-4 hover:underline">Delete</button>`
-        : ''
-    }
-  </div>`
-  const moderationActions =
-    viewerRole && !readOnly
-      ? `<div class="mt-2 flex flex-wrap items-center gap-3 text-sm">
-    ${
-      comment.status === 'visible'
-        ? moderationButton(comment, 'hide', 'Hide', moderationPending)
-        : moderationButton(comment, 'restore', 'Restore', moderationPending)
-    }
-    ${
-      comment.status === 'visible'
-        ? comment.pinnedAt
-          ? moderationButton(comment, 'unpin', 'Unpin', moderationPending)
-          : moderationButton(comment, 'pin', 'Pin', moderationPending)
-        : ''
-    }
-    ${comment.status !== 'deleted' ? moderationButton(comment, 'delete', 'Delete', moderationPending) : ''}
-    ${comment.userId ? blockButton(comment, moderationPending) : ''}
-  </div>`
+    : `${voteButton(comment, 1, 'Upvote', 'arrow-up')}
+      <span class="min-w-6 text-center text-sm text-muted-foreground" aria-label="Score">${escapeHtml(String(comment.score))}</span>
+      ${voteButton(comment, -1, 'Downvote', 'arrow-down')}`
+  const flags = [
+    comment.editedAt
+      ? `<span class="text-xs text-muted-foreground" title="${escapeHtml(new Date(comment.editedAt).toLocaleString())}">edited</span>`
+      : '',
+    comment.pinnedAt ? '<span class="text-xs text-muted-foreground">pinned</span>' : '',
+    comment.status === 'hidden' ? badge('destructive', '', 'hidden') : '',
+    comment.status === 'deleted' ? badge('secondary', '', 'deleted') : '',
+  ].join('')
+  const editor =
+    !readOnly && editing
+      ? `<div class="my-3">${renderForm({
+          formId: `edit-${comment.id}`,
+          initialBody: comment.bodyMarkdown,
+          submitLabel: 'Save',
+          bodyLimit,
+          pending: saving,
+          error: editError,
+          cancelLabel: 'Cancel',
+        })}</div>`
       : ''
+  const replyForm =
+    !readOnly && !editing && replyTo === comment.id
+      ? `<div class="my-3">${renderForm({
+          parentId: comment.id,
+          turnstileSiteKey,
+          guest,
+          formId: `reply-${comment.id}`,
+          bodyLimit,
+          pending: replying,
+          error: replyError,
+          submitDisabled,
+        })}</div>`
+      : ''
+  // One slot at a time: the editor replaces the body, and so does an open reply.
   const body =
-    !readOnly && editingId === comment.id
-      ? `<div class="my-3">${renderForm({ formId: `edit-${comment.id}`, initialBody: comment.bodyMarkdown, submitLabel: 'Save' })}
-      <div class="mt-2"><button type="button" data-action="cancel-edit" class="rounded border border-border px-3 py-1 text-sm text-muted-foreground">Cancel</button></div></div>`
+    editing || (!readOnly && replyTo === comment.id)
+      ? ''
       : `<div class="lc-markdown my-3 font-sans text-sm">${parts.body}</div>`
-  return `<article data-comment-id="${escapeHtml(comment.id)}" class="lc-comment min-w-0 ${depth > 0 ? 'lc-reply ml-6 border-l border-border' : ''}">
-  <div class="flex flex-wrap items-center gap-2">
-    ${avatar}
-    <span class="min-w-0 break-words font-medium">${escapeHtml(comment.authorName)}</span>
-    <time class="text-xs text-muted-foreground" dateTime="${escapeHtml(comment.createdAt)}">${escapeHtml(parts.date)}</time>
-    ${badges}
-    ${hideVotes ? '' : `<span class="lc-vote ml-auto flex items-center gap-1">${score}</span>`}
+  const replyAction =
+    readOnly || !canReplyHere
+      ? ''
+      : `<button type="button" data-action="reply" data-comment-id="${id}" aria-expanded="${replyTo === comment.id}" ${actionMode === 'icon' ? 'aria-label="Reply"' : ''} class="lc-action ${BTN} ${BTN_GHOST} ${actionMode === 'icon' ? BTN_ICON_XS : BTN_XS}">${actionMode !== 'text' ? icon('reply') : ''}<span class="${actionMode === 'icon' ? 'sr-only' : ''}">Reply</span></button>`
+  const folded =
+    children.length > 0
+      ? (() => {
+          const summary = foldReplySummary(children)
+          const label = `${summary.count} ${summary.count === 1 ? 'reply' : 'replies'}`
+          const states = viewerRole
+            ? [
+                summary.pinned > 0 ? `${summary.pinned} pinned` : '',
+                summary.hidden > 0 ? `${summary.hidden} hidden` : '',
+                summary.deleted > 0 ? `${summary.deleted} deleted` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            : ''
+          return `${replyStack(children)}<span class="truncate">${label}</span>${states ? `<span class="hidden truncate sm:inline">${states}</span>` : ''}`
+        })()
+      : `<span>comment hidden</span><span class="truncate">${escapeHtml(comment.bodyMarkdown.replace(/\s+/g, ' ').trim())}</span>`
+  const caption =
+    depth > 0 && parentAuthorName
+      ? `<p class="mt-1 text-xs text-muted-foreground">Replying to <span class="font-medium text-foreground">@${escapeHtml(parentAuthorName)}</span></p>`
+      : ''
+  const expanded = `${caption}
+  ${editor}${replyForm}${body}
+  ${readOnly ? '' : `<div class="flex flex-wrap items-center gap-1 text-sm">${replyAction}</div>`}
+  ${children.length > 0 ? replyGroup(node, depth, options) : ''}`
+  return `<article class="lc-comment${depth > 0 ? ' lc-reply' : ''}" data-depth="${depth}" data-comment-id="${id}" data-comment-depth="${depth}">
+  <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+    <button type="button" data-action="collapse" data-comment-id="${id}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} comment by ${escapeHtml(comment.authorName)}" class="lc-action lc-collapse ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon(collapsed ? 'plus' : 'minus')}</button>
+    ${avatarMarkup(comment.authorName, parts.avatar)}
+    <span class="min-w-0 truncate font-medium${comment.authorRole === 'admin' ? ' text-primary' : ''}">${escapeHtml(comment.authorName)}</span>
+    ${comment.authorRole === 'admin' ? badge('default', 'lc-admin-badge', 'Admin') : ''}
+    ${comment.userBlocked ? badge('outline', 'lc-blocked-badge', `${icon('ban')}blocked`) : ''}
+    <time dateTime="${escapeHtml(comment.createdAt)}" title="${escapeHtml(new Date(comment.createdAt).toLocaleString())}" class="text-xs text-muted-foreground">${escapeHtml(formatRelativeTime(comment.createdAt))}</time>
+    ${flags}
+    ${readOnly ? '' : actionsMenu(comment, { canEdit, editing, isOwn, viewerRole, pending: moderationPending })}
+    ${hideVotes ? '' : `<span class="ml-auto"><div class="lc-vote flex items-center gap-0.5">${score}</div></span>`}
   </div>
-  ${body}
-  ${actions}
-  ${moderationActions}
-  ${replyForm}
-  ${kids}
+  ${collapsed ? `<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-lc-collapsed="">${folded}</div>` : expanded}
 </article>`
 }
 
@@ -317,9 +576,32 @@ export function renderCommentTree(nodes: ThreadNode[], options: CommentNodeOptio
   return nodes.map((n) => renderCommentNode(n, 0, options)).join('')
 }
 
+// One row owns three mutually-exclusive UI slots (editor, reply composer,
+// body) plus their pending/error flags — the same item state as React.
+export type ItemState = {
+  editing: boolean
+  saving: boolean
+  editError: ErrorInfo | null
+  replying: boolean
+  replyError: ErrorInfo | null
+  collapsedOverride: boolean | null
+}
+
+export const ITEM_INITIAL: ItemState = {
+  editing: false,
+  saving: false,
+  editError: null,
+  replying: false,
+  replyError: null,
+  collapsedOverride: null,
+}
+
 export type UiState = {
   replyTo: string | null
-  editingId: string | null
+  sort: ThreadSort
+  page: number
+  // Per-row slot state, keyed by comment id.
+  items: Record<string, ItemState>
   identityOpen: boolean
   needsSignIn: boolean
   actionError: ErrorInfo | null
@@ -333,7 +615,16 @@ export type UiState = {
 
 export type UiAction =
   | { type: 'reply'; value: string | null }
-  | { type: 'edit'; value: string | null }
+  | { type: 'edit/open'; id: string }
+  | { type: 'edit/close'; id: string }
+  | { type: 'edit/settle'; id: string; error: ErrorInfo | null }
+  | { type: 'saving/set'; id: string; saving: boolean }
+  | { type: 'reply/submit'; id: string }
+  | { type: 'reply/settle'; id: string; error: ErrorInfo | null }
+  | { type: 'replying/set'; id: string; replying: boolean }
+  | { type: 'collapse/toggle'; id: string; value: boolean }
+  | { type: 'sort/set'; value: ThreadSort }
+  | { type: 'page/set'; value: number }
   | { type: 'identity/open'; value: boolean }
   | { type: 'identity/error'; value: UiState['identityError'] }
   | { type: 'signin/pending'; value: boolean }
@@ -345,7 +636,9 @@ export type UiAction =
 
 export const UI_INITIAL: UiState = {
   replyTo: null,
-  editingId: null,
+  sort: 'newest',
+  page: 1,
+  items: {},
   identityOpen: false,
   needsSignIn: false,
   actionError: null,
@@ -358,11 +651,38 @@ export const UI_INITIAL: UiState = {
 
 // Pure so bun test covers every transition without a browser.
 export function transition(state: UiState, action: UiAction): UiState {
+  const patchItem = (id: string, patch: Partial<ItemState>): UiState => ({
+    ...state,
+    items: { ...state.items, [id]: { ...(state.items[id] ?? ITEM_INITIAL), ...patch } },
+  })
   switch (action.type) {
     case 'reply':
       return { ...state, replyTo: action.value }
-    case 'edit':
-      return { ...state, editingId: action.value }
+    case 'edit/open':
+      return patchItem(action.id, { editing: true })
+    case 'edit/close':
+      return patchItem(action.id, { editing: false, editError: null })
+    // A failed save keeps the editor (and its draft) open; Cancel is the way out.
+    case 'edit/settle':
+      return patchItem(action.id, {
+        editError: action.error,
+        editing: action.error === null ? false : (state.items[action.id] ?? ITEM_INITIAL).editing,
+      })
+    case 'saving/set':
+      return patchItem(action.id, { saving: action.saving })
+    case 'reply/submit':
+      return patchItem(action.id, { replying: true })
+    case 'reply/settle':
+      return patchItem(action.id, { replyError: action.error })
+    case 'replying/set':
+      return patchItem(action.id, { replying: action.replying })
+    case 'collapse/toggle':
+      return patchItem(action.id, { collapsedOverride: action.value })
+    // Window boundaries follow the new order, so a sort change starts at page 1.
+    case 'sort/set':
+      return { ...state, sort: action.value, page: 1 }
+    case 'page/set':
+      return { ...state, page: action.value }
     case 'identity/open':
       return { ...state, identityOpen: action.value }
     case 'identity/error':
@@ -428,6 +748,223 @@ export function pagerMarkup(page: number, limit: number, threads: number, hasMor
     </nav>`
 }
 
+export function sortToggleMarkup(value: ThreadSort): string {
+  const button = (sort: ThreadSort, label: string) =>
+    `<button type="button" data-action="sort" data-sort="${sort}" aria-pressed="${value === sort}" class="${BTN} ${BTN_SM} ${value === sort ? BTN_SECONDARY : BTN_GHOST}">${label}</button>`
+  return `<div class="flex items-center gap-1" role="toolbar" aria-label="Sort comments">
+      <span class="mr-1 text-xs text-muted-foreground">Sort</span>
+      ${button('newest', 'Newest')}
+      ${button('oldest', 'Oldest')}
+      ${button('best', 'Best')}
+    </div>`
+}
+
+// Reply panels clip their contents while they fold, so measurement follows them.
+const PANEL_SELECTOR = '[data-slot="accordion-content"]'
+// Rails ride the middle of the 1rem gutters (the list's and each reply group's),
+// so a line never crosses a comment's content.
+export const GUTTER_INSET = 8
+// Reading slice for the scroll spy: a comment is often taller than the Fumadocs
+// TOC's top 20%, so this points at the middle of the viewport.
+export const READING_POINT = 0.45
+
+export type GuideRow = {
+  depth: number
+  // All coordinates are px in the list's own (padding-box) space.
+  left: number
+  top: number
+  bottom: number
+  paddingLeft: number
+  hasReplies: boolean
+  // Band of a folded reply group, so hidden replies still show as a stub.
+  stub?: { top: number; bottom: number }
+}
+
+// The guide path for a measured page. Each thread head resets the path: a
+// top-level comment carries no line, and one thread's line never runs across
+// the rows of the next.
+export function guidePath(rows: GuideRow[]): { d: string; width: number; height: number } {
+  const items: ThreadGuideItem[] = []
+  let started = false
+  for (const row of rows) {
+    const head = row.depth === 0
+    if (head) started = false
+    if (row.bottom > row.top && (!head || row.hasReplies)) {
+      items.push({ x: row.left - GUTTER_INSET, top: row.top, bottom: row.bottom, break: !started })
+      started = true
+    }
+    if (row.stub) {
+      // Start one gutter below the junction: with the cubic's ±4px controls that
+      // leaves a bend radius, so the join reads as round as the level changes.
+      const top = row.stub.top + GUTTER_INSET * 2
+      const bottom = row.stub.bottom
+      if (bottom > top) {
+        items.push({ x: row.left + row.paddingLeft + GUTTER_INSET, top, bottom, break: !started })
+        started = true
+      }
+    }
+  }
+  return buildThreadGuidePath(items)
+}
+
+// The comment nearest the top of the reading slice is the current one; nothing
+// reached yet means the first row reads as current.
+export function pickActive(spans: Iterable<[string, [number, number]]>, band: number): string | null {
+  let current: string | null = null
+  let first: string | null = null
+  for (const [id, span] of spans) {
+    if (first === null) first = id
+    if (span[0] <= band) current = id
+  }
+  return current ?? first
+}
+
+export type GuidesSession = { measure(): void; destroy(): void }
+
+let guideSeq = 0
+
+function contentTop(list: HTMLElement): number {
+  const rect = list.getBoundingClientRect()
+  return rect.top + list.clientTop - list.scrollTop
+}
+
+// The list's overlay origin: the padding box, in the coordinates the guides are
+// measured against. shortcut: left-to-right only — the widget ships no RTL
+// styles, so under `dir="rtl"` rails would stack on the wrong edge.
+function contentLeft(list: HTMLElement): number {
+  const rect = list.getBoundingClientRect()
+  return rect.left + list.clientLeft - list.scrollLeft
+}
+
+// Measures the rendered rows and paints the Fumadocs-style guide line. The
+// scroll spy writes to the clip rectangle, never to state, so scrolling never
+// re-renders the thread.
+export function renderGuides(list: HTMLElement): GuidesSession {
+  const clipId = `lc-thread-guide-${++guideSeq}`
+  const spans = new Map<string, [number, number]>()
+  let overlay: HTMLElement | null = null
+  let clip: SVGRectElement | null = null
+  let active: string | null = null
+  let frame = 0
+  let dead = false
+  let spy: IntersectionObserver | null = null
+  let observer: ResizeObserver | null = null
+
+  function paint() {
+    if (!clip) return
+    const span = active ? spans.get(active) : undefined
+    clip.setAttribute('y', String(span?.[0] ?? 0))
+    clip.setAttribute('height', String(span ? Math.max(0, span[1] - span[0]) : 0))
+  }
+
+  function pick() {
+    active = pickActive(spans, window.innerHeight * READING_POINT - contentTop(list))
+    paint()
+  }
+
+  function draw(guide: { d: string; width: number; height: number }) {
+    if (guide.d === '') {
+      overlay?.remove()
+      overlay = null
+      clip = null
+      return
+    }
+    if (!overlay) {
+      overlay = document.createElement('div')
+      overlay.className = 'lc-thread-overlay'
+      overlay.setAttribute('aria-hidden', 'true')
+      list.prepend(overlay)
+    }
+    overlay.style.width = `${guide.width}px`
+    overlay.innerHTML = `<svg viewBox="0 0 ${guide.width} ${guide.height}" width="${guide.width}" height="${guide.height}" aria-hidden="true"><defs><clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><rect x="0" y="0" width="${guide.width}" height="0"></rect></clipPath></defs><path class="track" d="${guide.d}"></path><path class="thumb" d="${guide.d}" clip-path="url(#${clipId})"></path></svg>`
+    clip = overlay.querySelector<SVGRectElement>('rect')
+  }
+
+  function measure() {
+    // A repaint may land between a queued frame and this call.
+    if (dead) return
+    const baseY = contentTop(list)
+    const baseX = contentLeft(list)
+    const rows: GuideRow[] = []
+    const articles: HTMLElement[] = []
+    spans.clear()
+    for (const article of list.querySelectorAll<HTMLElement>('article.lc-comment[data-comment-depth]')) {
+      const rect = article.getBoundingClientRect()
+      const style = getComputedStyle(article)
+      const paddingTop = Number.parseFloat(style.paddingTop) || 0
+      const paddingBottom = Number.parseFloat(style.paddingBottom) || 0
+      const paddingLeft = Number.parseFloat(style.paddingLeft) || 0
+      const left = rect.left - baseX
+      // Measure only the slice of the comment its reply panels leave visible.
+      let visibleTop = rect.top
+      let visibleBottom = rect.bottom
+      for (let node = article.parentElement; node && node !== list; node = node.parentElement) {
+        if (!node.matches(PANEL_SELECTOR)) continue
+        const panel = node.getBoundingClientRect()
+        visibleTop = Math.max(visibleTop, panel.top)
+        visibleBottom = Math.min(visibleBottom, panel.bottom)
+      }
+      const top = visibleTop - baseY + paddingTop
+      // A rail spans the comment's own rows and stops where its reply group starts.
+      const group = article.querySelector<HTMLElement>('[data-lc-replies]')
+      const ownBottom = group ? Math.min(group.getBoundingClientRect().top, visibleBottom) : visibleBottom
+      const bottom = ownBottom - baseY - paddingBottom
+      // A folded group keeps a stub beside its trigger, so hidden replies still
+      // show in the guide instead of vanishing with them.
+      const folded = group?.querySelector<HTMLElement>(PANEL_SELECTOR)?.dataset.state === 'closed'
+      const band = folded && group ? group.getBoundingClientRect() : null
+      rows.push({
+        depth: Number(article.dataset.commentDepth) || 0,
+        left,
+        top,
+        bottom,
+        paddingLeft,
+        hasReplies: Boolean(group),
+        ...(band ? { stub: { top: band.top - baseY, bottom: band.bottom - baseY } } : {}),
+      })
+      const id = article.dataset.commentId
+      if (id) spans.set(id, [top, bottom])
+      articles.push(article)
+    }
+    draw(guidePath(rows))
+    if (typeof IntersectionObserver !== 'undefined') {
+      spy ??= new IntersectionObserver(pick, { rootMargin: '-40% 0px -55% 0px' })
+      spy.disconnect()
+      for (const article of articles) spy.observe(article)
+    }
+    pick()
+  }
+
+  measure()
+  if (typeof ResizeObserver !== 'undefined') {
+    observer = new ResizeObserver(() => {
+      // Folding a reply group resizes the list every frame: measure once a frame.
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        measure()
+      })
+    })
+    observer.observe(list)
+  }
+  // Webfonts move the rows after the first paint.
+  void document.fonts?.ready.then(() => measure()).catch(() => {})
+
+  return {
+    measure,
+    destroy() {
+      dead = true
+      observer?.disconnect()
+      spy?.disconnect()
+      cancelAnimationFrame(frame)
+      frame = 0
+      overlay?.remove()
+      overlay = null
+      clip = null
+    },
+  }
+}
+
 export type VotePatch = Record<string, { score: number; viewerVote: VoteValue | null }>
 
 // Vote results overlay the row cache: untouched rows keep their object, so
@@ -453,41 +990,60 @@ function renderForm(opts: {
   submitLabel?: string
   signInHtml?: string
   submitDisabled?: boolean
+  bodyLimit?: number
+  pending?: boolean
+  error?: ErrorInfo | null
+  // Standalone editor (edit slot) cancels from the bottom row; a reply cancels
+  // from its header.
+  cancelLabel?: string
 }): string {
   const guest = opts.guest ?? true
+  const bodyLimit = opts.bodyLimit ?? DEFAULT_BODY_LIMIT
+  const counterId = `lc-count-${opts.formId}`
   const turnstile =
     guest && opts.turnstileSiteKey
       ? `<div class="lc-turnstile" data-turnstile-sitekey="${escapeHtml(opts.turnstileSiteKey)}"></div>`
       : ''
-  const cancel = opts.parentId
-    ? `<button type="button" data-action="cancel-reply" class="rounded border border-border px-3 py-2 text-sm text-muted-foreground">Cancel</button>`
+  const header = opts.parentId
+    ? `<div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+      <span>Replying to this comment</span>
+      <button type="button" data-action="cancel-reply" class="rounded px-2 py-1 text-sm text-muted-foreground hover:bg-accent">Cancel</button>
+    </div>`
     : ''
+  const cancel =
+    !opts.parentId && opts.cancelLabel
+      ? `<button type="button" data-action="cancel-edit" class="rounded border border-border px-2 py-1 text-sm text-muted-foreground">${escapeHtml(opts.cancelLabel)}</button>`
+      : ''
   const submitLabel = escapeHtml(opts.submitLabel ?? (opts.parentId ? 'Post reply' : 'Post comment'))
   return `<form data-lc-form="${escapeHtml(opts.formId)}" class="lc-composer rounded-xl border border-border p-3">
     ${opts.parentId ? `<input type="hidden" name="parentId" value="${escapeHtml(opts.parentId)}" />` : ''}
-    <div class="mb-1 flex items-center justify-end gap-0.5">
+    ${header}
+    <div class="mb-1 flex flex-wrap items-center justify-end gap-0.5">
       <div class="mr-auto flex gap-0.5">
-        <button type="button" data-action="preview" aria-pressed="false" class="rounded px-2 py-1 text-sm text-muted-foreground">Preview</button>
+        <button type="button" data-action="write" aria-pressed="true" class="${BTN} ${BTN_SM} ${BTN_SECONDARY}">${icon('pencil')}<span>Write</span></button>
+        <button type="button" data-action="preview" aria-pressed="false" class="${BTN} ${BTN_SM} ${BTN_GHOST}">${icon('eye')}<span>Preview</span></button>
       </div>
       <div class="flex gap-0.5" role="toolbar" aria-label="Markdown formatting">
-        <button type="button" data-action="md-bold" class="rounded px-2 py-1 text-sm text-muted-foreground" title="Bold" aria-label="Bold"><b>B</b></button>
-        <button type="button" data-action="md-italic" class="rounded px-2 py-1 text-sm text-muted-foreground" title="Italic" aria-label="Italic"><i>I</i></button>
-        <button type="button" data-action="md-quote" class="rounded px-2 py-1 text-sm text-muted-foreground" title="Quote" aria-label="Quote">&quot;</button>
-        <button type="button" data-action="md-code" class="rounded px-2 py-1 text-sm text-muted-foreground" title="Code" aria-label="Code">&lt;&gt;</button>
-        <button type="button" data-action="md-link" class="rounded px-2 py-1 text-sm text-muted-foreground" title="Link" aria-label="Link">link</button>
-        <button type="button" data-action="md-bullet" class="rounded px-2 py-1 text-sm text-muted-foreground" title="Bullet list" aria-label="Bullet list">•</button>
-        <button type="button" data-action="md-ordered" class="rounded px-2 py-1 text-sm text-muted-foreground" title="Numbered list" aria-label="Numbered list">1.</button>
+        <button type="button" data-action="md-bold" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Bold" aria-label="Bold">${icon('bold')}</button>
+        <button type="button" data-action="md-italic" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Italic" aria-label="Italic">${icon('italic')}</button>
+        <button type="button" data-action="md-quote" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Quote" aria-label="Quote">${icon('quote')}</button>
+        <button type="button" data-action="md-code" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Code" aria-label="Code">${icon('code')}</button>
+        <button type="button" data-action="md-link" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Link" aria-label="Link">${icon('link')}</button>
+        <button type="button" data-action="md-bullet" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Bullet list" aria-label="Bullet list">${icon('list')}</button>
+        <button type="button" data-action="md-ordered" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Numbered list" aria-label="Numbered list">${icon('list-ordered')}</button>
       </div>
     </div>
-    <textarea name="bodyMarkdown" required maxlength="10000" rows="4" placeholder="${opts.parentId ? 'Write a reply…' : 'Your comment here…'}" aria-label="${opts.parentId ? 'Reply body' : 'Comment body'}" class="w-full border-0 bg-transparent px-1 text-sm focus-visible:ring-0">${escapeHtml(opts.initialBody ?? '')}</textarea>
+    <textarea name="bodyMarkdown" required rows="4" placeholder="${opts.parentId ? 'Write a reply…' : 'Your comment here…'}" aria-label="${opts.parentId ? 'Reply body' : 'Comment body'}" aria-describedby="${escapeHtml(counterId)}" class="w-full border-0 bg-transparent px-1 text-sm focus-visible:ring-0">${escapeHtml(opts.initialBody ?? '')}</textarea>
+    <p id="${escapeHtml(counterId)}" data-lc-char-count class="mt-1 text-right text-xs text-muted-foreground tabular-nums"><span data-lc-char-used>${(opts.initialBody ?? '').length.toLocaleString()}</span> / ${bodyLimit.toLocaleString()}</p>
     ${turnstile}
+    ${opts.error ? `<div class="mt-2">${errorMarkup(opts.error)}</div>` : ''}
     <div class="hidden" data-lc-form-error></div>
     <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
       ${opts.signInHtml ?? ''}
       ${guest ? '<input name="authorName" type="text" maxlength="80" placeholder="Anonymous" aria-label="Your name" autocomplete="nickname" class="w-32 min-w-0 border-0 bg-transparent px-1 text-sm focus-visible:ring-0 sm:w-40" />' : ''}
       <p class="hidden text-xs text-muted-foreground sm:block">Styling with <span class="font-medium text-primary">Markdown</span> is supported</p>
-      <button type="submit" ${opts.submitDisabled ? 'disabled' : ''} class="ml-auto rounded bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50">${submitLabel}</button>
       ${cancel}
+      <button type="submit" ${opts.submitDisabled || opts.pending ? 'disabled' : ''} class="ml-auto ${BTN} bg-primary px-3 py-2 text-primary-foreground hover:bg-primary/80">${opts.pending ? 'Posting…' : submitLabel}</button>
     </div>
   </form>`
 }
@@ -597,17 +1153,19 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   let comments: Comment[] = []
   // Pending vote results, merged over the row cache on every paint.
   let votes: VotePatch = {}
-  // The tree is derived from the row cache: reuse it while both inputs hold.
-  let treeKey: { comments: Comment[]; votes: VotePatch } | null = null
+  // The tree is derived from the row cache: reuse it while its inputs hold.
+  let treeKey: { comments: Comment[]; votes: VotePatch; sort: ThreadSort } | null = null
   let treeCache: ThreadNode[] = []
   let status: 'loading' | 'ready' | 'error' = 'loading'
   let error: ErrorInfo | null = null
   let hasMore = true
-  // `comments` is the accumulated row cache; a page shows `limit` threads cut
-  // from the tree built over it.
-  let page = 1
   let loadingPage = false
   let destroyed = false
+  // The guide measurement session for the current list DOM; a repaint replaces
+  // it wholesale, so each paint gets a fresh one.
+  let guides: GuidesSession | null = null
+  const bodyLimit = options.bodyLimit ?? DEFAULT_BODY_LIMIT
+  const actionMode = options.actionMode ?? 'icon-text'
   let pageLock: { pageId: string; locked: boolean } | null = null
   let session: ViewerSession | null = null
   let sessionStatus: 'loading' | 'ready' = 'loading'
@@ -650,7 +1208,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const trigger =
       sessionStatus === 'loading'
         ? '<span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>'
-        : `${escapeHtml(commentAs === 'anonymous' || !signed ? 'Anonymous' : label)} ▾`
+        : `<span class="label max-w-[10rem] truncate">${escapeHtml(commentAs === 'anonymous' || !signed ? 'Anonymous' : label)}</span>${icon('chevron-down')}`
     // A signed-out visitor has no account to be checked, so Anonymous is the
     // selected item even before they touch the menu.
     const anonymousSelected = commentAs === 'anonymous' || !signed
@@ -673,7 +1231,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     return `<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span class="text-xs text-muted-foreground">Comment as</span>
       <div class="relative">
-        <button type="button" data-action="identity" aria-haspopup="menu" aria-expanded="${ui.identityOpen}" ${sessionStatus === 'loading' || ui.signInPending || ui.signOutPending ? 'disabled' : ''} class="lc-identity-trigger max-w-[calc(var(--spacing)*40)] truncate rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50">${trigger}</button>
+        <button type="button" data-action="identity" aria-haspopup="menu" aria-expanded="${ui.identityOpen}" ${sessionStatus === 'loading' || ui.signInPending || ui.signOutPending ? 'disabled' : ''} class="lc-identity-trigger ${BTN} ${BTN_OUTLINE} ${BTN_SM}">${trigger}</button>
         ${panel}
       </div>
     </div>${alert}`
@@ -771,16 +1329,21 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   // Capture phase: the delegated click handler below runs on bubble, so the
-  // menu must be tested against its pre-click state here.
+  // menus must be tested against their pre-click state here.
   function onDocumentClick(ev: Event) {
+    const target = ev.target
+    for (const panel of el.querySelectorAll<HTMLElement>('[data-lc-menu] [role="menu"]')) {
+      if (!panel.hidden && target instanceof Node && !panel.parentElement?.contains(target)) closeMenu(panel, false)
+    }
     if (!ui.identityOpen) return
     const host = el.querySelector('[data-lc-signin]')
-    if (ev.target instanceof Node && host?.contains(ev.target)) return
+    if (target instanceof Node && host?.contains(target)) return
     ui = transition(ui, { type: 'identity/open', value: false })
     refreshSignInRow()
   }
 
   function onDocumentKeydown(ev: KeyboardEvent) {
+    if (onMenuKeydown(ev)) return
     if (ev.key !== 'Escape' || !ui.identityOpen) return
     ui = transition(ui, { type: 'identity/open', value: false })
     refreshSignInRow()
@@ -806,9 +1369,10 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   function currentTree(): ThreadNode[] {
-    if (!treeKey || treeKey.comments !== comments || treeKey.votes !== votes) {
-      treeKey = { comments, votes }
-      treeCache = buildCommentTree(applyVotes(comments, votes))
+    if (!treeKey || treeKey.comments !== comments || treeKey.votes !== votes || treeKey.sort !== ui.sort) {
+      treeKey = { comments, votes, sort: ui.sort }
+      // Overlay before sorting: `best` must re-rank on a vote.
+      treeCache = sortCommentRoots(buildCommentTree(applyVotes(comments, votes)), ui.sort)
     }
     return treeCache
   }
@@ -833,15 +1397,19 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const roots = currentTree()
     // A local vote/edit/delete empties the window without a refetch; fall back
     // to the last page that still has a thread instead of a blank list.
-    if (page > 1 && roots.length <= (page - 1) * limit) page = Math.max(1, Math.ceil(roots.length / limit))
-    const tree = renderCommentTree(roots.slice((page - 1) * limit, page * limit), {
+    if (ui.page > 1 && roots.length <= (ui.page - 1) * limit)
+      ui = transition(ui, { type: 'page/set', value: Math.max(1, Math.ceil(roots.length / limit)) })
+    const pageRoots = roots.slice((ui.page - 1) * limit, ui.page * limit)
+    const tree = renderCommentTree(pageRoots, {
       replyTo: ui.replyTo,
       turnstileSiteKey: options.turnstileSiteKey,
       guest,
       viewerUserId,
       viewerRole,
-      editingId: ui.editingId,
-      editWindowMinutes: options.editWindowMinutes ?? DEFAULT_EDIT_WINDOW_MINUTES,
+      items: ui.items,
+      anonWindowMinutes: options.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+      actionMode,
+      bodyLimit,
       pendingModeration: ui.pendingModeration,
       submitDisabled: sessionStatus === 'loading',
       hideVotes: Boolean(viewerRole) && Boolean(pageLock?.locked),
@@ -849,8 +1417,13 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const signIn = ui.needsSignIn
       ? `<p class="rounded-lg border border-border bg-card p-5 text-sm">Please sign in to vote. ${signInUrl ? `<a href="${escapeHtml(signInUrl)}" class="underline">Sign in</a>` : ''}</p>`
       : ''
-    const pager = pagerMarkup(page, limit, roots.length, hasMore, loadingPage)
-    return `${lockBar}${actionBanner}${signIn}<div class="space-y-3">${tree}</div>${loadingPage ? `<div class="mt-3">${skeletonBlock(2)}</div>` : ''}<div class="mt-3">${pager}</div>`
+    const sortBar = status !== 'error' && roots.length > 0 ? sortToggleMarkup(ui.sort) : ''
+    const list =
+      pageRoots.length > 0
+        ? `<section aria-label="Comments" data-lc-thread-list class="lc-thread-guides relative grid grid-cols-1 gap-3">${tree}</section>`
+        : ''
+    const pager = pagerMarkup(ui.page, limit, roots.length, hasMore, loadingPage)
+    return `${lockBar}${actionBanner}${signIn}${sortBar}${list}${loadingPage ? `<div class="mt-3">${skeletonBlock(2)}</div>` : ''}<div class="mt-3">${pager}</div>`
   }
 
   function composerHtml(): string {
@@ -862,6 +1435,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       formId: 'top',
       signInHtml,
       submitDisabled: sessionStatus === 'loading',
+      bodyLimit,
     })
   }
 
@@ -874,6 +1448,15 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     hydrateTurnstile()
   }
 
+  // Guides measure the list DOM that a repaint replaces; drop the old session
+  // and start a fresh one against the new rows.
+  function attachGuides() {
+    guides?.destroy()
+    guides = null
+    const list = el.querySelector<HTMLElement>('[data-lc-thread-list]')
+    if (list) guides = renderGuides(list)
+  }
+
   // List-only repaint: the composer is never touched.
   function renderList() {
     const list = el.querySelector<HTMLElement>('[data-lc-list]')
@@ -884,6 +1467,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     restoreDrafts(list, drafts)
     wrapMarkdownTables(list)
     hydrateTurnstile()
+    attachGuides()
   }
 
   function render() {
@@ -892,6 +1476,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     el.innerHTML = `<section aria-label="Comments" class="space-y-4"><div data-lc-composer>${composerHtml()}</div><div data-lc-list>${listBody()}</div></section>`
     wrapMarkdownTables(el)
     hydrateTurnstile()
+    attachGuides()
   }
 
   // Both regions exist after the first paint; later paints only refresh the list.
@@ -1022,7 +1607,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   async function initialLoad() {
     const seq = ++loadSeq
     loadingPage = true
-    page = 1
+    ui = transition(ui, { type: 'page/set', value: 1 })
     status = 'loading'
     error = null
     ui = transition(ui, { type: 'error', value: null })
@@ -1052,15 +1637,46 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     renderList()
     // Fill the DESTINATION window before rendering it.
     try {
-      const result = moderator ? await fillModeration((page + 1) * limit, seq) : await loadWindow(page + 1, seq)
+      const result = moderator ? await fillModeration((ui.page + 1) * limit, seq) : await loadWindow(ui.page + 1, seq)
       if (destroyed || result === 'stale' || seq !== loadSeq) return
     } catch (err) {
       if (destroyed || seq !== loadSeq) return
       loadFailure(err, false)
     }
     loadingPage = false
-    if (currentTree().length > page * limit) page += 1
+    if (currentTree().length > ui.page * limit) ui = transition(ui, { type: 'page/set', value: ui.page + 1 })
     renderList()
+  }
+
+  // Shared by the top composer and the inline reply slots: the moderation vs
+  // public wire branch lives here once.
+  async function postOne(input: {
+    formId: string
+    parentId: string | null
+    bodyMarkdown: string
+    authorName: string
+  }): Promise<void> {
+    const { guest } = composerIdentity()
+    // Moderators post through the moderation endpoint: the public create path
+    // checks the site's origin allow-list, which a dashboard origin is not on.
+    const created =
+      moderator && threadPageId
+        ? await client.createModerationComment({
+            pageId: threadPageId,
+            bodyMarkdown: input.bodyMarkdown,
+            ...(input.parentId ? { parentId: input.parentId } : {}),
+          })
+        : await client.postComment({
+            url: pageUrl,
+            bodyMarkdown: input.bodyMarkdown,
+            anonymous: guest,
+            ...(input.parentId || typeof document === 'undefined' ? {} : { title: document.title }),
+            ...(input.authorName ? { authorName: input.authorName } : {}),
+            ...(input.parentId ? { parentId: input.parentId } : {}),
+            ...(tokens.get(input.formId) ? { verificationToken: tokens.get(input.formId) } : {}),
+          })
+    // The server returns the guest edit key exactly once.
+    if (created.editKey) saveEditKey(created.id, created.editKey)
   }
 
   async function submit(form: HTMLFormElement) {
@@ -1072,48 +1688,60 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         errBox.classList.remove('hidden')
       }
     }
+    const area = form.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
+    // The counter blocks the submit button; the guard keeps a stale DOM from
+    // posting a body the server would reject. Raw length, never the trimmed one.
+    if (area && area.value.length > bodyLimit) return
     const body = new FormData(form).get('bodyMarkdown')
     const name = new FormData(form).get('authorName')
     const parent = new FormData(form).get('parentId')
     const bodyMarkdown = typeof body === 'string' ? body.trim() : ''
+    // Anonymous posts always carry a name; the field is optional, so a blank
+    // one posts as "Anonymous".
+    const authorName = typeof name === 'string' ? name.trim() || 'Anonymous' : ''
+    const parentId = typeof parent === 'string' && parent ? parent : null
+    if (parentId) {
+      // The inline reply slot owns its pending/error state, so failures land in
+      // the row instead of the page-level composer block.
+      if (!bodyMarkdown) {
+        ui = transition(ui, { type: 'reply/settle', id: parentId, error: INVALID_REPLY })
+        renderList()
+        return
+      }
+      ui = transition(ui, { type: 'reply/submit', id: parentId })
+      renderList()
+      try {
+        await postOne({ formId, parentId, bodyMarkdown, authorName })
+        resetTurnstile(formId)
+        ui = transition(ui, { type: 'reply/settle', id: parentId, error: null })
+        ui = transition(ui, { type: 'reply', value: null })
+        ui = transition(ui, { type: 'replying/set', id: parentId, replying: false })
+        await initialLoad()
+        if (moderator) options.onModerated?.()
+        return
+      } catch (err) {
+        resetTurnstile(formId)
+        ui = transition(ui, {
+          type: 'reply/settle',
+          id: parentId,
+          error: describeError(err, { title: "Your reply wasn't posted" }),
+        })
+      }
+      ui = transition(ui, { type: 'replying/set', id: parentId, replying: false })
+      renderList()
+      return
+    }
     if (!bodyMarkdown) {
       fail(INVALID_BODY)
       return
     }
-    // Anonymous posts always carry a name; the field is optional, so a blank
-    // one posts as "Anonymous".
-    const authorName = typeof name === 'string' ? name.trim() || 'Anonymous' : ''
-    // Posting from the guest composer must never send the session cookie, so
-    // the wire flag is the same derivation that gates the guest fields.
-    const anonymous = composerIdentity().guest
     try {
-      const isTopLevel = typeof parent !== 'string' || !parent
-      // Moderators post through the moderation endpoint: the public create path
-      // checks the site's origin allow-list, which a dashboard origin is not on.
-      if (moderator && threadPageId) {
-        await client.createModerationComment({
-          pageId: threadPageId,
-          bodyMarkdown,
-          ...(typeof parent === 'string' && parent ? { parentId: parent } : {}),
-        })
-      } else {
-        await client.postComment({
-          url: pageUrl,
-          bodyMarkdown,
-          anonymous,
-          ...(isTopLevel && typeof document !== 'undefined' ? { title: document.title } : {}),
-          ...(authorName ? { authorName } : {}),
-          ...(typeof parent === 'string' && parent ? { parentId: parent } : {}),
-          ...(tokens.get(formId) ? { verificationToken: tokens.get(formId) } : {}),
-        })
-      }
+      await postOne({ formId, parentId: null, bodyMarkdown, authorName })
       resetTurnstile(formId)
       // The composer stays mounted, so clear the submitted fields by hand.
-      const area = form.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
       if (area) area.value = ''
       const nameInput = form.querySelector<HTMLInputElement>('input[name="authorName"]')
       if (nameInput) nameInput.value = ''
-      ui = transition(ui, { type: 'reply', value: null })
       await initialLoad()
       if (moderator) options.onModerated?.()
     } catch (err) {
@@ -1146,7 +1774,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       votes = { ...votes, [commentId]: { score: summary.score, viewerVote: summary.viewerVote } }
       ui = transition(ui, { type: 'signin/needed', value: false })
       ui = transition(ui, { type: 'error', value: null })
-      if (hadNotice) {
+      // `best` ranks by score, so a vote re-orders the rows: repaint to re-rank.
+      if (hadNotice || ui.sort === 'best') {
         renderList()
         return
       }
@@ -1211,7 +1840,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     else if (action === 'md-ordered') applyTextEdit(form, 'prefix', '1. ', '', 'item')
   }
 
-  function togglePreview(button: HTMLElement, show: boolean) {
+  function setPreview(button: HTMLElement, show: boolean) {
     const form = button.closest('form')
     const area = form?.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
     if (!form || !area) return
@@ -1228,55 +1857,96 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     } else {
       area.classList.remove('hidden')
     }
-    button.setAttribute('aria-pressed', String(show))
+    for (const toggle of form.querySelectorAll<HTMLElement>('[data-action="write"], [data-action="preview"]')) {
+      const active = (toggle.getAttribute('data-action') === 'preview') === show
+      toggle.setAttribute('aria-pressed', String(active))
+      toggle.classList.toggle(BTN_SECONDARY, active)
+      toggle.classList.toggle(BTN_GHOST, !active)
+    }
+  }
+
+  // Counts what the author typed: the server caps the same raw length, and the
+  // over-limit body never leaves the browser.
+  function syncCounter(form: HTMLFormElement) {
+    const area = form.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
+    if (!area) return
+    const over = area.value.length > bodyLimit
+    const used = form.querySelector<HTMLElement>('[data-lc-char-used]')
+    if (used) {
+      used.textContent = area.value.length.toLocaleString()
+      used.classList.toggle('text-destructive', over)
+    }
+    if (over) area.setAttribute('aria-invalid', 'true')
+    else area.removeAttribute('aria-invalid')
+    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')
+    if (submit) submit.disabled = over || sessionStatus === 'loading'
+  }
+
+  // Hand-rolled disclosure: no popover API / `@starting-style` in the supported
+  // baseline, so the folded labels and the panel's row size move by hand.
+  function toggleReplies(trigger: HTMLElement) {
+    const open = trigger.getAttribute('aria-expanded') !== 'true'
+    const panel = trigger.closest('[data-lc-replies]')?.querySelector<HTMLElement>(PANEL_SELECTOR)
+    if (!panel) return
+    trigger.setAttribute('aria-expanded', String(open))
+    panel.dataset.state = open ? 'open' : 'closed'
+    panel.classList.toggle('grid-rows-[1fr]', open)
+    panel.classList.toggle('grid-rows-[0fr]', !open)
+    trigger.querySelector('[data-lc-replies-folded]')?.classList.toggle('hidden', open)
+    trigger.querySelector('[data-lc-replies-open]')?.classList.toggle('hidden', !open)
+    const [down, up] = trigger.querySelectorAll<HTMLElement>('svg')
+    down?.classList.toggle('hidden', open)
+    up?.classList.toggle('hidden', !open)
+    if (open) panel.removeAttribute('inert')
+    else panel.setAttribute('inert', '')
+    guides?.measure()
   }
 
   async function saveEdit(commentId: string) {
-    const article = el.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`)
-    const form = article?.querySelector<HTMLFormElement>('form[data-lc-form]')
-    if (!article || !form) return
-    const raw = String(new FormData(form).get('bodyMarkdown') ?? '').trim()
-    const errBox = article.querySelector('[data-lc-form-error]')
+    const article = el.querySelector(`article[data-comment-id="${CSS.escape(commentId)}"]`)
+    const area = article?.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
+    if (!area) return
+    const raw = area.value
     ui = transition(ui, { type: 'error', value: null })
-    if (!raw) {
-      if (errBox) {
-        errBox.innerHTML = errorMarkup(INVALID_BODY)
-        errBox.classList.remove('hidden')
-      }
-      return
-    }
-    try {
-      // Moderators edit through the moderation endpoint for the same reason they
-      // post through it: the public PATCH checks the site's origins.
-      const updated = moderator
-        ? await client.editModerationComment({ commentId, bodyMarkdown: raw })
-        : await client.editOwnComment({ commentId, bodyMarkdown: raw })
-      comments = comments.map((c) => (c.id === commentId ? updated : c))
-      ui = transition(ui, { type: 'edit', value: null })
-    } catch (err) {
-      const info = describeError(err, { title: "Your edit wasn't saved" })
-      // The editor stays open (including when the window expired, so the copy
-      // can still be copied out): the row's own slot is the one place to show
-      // the failure, and re-rendering would wipe both it and the draft.
-      if (errBox) {
-        errBox.innerHTML = errorMarkup(info)
-        errBox.classList.remove('hidden')
-        return
-      }
-      ui = transition(ui, { type: 'error', value: info })
+    if (!raw.trim()) {
+      ui = transition(ui, { type: 'edit/settle', id: commentId, error: INVALID_BODY })
       renderList()
       return
     }
+    ui = transition(ui, { type: 'saving/set', id: commentId, saving: true })
+    try {
+      // Moderators edit through the moderation endpoint for the same reason they
+      // post through it: the public PATCH checks the site's origins.
+      const editKey = moderator ? null : getEditKey(commentId)
+      const updated = moderator
+        ? await client.editModerationComment({ commentId, bodyMarkdown: raw })
+        : await client.editOwnComment({ commentId, bodyMarkdown: raw, ...(editKey ? { editKey } : {}) })
+      comments = comments.map((c) =>
+        c.id === commentId
+          ? { ...c, ...updated, score: updated.score ?? c.score, viewerVote: updated.viewerVote ?? c.viewerVote }
+          : c,
+      )
+      ui = transition(ui, { type: 'edit/settle', id: commentId, error: null })
+    } catch (err) {
+      // The editor stays open (including when the window expired, so the copy
+      // can still be copied out) with the failure in its own slot.
+      ui = transition(ui, {
+        type: 'edit/settle',
+        id: commentId,
+        error: describeError(err, { title: "Your edit wasn't saved" }),
+      })
+    }
+    ui = transition(ui, { type: 'saving/set', id: commentId, saving: false })
     renderList()
   }
 
   async function removeComment(commentId: string) {
-    if (typeof confirm !== 'undefined' && !confirm('Delete this comment?')) return
     ui = transition(ui, { type: 'error', value: null })
     try {
       await client.deleteOwnComment(commentId)
       comments = comments.filter((c) => c.id !== commentId)
-      if (ui.editingId === commentId) ui = transition(ui, { type: 'edit', value: null })
+      forgetEditKey(commentId)
+      ui = transition(ui, { type: 'edit/close', id: commentId })
     } catch (err) {
       ui = transition(ui, {
         type: 'error',
@@ -1348,11 +2018,71 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     renderList()
   }
 
+  // Menu panels are toggled in place: repainting would move the trigger out
+  // from under the pointer.
+  function closeMenu(panel: HTMLElement, returnFocus: boolean) {
+    const trigger = panel.parentElement?.querySelector<HTMLElement>('[data-action="menu-toggle"]')
+    panel.hidden = true
+    trigger?.setAttribute('aria-expanded', 'false')
+    if (returnFocus) trigger?.focus()
+  }
+
+  function openMenu(trigger: HTMLElement) {
+    const panel = trigger.parentElement?.querySelector<HTMLElement>('[role="menu"]')
+    if (!panel) return
+    panel.hidden = false
+    trigger.setAttribute('aria-expanded', 'true')
+    const [first] = panel.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])')
+    for (const entry of panel.querySelectorAll<HTMLElement>('[role="menuitem"]')) entry.tabIndex = -1
+    if (first) {
+      first.tabIndex = 0
+      first.focus()
+    }
+  }
+
+  function focusMenuEntry(panel: HTMLElement, next: number | 'first' | 'last') {
+    const entries = [...panel.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])')]
+    if (entries.length === 0) return
+    const current = entries.findIndex((entry) => entry.tabIndex === 0)
+    const index =
+      next === 'first' ? 0 : next === 'last' ? entries.length - 1 : (current + next + entries.length) % entries.length
+    for (const entry of entries) entry.tabIndex = -1
+    entries[index].tabIndex = 0
+    entries[index].focus()
+  }
+
+  function onMenuKeydown(ev: KeyboardEvent): boolean {
+    // The document listener is shared by every widget on the page: only the
+    // owning root may move focus inside its own menu.
+    if (!(ev.target instanceof Node) || !el.contains(ev.target)) return false
+    const panel = (ev.target as HTMLElement).closest<HTMLElement>('[role="menu"]')
+    if (!panel) return false
+    const moves: Record<string, number | 'first' | 'last'> = {
+      ArrowDown: 1,
+      ArrowUp: -1,
+      Home: 'first',
+      End: 'last',
+    }
+    const move = moves[ev.key]
+    if (move !== undefined) {
+      ev.preventDefault()
+      focusMenuEntry(panel, move)
+      return true
+    }
+    if (ev.key === 'Escape') {
+      ev.preventDefault()
+      closeMenu(panel, true)
+      return true
+    }
+    return false
+  }
+
   function onClick(ev: Event) {
     const target = (ev.target as HTMLElement).closest('[data-action]') as HTMLElement | null
     if (!target || !el.contains(target)) return
     const action = target.getAttribute('data-action')
-    if (action === 'preview') togglePreview(target, target.getAttribute('aria-pressed') !== 'true')
+    const commentId = target.getAttribute('data-comment-id')
+    if (action === 'preview' || action === 'write') setPreview(target, action === 'preview')
     else if (action === 'error-retry') void initialLoad()
     else if (action === 'error-sign-in') void signIn()
     else if (action === 'signin') void signIn()
@@ -1362,48 +2092,73 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     } else if (action === 'identity-anonymous') setIdentity('anonymous')
     else if (action === 'identity-account') setIdentity('account')
     else if (action === 'signout') void signOut()
-    else if (action === 'page-prev') {
-      if (page > 1 && !loadingPage) {
-        page -= 1
+    else if (action === 'sort') {
+      const next = target.getAttribute('data-sort')
+      if (next === 'newest' || next === 'oldest' || next === 'best') {
+        ui = transition(ui, { type: 'sort/set', value: next })
+        renderList()
+      }
+    } else if (action === 'page-prev') {
+      if (ui.page > 1 && !loadingPage) {
+        ui = transition(ui, { type: 'page/set', value: ui.page - 1 })
         renderList()
       }
     } else if (action === 'page-next') void nextPage()
+    else if (action === 'menu-toggle') {
+      const panel = target.parentElement?.querySelector<HTMLElement>('[role="menu"]')
+      if (panel?.hidden) openMenu(target)
+      else if (panel) closeMenu(panel, true)
+    } else if (action === 'collapse') {
+      if (!commentId) return
+      const item = ui.items[commentId] ?? ITEM_INITIAL
+      // A folded row has no override yet; its seed is the negative score.
+      const score = comments.find((c) => c.id === commentId)?.score ?? 0
+      ui = transition(ui, { type: 'collapse/toggle', id: commentId, value: !(item.collapsedOverride ?? score < 0) })
+      renderList()
+    } else if (action === 'replies-toggle') toggleReplies(target)
     else if (action === 'reply') {
-      ui = transition(ui, { type: 'reply', value: target.getAttribute('data-comment-id') })
+      ui = transition(ui, { type: 'reply', value: ui.replyTo === commentId ? null : commentId })
       renderList()
     } else if (action === 'cancel-reply') {
       ui = transition(ui, { type: 'reply', value: null })
+      const parentId = target.closest('form')?.querySelector('input[name="parentId"]')?.getAttribute('value')
+      if (parentId) ui = transition(ui, { type: 'reply/settle', id: parentId, error: null })
       renderList()
     } else if (action === 'vote') {
-      const id = target.getAttribute('data-comment-id')
       const value = Number(target.getAttribute('data-value')) as VoteValue
-      if (id && (value === 1 || value === -1)) void vote(id, value)
-    } else if (action === 'edit') {
-      ui = transition(ui, { type: 'edit', value: target.getAttribute('data-comment-id') })
+      if (commentId && (value === 1 || value === -1)) void vote(commentId, value)
+    } else if (action === 'menu-edit') {
+      if (!commentId) return
+      ui = transition(ui, { type: 'reply', value: null })
+      ui = transition(ui, { type: 'edit/open', id: commentId })
       renderList()
     } else if (action === 'cancel-edit') {
-      ui = transition(ui, { type: 'edit', value: null })
+      const formId = target.closest('form')?.getAttribute('data-lc-form') ?? ''
+      const id = commentId ?? (formId.startsWith('edit-') ? formId.slice('edit-'.length) : '')
+      if (!id) return
+      ui = transition(ui, { type: 'edit/close', id })
       renderList()
     } else if (action === 'delete') {
-      const id = target.getAttribute('data-comment-id')
-      if (id) void removeComment(id)
+      if (commentId) void removeComment(commentId)
     } else if (action === 'moderate') {
-      const id = target.getAttribute('data-comment-id')
       const moderationAction = target.getAttribute('data-moderation-action') as ModerationAction | null
-      if (id && moderationAction) {
-        if (moderationAction === 'delete' && typeof confirm !== 'undefined' && !confirm('Delete this comment?')) return
-        void moderate(id, moderationAction)
-      }
+      if (commentId && moderationAction) void moderate(commentId, moderationAction)
     } else if (action === 'toggle-lock') {
       void toggleLock()
     } else if (action === 'block-user') {
-      const id = target.getAttribute('data-comment-id')
-      const blocked = target.getAttribute('data-blocked') === 'true'
-      if (id) void blockUser(id, !blocked)
+      const blocked = comments.find((c) => c.id === commentId)?.userBlocked === true
+      if (commentId) void blockUser(commentId, !blocked)
     } else if (action?.startsWith('md-')) {
       const form = target.closest('form')
       if (form instanceof HTMLFormElement) onToolbar(form, action)
     }
+  }
+
+  function onInput(ev: Event) {
+    const area = ev.target
+    if (!(area instanceof HTMLTextAreaElement) || area.name !== 'bodyMarkdown') return
+    const form = area.closest('form')
+    if (form) syncCounter(form)
   }
 
   function onSubmit(ev: Event) {
@@ -1417,6 +2172,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   el.addEventListener('click', onClick)
+  el.addEventListener('input', onInput)
   el.addEventListener('submit', onSubmit)
   document.addEventListener('click', onDocumentClick, true)
   document.addEventListener('keydown', onDocumentKeydown)
@@ -1440,9 +2196,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         return
       }
       refreshSignInRow()
-      // Both were rendered disabled while the identity was unknown.
-      for (const button of el.querySelectorAll<HTMLButtonElement>('form[data-lc-form] button[type="submit"]'))
-        button.disabled = false
+      // Every form was rendered disabled while the identity was unknown.
+      for (const form of el.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) syncCounter(form)
     })
     void initialLoad()
   }
@@ -1462,7 +2217,10 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       stopObserver?.()
       mediaQuery?.removeEventListener('change', applyTheme)
       cleanupTheme()
+      guides?.destroy()
+      guides = null
       el.removeEventListener('click', onClick)
+      el.removeEventListener('input', onInput)
       el.removeEventListener('submit', onSubmit)
       document.removeEventListener('click', onDocumentClick, true)
       document.removeEventListener('keydown', onDocumentKeydown)
@@ -1481,10 +2239,12 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
   // cache, a page shows `limit` threads cut from the tree built over it.
   let rows: Comment[] = []
   // The tree is derived from the row cache: reuse it while the cache holds.
-  let treeKey: Comment[] | null = null
+  let treeKey: { rows: Comment[]; sort: ThreadSort } | null = null
   let treeCache: ThreadNode[] = []
   let page = 1
+  let sort: ThreadSort = 'newest'
   let hasMore = true
+  let guides: GuidesSession | null = null
   let loadingPage = false
   let status: 'loading' | 'ready' | 'error' = 'loading'
   // Replaced by the real failure before `status` reaches 'error'.
@@ -1503,16 +2263,19 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
   applyTheme()
 
   function currentTree(): ThreadNode[] {
-    if (treeKey !== rows) {
-      treeKey = rows
-      treeCache = buildCommentTree(rows)
+    if (!treeKey || treeKey.rows !== rows || treeKey.sort !== sort) {
+      treeKey = { rows, sort }
+      treeCache = sortCommentRoots(buildCommentTree(rows), sort)
     }
     return treeCache
   }
 
   function paint() {
     if (destroyed) return
+    guides?.destroy()
+    guides = null
     const roots = currentTree()
+    const pageRoots = roots.slice((page - 1) * limit, page * limit)
     const body =
       status === 'loading'
         ? skeletonBlock(3)
@@ -1521,10 +2284,17 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
           ? errorMarkup(failure.action === 'sign-in' ? { ...failure, action: 'retry' } : failure)
           : roots.length === 0
             ? `<p class="text-sm text-muted-foreground">No comments yet.</p>`
-            : `<div class="grid gap-4">${renderCommentTree(roots.slice((page - 1) * limit, page * limit), { readOnly: true })}</div>`
+            : ''
+    const sortBar = status !== 'error' && roots.length > 0 ? sortToggleMarkup(sort) : ''
+    const list =
+      pageRoots.length > 0
+        ? `<section aria-label="Comments" data-lc-thread-list class="lc-thread-guides relative grid gap-4">${renderCommentTree(pageRoots, { readOnly: true })}</section>`
+        : ''
     const pager = pagerMarkup(page, limit, roots.length, hasMore, loadingPage)
     const pending = loadingPage && status === 'ready' ? `<div>${skeletonBlock(2)}</div>` : ''
-    el.innerHTML = `<section aria-label="Comments" class="grid gap-4">${body}${pending}${pager}</section>`
+    el.innerHTML = `<section aria-label="Comments" class="grid gap-4">${body}${sortBar}${list}${pending}${pager}</section>`
+    const threadList = el.querySelector<HTMLElement>('[data-lc-thread-list]')
+    if (threadList) guides = renderGuides(threadList)
   }
 
   // Same shared loader as the list, so the viewer cannot drift from it.
@@ -1583,7 +2353,15 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     if (!target || !el.contains(target)) return
     const action = target.getAttribute('data-action')
     if (action === 'error-retry') void load()
-    else if (action === 'page-prev') {
+    else if (action === 'sort') {
+      const next = target.getAttribute('data-sort')
+      if (next === 'newest' || next === 'oldest' || next === 'best') {
+        sort = next
+        // Window boundaries follow the new order, so start from its first page.
+        page = 1
+        paint()
+      }
+    } else if (action === 'page-prev') {
       if (page > 1 && !loadingPage) {
         page -= 1
         paint()
@@ -1610,6 +2388,8 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     destroy() {
       destroyed = true
       stopObserver?.()
+      guides?.destroy()
+      guides = null
       mediaQuery?.removeEventListener('change', applyTheme)
       cleanupTheme()
       el.removeEventListener('click', onClick)
@@ -1647,6 +2427,20 @@ export function parseThemeAttrs(attrs: [string, string][]): WidgetTheme | undefi
   return { vars, dark }
 }
 
+// Host attributes are untrusted: an unparsable number leaves the option unset
+// so the documented default applies.
+function readNumber(node: HTMLElement, attr: string, parse: (raw: string) => number): number | undefined {
+  const raw = node.getAttribute(attr)
+  if (raw === null) return undefined
+  const value = parse(raw)
+  return Number.isFinite(value) && value >= 0 ? value : undefined
+}
+
+function readActionMode(node: HTMLElement): ActionMode | undefined {
+  const raw = node.getAttribute('data-lc-action-mode')
+  return raw === 'icon' || raw === 'icon-text' || raw === 'text' ? raw : undefined
+}
+
 function autoMount() {
   if (typeof document === 'undefined') return
   for (const node of document.querySelectorAll<HTMLElement>('[data-lc-comments]')) {
@@ -1670,9 +2464,9 @@ function autoMount() {
       signInUrl: node.getAttribute('data-lc-sign-in-url') ?? undefined,
       viewerUserId: node.getAttribute('data-lc-viewer-user-id') ?? undefined,
       viewerRole: viewerRoleAttr === 'admin' || viewerRoleAttr === 'moderator' ? viewerRoleAttr : undefined,
-      editWindowMinutes: node.hasAttribute('data-lc-edit-window-minutes')
-        ? Number.parseFloat(node.getAttribute('data-lc-edit-window-minutes') ?? '')
-        : undefined,
+      anonEditWindowMinutes: readNumber(node, 'data-lc-anon-edit-window-minutes', Number.parseFloat),
+      actionMode: readActionMode(node),
+      bodyLimit: readNumber(node, 'data-lc-body-limit', Number.parseInt),
       lazy: node.hasAttribute('data-lc-lazy'),
       themeVars: parseThemeAttrs(Array.from(node.attributes, (a) => [a.name, a.value] as [string, string])),
     })

@@ -25,7 +25,17 @@ bun add @lst97-oss/last-comments-widgets
 <script type="module" src="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/index.js"></script>
 ```
 
-`data-lc-site` is the site key configured on your last-comments server. Lazy loading, theming, sign-in and the edit window are documented in the [last-comments-widgets README](https://github.com/lst97-oss/last-comments-widgets#readme).
+`data-lc-site` is the site key configured on your last-comments server. Lazy loading, theming and sign-in are documented in the [last-comments-widgets README](https://github.com/lst97-oss/last-comments-widgets#readme).
+
+Every programmatic option also has an attribute, mapped to the same prop:
+
+| Attribute | Prop | Default |
+| --- | --- | --- |
+| `data-lc-anon-edit-window-minutes` | `anonEditWindowMinutes` | `10` |
+| `data-lc-action-mode` | `actionMode` (`icon` \| `icon-text` \| `text`) | `icon-text` |
+| `data-lc-body-limit` | `bodyLimit` | `10000` |
+
+Signed-in authors may edit their own comments any time; a guest may edit only from the browser that stored the key returned when they posted, inside the anonymous window above.
 
 ## License
 

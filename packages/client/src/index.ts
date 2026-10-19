@@ -732,6 +732,26 @@ export function buildCommentTree(flat: Comment[]): ThreadNode[] {
   return roots
 }
 
+export type ReplySummary = { count: number; pinned: number; hidden: number; deleted: number }
+
+// Folded reply group summary: the reply total plus the moderator-only
+// breakdown of pinned/hidden/deleted rows. Every status counts, so the
+// moderator breakdown adds up to the same total a guest sees.
+export function foldReplySummary(children: ThreadNode[]): ReplySummary {
+  const totals = { count: 0, pinned: 0, hidden: 0, deleted: 0 }
+  const visit = (list: ThreadNode[]) => {
+    for (const node of list) {
+      totals.count += 1
+      if (node.comment.pinnedAt !== null) totals.pinned += 1
+      if (node.comment.status === 'hidden') totals.hidden += 1
+      if (node.comment.status === 'deleted') totals.deleted += 1
+      visit(node.children)
+    }
+  }
+  visit(children)
+  return totals
+}
+
 // Reddit-style short age: "just now", "5m ago", "3h ago", "2d ago",
 // "2mo ago", "1y ago". Future and invalid dates fail safe.
 export function formatRelativeTime(iso: string, nowMs: number = Date.now()): string {

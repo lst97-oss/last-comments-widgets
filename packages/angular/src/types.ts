@@ -1,6 +1,7 @@
 import {
-  DEFAULT_EDIT_WINDOW_MINUTES,
+  EDIT_WINDOW_CLOSED,
   isEditWindowOpen,
+  resolveEditWindow,
   type ThreadNode,
   type ViewerRole,
   type VoteValue,
@@ -10,6 +11,9 @@ import {
 export { canModerate } from '@last-comments-widgets/client'
 
 export type Theme = 'light' | 'dark' | 'system'
+
+// Comment action rendering: icon only, icon plus label, or label only.
+export type ActionMode = 'icon' | 'icon-text' | 'text'
 
 export type CommentsOptions = {
   site: string
@@ -21,7 +25,13 @@ export type CommentsOptions = {
   signInUrl?: string
   viewerUserId?: string
   viewerRole?: ViewerRole
-  editWindowMinutes?: number
+  // Guest-authored comments may be edited for this many minutes from this
+  // browser (default 10; 0 = unlimited). Signed-in authors have no window.
+  anonEditWindowMinutes?: number
+  // Reply/Edit/Delete (and moderator) action rendering, default 'icon-text'.
+  actionMode?: ActionMode
+  // Max body characters, counted before trimming to match the server routes.
+  bodyLimit?: number
   themeVars?: WidgetTheme
   fetchImpl?: typeof fetch
 }
@@ -32,18 +42,28 @@ export function resolvePageUrl(explicit: string | undefined): string {
   throw new Error('pageUrl is required outside the browser')
 }
 
-// Delete stays ownership-only (no window); edit also requires the window.
+export type EditGateOptions = {
+  // Window for guest-authored comments; signed-in owners have no window.
+  anonWindowMinutes?: number
+  // A guest owns the comment only while this browser still holds its edit key.
+  hasEditKey?: boolean
+}
+
+// Signed-in authors edit any time; guest authors only inside the anonymous
+// window while this browser still holds the key issued at creation.
 export function canEditComment(
-  comment: { userId: string | null; createdAt: string },
-  viewerUserId: string | undefined,
-  editWindowMinutes: number = DEFAULT_EDIT_WINDOW_MINUTES,
+  comment: { userId?: string | null; createdAt: string },
+  viewerUserId?: string,
+  options: EditGateOptions = {},
 ): boolean {
-  return (
-    !!viewerUserId &&
-    !!comment.userId &&
-    viewerUserId === comment.userId &&
-    isEditWindowOpen(comment.createdAt, Date.now(), editWindowMinutes)
-  )
+  const windowMinutes = resolveEditWindow({
+    commentUserId: comment.userId,
+    viewerUserId,
+    hasEditKey: options.hasEditKey,
+    ...(options.anonWindowMinutes === undefined ? {} : { anonymousWindowMinutes: options.anonWindowMinutes }),
+  })
+  if (windowMinutes === EDIT_WINDOW_CLOSED) return false
+  return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
 }
 
 export type VoteOverlay = Record<string, { score: number; viewerVote: VoteValue | null }>

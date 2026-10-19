@@ -1,47 +1,51 @@
 import { Component, input, output } from '@angular/core'
+import { LucideArrowDown, LucideArrowUp } from '@lucide/angular'
 import type { Comment, VoteValue } from '@last-comments-widgets/client'
 
 export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: true }
 
-// ▲/▼ vote buttons. Clicking the active vote clears it.
+// Size/shape of the shadcn `sm` button; the vote only switches variants.
+const BUTTON_CLASS =
+  'inline-flex shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent px-2.5 h-7 font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50'
+const ACTIVE_CLASS = 'bg-primary text-primary-foreground hover:bg-primary/80'
+const IDLE_CLASS = 'hover:bg-muted hover:text-foreground'
+
+// Arrow vote buttons. Clicking the active vote clears it.
 @Component({
   selector: 'lc-vote-buttons',
-  standalone: true,
+  imports: [LucideArrowUp, LucideArrowDown],
   template: `
-    <div class="lc-vote flex items-center gap-1" role="group" aria-label="Vote on comment">
+    <div class="lc-vote flex items-center gap-0.5" role="group" aria-label="Vote on comment">
       <button
         type="button"
         [attr.aria-pressed]="comment().viewerVote === 1"
-        [attr.aria-label]="'Upvote comment by ' + comment().authorName"
+        aria-label="Upvote"
         (click)="cast(1)"
-        [class]="
-          'rounded px-1.5 py-0.5 text-sm transition-colors hover:bg-accent ' +
-          (comment().viewerVote === 1 ? 'text-primary' : 'text-muted-foreground')
-        "
+        [class]="buttonClass(1)"
       >
-        ▲
+        <svg lucideArrowUp [size]="14"></svg>
       </button>
-      <span class="min-w-6 text-center text-xs tabular-nums text-muted-foreground" aria-live="polite">{{
-        comment().score
-      }}</span>
+      <span class="min-w-6 text-center text-sm text-muted-foreground" aria-live="polite">{{ comment().score }}</span>
       <button
         type="button"
         [attr.aria-pressed]="comment().viewerVote === -1"
-        [attr.aria-label]="'Downvote comment by ' + comment().authorName"
+        aria-label="Downvote"
         (click)="cast(-1)"
-        [class]="
-          'rounded px-1.5 py-0.5 text-sm transition-colors hover:bg-accent ' +
-          (comment().viewerVote === -1 ? 'text-primary' : 'text-muted-foreground')
-        "
+        [class]="buttonClass(-1)"
       >
-        ▼
+        <svg lucideArrowDown [size]="14"></svg>
       </button>
     </div>
   `,
 })
 export class LcVoteButtonsComponent {
-  comment = input.required<Comment>()
-  vote = output<VoteEvent>()
+  readonly comment = input.required<Comment>()
+  readonly vote = output<VoteEvent>()
+
+  protected buttonClass(value: VoteValue): string {
+    return `${BUTTON_CLASS} ${this.comment().viewerVote === value ? ACTIVE_CLASS : IDLE_CLASS}`
+  }
+
   cast(value: VoteValue): void {
     const comment = this.comment()
     if (comment.viewerVote === value) this.vote.emit({ id: comment.id, clear: true })

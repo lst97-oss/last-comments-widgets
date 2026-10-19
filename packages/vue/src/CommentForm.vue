@@ -1,13 +1,7 @@
 <script setup lang="ts">
-import {
-  ApiError,
-  DEFAULT_BODY_LIMIT,
-  describeError,
-  type ErrorInfo,
-  renderMarkdown,
-} from '@last-comments-widgets/client'
+import { DEFAULT_BODY_LIMIT, describeError, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
 import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-vue-next'
-import { computed, nextTick, ref, useTemplateRef } from 'vue'
+import { computed, nextTick, ref, useId, useTemplateRef } from 'vue'
 import VueTurnstile from 'vue-turnstile'
 import CommentError from './CommentError.vue'
 
@@ -22,7 +16,14 @@ const props = defineProps<{
   errorTitle?: string
   signInHref?: string
   onSignIn?: () => void
-  onSubmit: (input: { authorName: string; bodyMarkdown: string; verificationToken?: string }) => Promise<void>
+  // Max body characters, counted before trimming to match the server routes.
+  bodyLimit?: number
+  // Held by the owner while the request is in flight.
+  pending?: boolean
+  // Error owned by the owner (the reply slot keeps its draft on failure).
+  error?: ErrorInfo | null
+  // Return `false` when the send failed: the form keeps the draft for a retry.
+  onSubmit: (input: { authorName: string; bodyMarkdown: string; verificationToken?: string }) => Promise<boolean | void>
   onCancelReply?: () => void
 }>()
 
@@ -38,11 +39,15 @@ const turnstile = useTemplateRef<{ reset: () => void }>('turnstile')
 const busy = ref(false)
 const formError = ref<ErrorInfo | null>(null)
 const textareaEl = useTemplateRef<HTMLTextAreaElement>('textareaEl')
+const counterId = useId()
 const showName = computed(() => props.guest ?? true)
-const bodyTooLong = computed(() => body.value.trim().length > DEFAULT_BODY_LIMIT)
+const bodyLimit = computed(() => props.bodyLimit ?? DEFAULT_BODY_LIMIT)
+// Counts what the author typed: the server caps the same raw length.
+const bodyTooLong = computed(() => body.value.length > bodyLimit.value)
+const pending = computed(() => busy.value || Boolean(props.pending))
 const submitDisabled = computed(
   () =>
-    busy.value ||
+    pending.value ||
     bodyTooLong.value ||
     // Posting before the identity resolves would guess "guest" and send the wrong wire flag.
     Boolean(props.sessionPending) ||
@@ -104,24 +109,21 @@ const previewHtml = computed(
 )
 
 async function submit() {
-  if (busy.value) return
-  const text = body.value.trim()
-  if (!text) {
-    // The server rejects an empty body with this same code and wording.
-    formError.value = describeError(new ApiError('VALIDATION_ERROR', 'Please write a comment first.', 400), {
-      title: props.errorTitle ?? "Your comment wasn't posted",
-    })
-    return
-  }
+  if (pending.value) return
+  // The submit button is already disabled; keep the guard so a stale render can
+  // never post a body the server would reject with a validation error.
+  if (bodyTooLong.value) return
   busy.value = true
   formError.value = null
   try {
-    await props.onSubmit({
+    const result = await props.onSubmit({
       // Guests post under the name they typed, or "Anonymous" when they left it blank.
       authorName: showName.value ? authorName.value.trim() || 'Anonymous' : '',
-      bodyMarkdown: text,
+      bodyMarkdown: body.value,
       ...(props.siteKey && token.value ? { verificationToken: token.value } : {}),
     })
+    // `false` = the send failed: keep the draft so it can be retried.
+    if (result === false) return
     body.value = ''
     token.value = ''
     preview.value = false
@@ -207,8 +209,14 @@ async function submit() {
       rows="4"
       required
       :aria-label="props.parentId ? 'Reply body' : 'Comment body'"
+      :aria-describedby="counterId"
+      :aria-invalid="bodyTooLong || undefined"
       class="flex min-h-24 w-full bg-transparent px-1 py-2 font-sans text-sm outline-none placeholder:text-muted-foreground"
     />
+    <p :id="counterId" data-lc-char-count class="mt-1 text-right text-xs text-muted-foreground tabular-nums">
+      <span :class="bodyTooLong ? 'text-destructive' : undefined">{{ body.length.toLocaleString() }}</span>
+      <span> / {{ bodyLimit.toLocaleString() }}</span>
+    </p>
     <VueTurnstile
       v-if="props.siteKey"
       ref="turnstile"
@@ -217,9 +225,9 @@ async function submit() {
       :theme="props.dark ? 'dark' : 'light'"
     />
     <CommentError
-      v-if="formError"
+      v-if="props.error ?? formError"
       class="mt-2"
-      :info="formError"
+      :info="props.error ?? formError!"
       :sign-in-href="props.signInHref"
       @retry="submit"
       @sign-in="props.onSignIn?.()"
@@ -245,7 +253,7 @@ async function submit() {
         :disabled="submitDisabled"
         class="ml-auto inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium whitespace-nowrap text-primary-foreground transition-colors outline-none select-none hover:bg-primary/80 disabled:pointer-events-none disabled:opacity-50"
       >
-        {{ busy ? 'Posting…' : (props.submitLabel ?? (props.parentId ? 'Post reply' : 'Post comment')) }}
+        {{ pending ? 'Posting…' : (props.submitLabel ?? (props.parentId ? 'Post reply' : 'Post comment')) }}
       </button>
     </div>
   </form>

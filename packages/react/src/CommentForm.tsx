@@ -1,8 +1,8 @@
 import { DEFAULT_BODY_LIMIT, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
-import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile'
 import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-react'
 import { type ReactNode, useId, useRef, useState } from 'react'
 import { CommentError } from './CommentError'
+import { Turnstile, type TurnstileInstance } from './Turnstile'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Textarea } from './ui/textarea'
@@ -215,15 +215,7 @@ export function CommentForm({
         <span className={bodyTooLong ? 'text-destructive' : undefined}>{body.length.toLocaleString()}</span>
         {` / ${bodyLimit.toLocaleString()}`}
       </p>
-      {guest && siteKey && (
-        <Turnstile
-          ref={turnstileRef}
-          siteKey={siteKey}
-          onSuccess={setToken}
-          onExpire={() => setToken(undefined)}
-          onError={() => setToken(undefined)}
-        />
-      )}
+      {guest && siteKey && <Turnstile ref={turnstileRef} siteKey={siteKey} onToken={setToken} />}
       {error && (
         <div className="mt-2">
           <CommentError info={error} onSignIn={onSignIn} signInHref={signInHref} />

@@ -1,13 +1,17 @@
+import { OverlayContainer } from '@angular/cdk/overlay'
+import { LucideChevronDown } from '@lucide/angular'
 import {
   afterNextRender,
   Component,
   computed,
   DestroyRef,
-  ElementRef,
   effect,
+  ElementRef,
   inject,
   input,
+  linkedSignal,
   output,
+  resource,
   signal,
   viewChild,
 } from '@angular/core'
@@ -18,18 +22,23 @@ import {
   type Comment,
   canModerate,
   createClient,
-  DEFAULT_EDIT_WINDOW_MINUTES,
+  DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+  DEFAULT_BODY_LIMIT,
   describeError,
   type ErrorInfo,
   fetchViewerSession,
+  getEditKey,
   type LastCommentsClient,
   loadThreadWindow,
   type ModerationAction,
   moderationCommentToComment,
   normalizePageUrl,
   safeUrl,
+  saveEditKey,
   signOutViewerSession,
+  sortCommentRoots,
   type ThreadNode,
+  type ThreadSort,
   themeVarsToStyle,
   type ViewerRole,
   type ViewerSession,
@@ -38,21 +47,51 @@ import {
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
-import { LcCommentListComponent } from './comment-list.component'
+import { LcCommentListComponent, type CommentSubmitHandler } from './comment-list.component'
 import { observeInView } from './observe-in-view'
+import { LcWidgetOverlayContainer } from './overlay-container'
 import { prefersDark, subscribeSystemTheme } from './theme-media'
-import { applyVoteOverlay, type Theme, type VoteOverlay, resolvePageUrl } from './types'
+import { threadSignature } from './thread-guides'
+import { LcThreadSortToggleComponent } from './thread-sort-toggle.component'
+import { type ActionMode, applyVoteOverlay, type Theme, type VoteOverlay, resolvePageUrl } from './types'
 import type { VoteEvent } from './vote-buttons.component'
 
 type Status = 'loading' | 'ready' | 'error'
+
+// One load of the thread: rows, paging tail, and the moderator context the
+// mutation paths address.
+type RootLoad = {
+  comments: Comment[]
+  hasMore: boolean
+  pageLock: { pageId: string; locked: boolean } | null
+  threadPageId: string | null
+}
+
+type LoadParams = {
+  site: string
+  baseUrl: string
+  pageUrl: string | undefined
+  pageId: string | undefined
+  limit: number
+  moderator: boolean
+  fetchImpl: typeof fetch | undefined
+}
 
 // Root widget: comment list + guest/authed form + vote toggle/clear.
 // Voting needs the Better Auth cookie; cross-origin hosts must proxy
 // /api/comments same-origin (reference API sends no ACAO-credentials).
 @Component({
   selector: 'lc-comments',
-  standalone: true,
-  imports: [LcCommentFormComponent, LcCommentListComponent, LcCommentErrorComponent, LcCommentSkeletonsComponent],
+  imports: [
+    LcCommentFormComponent,
+    LcCommentListComponent,
+    LcCommentErrorComponent,
+    LcCommentSkeletonsComponent,
+    LcThreadSortToggleComponent,
+    LucideChevronDown,
+  ],
+  // Menus portal into the themed root, not <body>.
+  providers: [{ provide: OverlayContainer, useClass: LcWidgetOverlayContainer }],
   template: `
     <div class="lc-comments grid gap-4" [class.dark]="dark()" [style]="themeStyle()">
       @if (moderator() && pageLock(); as lock) {
@@ -85,6 +124,7 @@ type Status = 'loading' | 'ready' | 'error'
         [submitting]="posting()"
         [sessionPending]="sessionLoading()"
         [error]="formError()"
+        [bodyLimit]="bodyLimit()"
         (submitted)="onTopLevelSubmit($event)"
         (signIn)="signInFromError()"
       >
@@ -101,14 +141,14 @@ type Status = 'loading' | 'ready' | 'error'
                 [attr.aria-expanded]="identityOpen()"
                 [disabled]="sessionLoading() || signInPending() || signOutPending()"
                 (click)="identityOpen.set(!identityOpen())"
-                class="lc-identity-trigger inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
+                class="lc-identity-trigger inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 h-7 rounded-[min(var(--radius-md),12px)] text-[length:calc(var(--lc-font-size,1rem)*0.8)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
               >
                 @if (sessionLoading()) {
                   <span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
                 } @else {
-                  <span class="max-w-[calc(var(--spacing)*40)] truncate">{{ identityLabel() }}</span>
+                  <span class="label max-w-[10rem] truncate">{{ identityLabel() }}</span>
                 }
-                <span aria-hidden="true">▾</span>
+                <svg lucideChevronDown aria-hidden="true"></svg>
               </button>
               @if (identityOpen()) {
                 <div
@@ -180,12 +220,15 @@ type Status = 'loading' | 'ready' | 'error'
           />
         }
       </lc-comment-form>
+      @if (status() !== 'error' && roots().length > 0) {
+        <lc-thread-sort-toggle [value]="sort()" (sortChange)="changeSort($event)" />
+      }
       @if (status() === 'loading') {
         <lc-comment-skeletons [count]="3" />
       }
-      @if (status() === 'error') {
+      @if (status() === 'error' && error(); as loadFailure) {
         <lc-comment-error
-          [info]="error()"
+          [info]="loadFailure"
           [signInHref]="safeSignInUrl()"
           (retry)="load()"
           (signIn)="signInFromError()"
@@ -194,7 +237,7 @@ type Status = 'loading' | 'ready' | 'error'
       @if (status() === 'ready' && roots().length === 0) {
         <section class="rounded-lg border border-border p-6 text-sm text-muted-foreground">No comments yet.</section>
       }
-      @if (roots().length > 0 && pageRoots().length > 0) {
+      @if (pageRoots().length > 0) {
         <lc-comment-list
           [nodes]="pageRoots()"
           [guest]="guest()"
@@ -203,27 +246,30 @@ type Status = 'loading' | 'ready' | 'error'
           [viewerRole]="viewerRole()"
           [hideVotes]="votesHidden()"
           [pendingModeration]="pendingModeration()"
-          [editWindowMinutes]="editWindowMinutes()"
-          [replySubmitting]="posting()"
-          [replyError]="formError()"
-          [editSaving]="editing()"
+          [anonWindowMinutes]="anonEditWindowMinutes()"
+          [actionMode]="actionMode()"
+          [bodyLimit]="bodyLimit()"
+          [replyTo]="replyTo()"
+          [editComment]="submitEdit"
+          [replyComment]="submitReply"
+          [measureKey]="measureKey()"
           (vote)="onVote($event)"
-          (reply)="onReply($event)"
-          (edited)="onEdited($event)"
           (deleted)="onDeleted($event)"
           (moderate)="onModerate($event)"
           (blockUser)="onBlockUser($event)"
+          (openReply)="replyTo.set($event)"
+          (closeReply)="replyTo.set(null)"
           (signIn)="signInFromError()"
         />
       }
       @if (loadingPage()) {
         <lc-comment-skeletons [count]="2" />
       }
-      @if (displayPage() > 1 || hasMore() || roots().length > limit()) {
+      @if (page() > 1 || hasMore() || roots().length > limit()) {
         <nav aria-label="Comments pagination" class="flex flex-wrap items-center justify-between gap-2 text-sm">
           <button
             type="button"
-            [disabled]="displayPage() === 1 || loadingPage()"
+            [disabled]="page() === 1 || loadingPage()"
             (click)="previousPage()"
             class="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 font-medium hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
           >
@@ -231,7 +277,7 @@ type Status = 'loading' | 'ready' | 'error'
           </button>
           <span class="text-muted-foreground"
             >Page
-            <span aria-current="page" class="font-medium text-foreground">{{ displayPage() }}</span>
+            <span aria-current="page" class="font-medium text-foreground">{{ page() }}</span>
           </span>
           <button
             type="button"
@@ -260,7 +306,9 @@ export class LcCommentsComponent {
   signInUrl = input<string | undefined>(undefined)
   viewerUserId = input<string | undefined>(undefined)
   viewerRole = input<ViewerRole | undefined>(undefined)
-  editWindowMinutes = input<number>(DEFAULT_EDIT_WINDOW_MINUTES)
+  anonEditWindowMinutes = input(DEFAULT_ANON_EDIT_WINDOW_MINUTES)
+  actionMode = input<ActionMode>('icon-text')
+  bodyLimit = input(DEFAULT_BODY_LIMIT)
   fetchImpl = input<typeof fetch | undefined>(undefined)
   lazy = input(false)
   signIn = output<void>()
@@ -273,9 +321,6 @@ export class LcCommentsComponent {
   themeStyle = computed<Record<string, string>>(() => themeVarsToStyle(this.themeVars(), this.dark()))
   safeSignInUrl = computed(() => safeUrl(this.signInUrl()))
   moderator = computed(() => canModerate(this.viewerRole()))
-  // Only the page lock hides votes list-wide; single rows are handled by the
-  // list component (voting is rejected on hidden/deleted comments).
-  votesHidden = computed(() => this.moderator() && Boolean(this.pageLock()?.locked))
   session = signal<ViewerSession | null>(null)
   sessionStatus = signal<'loading' | 'ready'>('loading')
   sessionLoading = computed(() => this.sessionStatus() === 'loading')
@@ -289,57 +334,100 @@ export class LcCommentsComponent {
     this.commentAs() === 'anonymous' || !this.signedIn() ? 'Anonymous' : this.identityName(),
   )
   guest = computed(() => !this.signedIn() || this.commentAs() === 'anonymous')
-  // Thread the moderator UI is pointed at: the `pageId` input, or the page the
-  // URL matched. Rows and moderator posts both address it.
-  threadPageId = signal<string | null>(null)
-  comments = signal<Comment[]>([])
-  // Votes land in an overlay over the cached tree: rebuilding the tree on each
-  // vote would hand every row a fresh node object and defeat OnPush.
-  votes = signal<VoteOverlay>({})
-  baseRoots = computed<ThreadNode[]>(() => buildCommentTree(this.comments()))
-  roots = computed<ThreadNode[]>(() => applyVoteOverlay(this.baseRoots(), this.votes()))
-  // A page is a window over roots: pages over raw rows would either grow the
-  // list (prefix) or split threads (replies without their parent).
-  // shortcut: a reply created after the stream moved past its thread's page
-  // stays hidden until more rows load — the list endpoint has no per-thread query.
-  // A delete/edit shrinks the rows locally, so the current window can go empty
-  // while the page state stays put: render the last page that still has roots
-  // (derived, never fetched).
-  displayPage = computed(() => {
-    const length = this.roots().length
-    let page = this.page()
-    while (page > 1 && length <= (page - 1) * this.limit()) page -= 1
-    return page
-  })
-  pageRoots = computed<ThreadNode[]>(() =>
-    this.roots().slice((this.displayPage() - 1) * this.limit(), this.displayPage() * this.limit()),
-  )
-  hasNext = computed(() => this.roots().length > this.displayPage() * this.limit() || this.hasMore())
-  page = signal(1)
-  status = signal<Status>('loading')
-  error = signal<ErrorInfo | null>(null)
-  hasMore = signal(false)
-  loadingPage = signal(false)
+  sort = signal<ThreadSort>('newest')
+  replyTo = signal<string | null>(null)
   posting = signal(false)
   formError = signal<ErrorInfo | null>(null)
-  editing = signal(false)
-  replyTo = signal<string | null>(null)
-  pageLock = signal<{ pageId: string; locked: boolean } | null>(null)
   lockPending = signal(false)
   pendingModeration = signal<Record<string, boolean>>({})
   actionError = signal<ErrorInfo | null>(null)
   signInPending = signal(false)
   signInError = signal<ErrorInfo | null>(null)
   signOutPending = signal(false)
+  loadingPage = signal(false)
   identityMenu = viewChild<ElementRef<HTMLElement>>('identityMenu')
   // The composer keeps the draft on failure; the widget clears it after a save.
   composer = viewChild(LcCommentFormComponent)
 
-  #client: LastCommentsClient | null = null
+  // The root request is a resource: a prop flip cancels the superseded load, and
+  // its value identity is what resets the local row cache and the page.
+  readonly root = resource<RootLoad, LoadParams>({
+    params: (): LoadParams => ({
+      site: this.site(),
+      baseUrl: this.baseUrl(),
+      pageUrl: this.pageUrl(),
+      pageId: this.pageId(),
+      limit: this.limit(),
+      moderator: this.moderator(),
+      fetchImpl: this.fetchImpl(),
+    }),
+    loader: ({ params, abortSignal }) => this.#load(params, abortSignal),
+  })
+  readonly status = computed<Status>(() => {
+    const status = this.root.status()
+    if (status === 'error') return 'error'
+    return status === 'resolved' || status === 'local' ? 'ready' : 'loading'
+  })
+  readonly error = computed(() => {
+    const failure = this.root.error()
+    return failure ? this.#loadFailure(failure) : null
+  })
+  // Row cache: rewritten in place by posts/edits/deletes, reset by a fresh load.
+  readonly comments = linkedSignal<RootLoad | undefined, Comment[]>({
+    source: () => this.root.value(),
+    computation: (value) => value?.comments ?? [],
+  })
+  readonly hasMore = linkedSignal<RootLoad | undefined, boolean>({
+    source: () => this.root.value(),
+    computation: (value) => value?.hasMore ?? false,
+  })
+  // A reload fetches authoritative scores, so its value identity drops stale patches.
+  readonly votes = linkedSignal<RootLoad | undefined, VoteOverlay>({
+    source: () => this.root.value(),
+    computation: (): VoteOverlay => ({}),
+  })
+  readonly pageLock = linkedSignal<RootLoad | undefined, { pageId: string; locked: boolean } | null>({
+    source: () => this.root.value(),
+    computation: (value) => value?.pageLock ?? null,
+  })
+  // Thread the moderator UI is pointed at: the `pageId` input, or the page the
+  // URL matched. Rows and moderator posts both address it.
+  readonly threadPageId = computed(() => this.root.value()?.threadPageId ?? null)
+  // Votes land in an overlay over the cached tree: rebuilding the tree on each
+  // vote would hand every row a fresh node object.
+  readonly roots = computed<ThreadNode[]>(() =>
+    sortCommentRoots(applyVoteOverlay(buildCommentTree(this.comments()), this.votes()), this.sort()),
+  )
+  // A page is a window over roots: pages over raw rows would either grow the
+  // list (prefix) or split threads (replies without their parent).
+  // shortcut: a reply created after the stream moved past its thread's page
+  // stays hidden until more rows load — the list endpoint has no per-thread query.
+  // A delete/edit shrinks the rows locally, so the current window can go empty
+  // while the page state stays put: clamp to the last page that still has roots.
+  readonly page = linkedSignal<{ loaded: RootLoad | undefined; roots: number; limit: number }, number>({
+    source: () => ({ loaded: this.root.value(), roots: this.roots().length, limit: this.limit() }),
+    computation: ({ loaded, roots, limit }, previous) => {
+      const requested = previous && previous.source.loaded === loaded ? previous.value : 1
+      return Math.min(requested, Math.max(1, Math.ceil(roots / limit)))
+    },
+  })
+  readonly pageRoots = computed<ThreadNode[]>(() =>
+    this.roots().slice((this.page() - 1) * this.limit(), this.page() * this.limit()),
+  )
+  readonly hasNext = computed(() => this.roots().length > this.page() * this.limit() || this.hasMore())
+  // New window, sort order or row order re-measures the rails.
+  readonly measureKey = computed(() => `${this.page()}:${this.sort()}:${threadSignature(this.pageRoots())}`)
+  // Only the page lock hides votes list-wide; single rows are handled by the
+  // list component (voting is rejected on hidden/deleted comments).
+  votesHidden = computed(() => this.moderator() && Boolean(this.pageLock()?.locked))
+
   #host = inject<ElementRef<HTMLElement>>(ElementRef)
   #destroyRef = inject(DestroyRef)
-  // Load generation: a response from an older load never commits.
-  #seq = 0
+  // The first request waits for the viewport gate (a resolved no-op when eager).
+  #openGate: (() => void) | null = null
+  readonly #gate = new Promise<void>((resolve) => {
+    this.#openGate = resolve
+  })
 
   constructor() {
     // The media query is a shared singleton; only system-themed instances join it.
@@ -354,7 +442,11 @@ export class LcCommentsComponent {
         this.#host.nativeElement,
         this.lazy(),
         typeof IntersectionObserver === 'undefined' ? undefined : IntersectionObserver,
-        () => this.#start(),
+        () => {
+          this.#openGate?.()
+          this.#openGate = null
+          void this.loadSession()
+        },
       )
       if (cleanup) this.#destroyRef.onDestroy(cleanup)
     })
@@ -377,11 +469,6 @@ export class LcCommentsComponent {
     })
   }
 
-  #start(): void {
-    void this.load()
-    void this.loadSession()
-  }
-
   // Best-effort: a signed-out (or unreachable) session just keeps the guest row.
   async loadSession(): Promise<void> {
     try {
@@ -391,6 +478,83 @@ export class LcCommentsComponent {
     } finally {
       this.sessionStatus.set('ready')
     }
+  }
+
+  // Copy comes from the shared table; only the moderation framing is widget-specific.
+  #loadFailure(err: unknown): ErrorInfo {
+    if (!this.moderator()) return describeError(err)
+    if (err instanceof ApiError) return describeError(err, { title: 'Comments could not be loaded' })
+    return describeError(err, {
+      title: 'Moderation is unavailable',
+      message: 'Moderation is only available when the comments API is served from this origin.',
+    })
+  }
+
+  async #load(params: LoadParams, abortSignal: AbortSignal): Promise<RootLoad> {
+    // Hold the first request until the lazy gate opens.
+    await this.#gate
+    const client = createClient({ baseUrl: params.baseUrl, site: params.site, fetchImpl: params.fetchImpl })
+    const pageUrl = resolvePageUrl(params.pageUrl)
+    if (!params.moderator) {
+      // Fill the first thread window (pages: 1) before rendering it: replies
+      // consume rows, so one `limit`-row fetch yields fewer than `limit` roots.
+      const window = await loadThreadWindow({
+        site: params.site,
+        baseUrl: params.baseUrl,
+        pageUrl,
+        limit: params.limit,
+        fetchImpl: params.fetchImpl,
+        pages: 1,
+      })
+      return { comments: window.comments, hasMore: window.hasMore, pageLock: null, threadPageId: null }
+    }
+    // Resolve this page from the site's page list, then read its thread
+    // including hidden/deleted rows. A host-supplied `pageId` wins: the page
+    // list is capped, so a URL match can miss.
+    const overview = await client.listModeration({ limit: 1 })
+    const normalized = normalizePageUrl(pageUrl)
+    const match = params.pageId
+      ? (overview.pages.find((page) => page.id === params.pageId) ?? null)
+      : (overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized) ?? null)
+    const threadPageId = params.pageId ?? match?.id ?? null
+    // Unknown lock state stays unknown: the lock bar is hidden rather than
+    // claiming the thread is open.
+    const pageLock = match ? { pageId: match.id, locked: match.isLocked } : null
+    if (!threadPageId) return { comments: [], hasMore: false, pageLock, threadPageId: null }
+    const page = await client.listModeration({ pageId: threadPageId, limit: params.limit, offset: 0 })
+    const rows = page.comments.map(moderationCommentToComment)
+    let hasMore = rows.length < page.total
+    // Replies consume rows, so one limit-row fetch can yield fewer than `limit`
+    // roots: fill window 1 before rendering it.
+    while (hasMore && buildCommentTree(rows).length < params.limit) {
+      if (abortSignal.aborted) break
+      const next = await client.listModeration({ pageId: threadPageId, limit: params.limit, offset: rows.length })
+      const batch = next.comments.map(moderationCommentToComment)
+      if (batch.length === 0) break
+      rows.push(...batch)
+      hasMore = rows.length < next.total
+    }
+    return { comments: rows, hasMore, pageLock, threadPageId }
+  }
+
+  client(): LastCommentsClient {
+    return createClient({ baseUrl: this.baseUrl(), site: this.site(), fetchImpl: this.fetchImpl() })
+  }
+
+  url(): string {
+    return resolvePageUrl(this.pageUrl())
+  }
+
+  // Retry: a fresh load replaces the cached rows and resets the page.
+  load(): void {
+    this.actionError.set(null)
+    this.root.reload()
+  }
+
+  changeSort(next: ThreadSort): void {
+    this.sort.set(next)
+    // Window boundaries follow the new order, so start from its first page.
+    this.page.set(1)
   }
 
   selectIdentity(value: 'account' | 'anonymous'): void {
@@ -411,16 +575,6 @@ export class LcCommentsComponent {
       this.signOutPending.set(false)
       this.identityOpen.set(false)
     }
-  }
-
-  client(): LastCommentsClient {
-    if (!this.#client)
-      this.#client = createClient({ baseUrl: this.baseUrl(), site: this.site(), fetchImpl: this.fetchImpl() })
-    return this.#client
-  }
-
-  url(): string {
-    return resolvePageUrl(this.pageUrl())
   }
 
   // better-auth's social sign-in endpoint is POST-only, so the guest row must
@@ -459,99 +613,23 @@ export class LcCommentsComponent {
     else void this.startOAuthSignIn()
   }
 
-  async load(): Promise<void> {
-    const seq = ++this.#seq
-    this.status.set('loading')
-    this.error.set(null)
-    this.actionError.set(null)
-    this.page.set(1)
-    try {
-      const limit = this.limit()
-      if (this.moderator()) {
-        // Resolve this page from the site's page list, then read its thread
-        // including hidden/deleted rows.
-        // A host-supplied `pageId` wins over the URL match: the page list is
-        // capped, so a match can miss on a busy site.
-        const overview = await this.client().listModeration({ limit: 1 })
-        if (seq !== this.#seq) return
-        const normalized = normalizePageUrl(this.url())
-        const hostPageId = this.pageId()
-        const match = hostPageId
-          ? (overview.pages.find((page) => page.id === hostPageId) ?? null)
-          : (overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized) ?? null)
-        const threadId = hostPageId ?? match?.id ?? null
-        // Unknown lock state stays unknown: the lock bar is hidden rather than
-        // claiming the thread is open.
-        this.pageLock.set(match ? { pageId: match.id, locked: match.isLocked } : null)
-        this.threadPageId.set(threadId)
-        if (!threadId) {
-          this.comments.set([])
-          this.votes.set({})
-          this.hasMore.set(false)
-          this.status.set('ready')
-          return
-        }
-        const page = await this.client().listModeration({ pageId: threadId, limit, offset: 0 })
-        if (seq !== this.#seq) return
-        const rows = page.comments.map(moderationCommentToComment)
-        this.comments.set(rows)
-        this.votes.set({})
-        this.hasMore.set(rows.length < page.total)
-        await this.#fillModerationWindow(limit, limit, seq)
-        if (seq !== this.#seq) return
-        this.status.set('ready')
-        return
-      }
-      // Fill the first thread window (pages: 1) before rendering it: replies
-      // consume rows, so one `limit`-row fetch yields fewer than `limit` roots.
-      const window = await loadThreadWindow({
-        site: this.site(),
-        baseUrl: this.baseUrl(),
-        pageUrl: this.url(),
-        limit,
-        fetchImpl: this.fetchImpl(),
-        pages: 1,
-      })
-      if (seq !== this.#seq) return
-      this.comments.set(window.comments)
-      this.votes.set({})
-      this.hasMore.set(window.hasMore)
-      this.status.set('ready')
-    } catch (err) {
-      if (seq !== this.#seq) return
-      this.error.set(this.#loadFailure(err))
-      this.status.set('error')
-    }
-  }
-
-  // Copy comes from the shared table; only the moderation framing is widget-specific.
-  #loadFailure(err: unknown): ErrorInfo {
-    if (!this.moderator()) return describeError(err)
-    if (err instanceof ApiError) return describeError(err, { title: 'Comments could not be loaded' })
-    return describeError(err, {
-      title: 'Moderation is unavailable',
-      message: 'Moderation is only available when the comments API is served from this origin.',
-    })
-  }
-
   async nextPage(): Promise<void> {
-    const seq = ++this.#seq
     const limit = this.limit()
     // Anchor on the clamped page: the page state can sit above the last
     // non-empty window after a delete emptied it.
-    const page = this.displayPage()
+    const page = this.page()
     // Cache hit: the next root window is already loaded.
     if (this.roots().length > page * limit || !this.hasMore()) {
       this.page.set(page + 1)
       return
     }
     this.loadingPage.set(true)
-    this.error.set(null)
+    this.actionError.set(null)
     try {
       // Fill the window being ENTERED, not the one being left: a fetch returns
       // `limit` rows but a page shows `limit` roots, and replies eat rows.
       if (this.moderator()) {
-        await this.#fillModerationWindow((page + 1) * limit, limit, seq)
+        await this.#fillModerationWindow((page + 1) * limit)
       } else {
         const window = await loadThreadWindow({
           site: this.site(),
@@ -562,16 +640,12 @@ export class LcCommentsComponent {
           pages: page + 1,
           existing: this.comments(),
         })
-        if (seq !== this.#seq) return
         this.comments.set(window.comments)
         this.hasMore.set(window.hasMore)
       }
-      if (seq !== this.#seq) return
       this.page.set(page + 1)
     } catch (err) {
-      if (seq !== this.#seq) return
-      this.error.set(describeError(err))
-      this.status.set('error')
+      this.actionError.set(describeError(err, { title: 'Failed to load more comments' }))
     } finally {
       this.loadingPage.set(false)
     }
@@ -580,15 +654,12 @@ export class LcCommentsComponent {
   // Moderation rows come from listModeration, which loadThreadWindow cannot
   // read; keep its own loop. Fetches `limit`-row batches until `target` roots
   // are loaded or the stream ends, recomputing roots on every pass.
-  async #fillModerationWindow(target: number, limit: number, seq: number): Promise<void> {
+  async #fillModerationWindow(target: number): Promise<void> {
+    const limit = this.limit()
+    const threadPageId = this.threadPageId()
     while (this.roots().length < target && this.hasMore()) {
       const before = this.comments().length
-      const next = await this.client().listModeration({
-        pageId: this.threadPageId() ?? undefined,
-        limit,
-        offset: before,
-      })
-      if (seq !== this.#seq) return
+      const next = await this.client().listModeration({ pageId: threadPageId ?? undefined, limit, offset: before })
       const rows = next.comments.map(moderationCommentToComment)
       this.comments.set([...this.comments(), ...rows])
       this.hasMore.set(this.comments().length < next.total)
@@ -603,37 +674,50 @@ export class LcCommentsComponent {
 
   // Cache-only: every earlier page's rows are already loaded.
   previousPage(): void {
-    this.page.set(this.displayPage() - 1)
+    this.page.set(this.page() - 1)
   }
 
-  async submit(input: CommentSubmit, parentId: string | null): Promise<void> {
+  // Shared create path: head comments and inline replies differ only in the
+  // parent, so the moderation/origin branching lives here once.
+  async #post(input: CommentSubmit, parentId: string | null): Promise<Comment> {
+    const bodyMarkdown = input.body.trim()
+    const threadPageId = this.threadPageId()
+    // Moderators post through the moderation endpoint: the public create path
+    // checks the site's origin allow-list, which a dashboard origin is not on.
+    const created =
+      this.moderator() && threadPageId
+        ? await this.client().createModerationComment({
+            pageId: threadPageId,
+            bodyMarkdown,
+            ...(parentId ? { parentId } : {}),
+          })
+        : await this.client().postComment({
+            url: this.url(),
+            bodyMarkdown,
+            // Guest posts never carry the session cookie (covers an unreachable session endpoint with a cookie present).
+            anonymous: this.guest(),
+            ...(parentId ? { parentId } : { title: typeof document !== 'undefined' ? document.title : undefined }),
+            ...(input.authorName ? { authorName: input.authorName } : {}),
+            ...(input.token ? { verificationToken: input.token } : {}),
+          })
+    // The create routes return the raw row, which has no computed score; without
+    // the neutral fields a `best` sort would compare NaNs.
+    const normalized = { ...created, score: created.score ?? 0, viewerVote: created.viewerVote ?? null }
+    // The server returns the guest edit key exactly once.
+    if (normalized.editKey) saveEditKey(normalized.id, normalized.editKey)
+    return normalized
+  }
+
+  async onTopLevelSubmit(input: CommentSubmit): Promise<void> {
     this.posting.set(true)
     this.formError.set(null)
     try {
-      // Moderators post through the moderation endpoint: the public create path
-      // checks the site's origin allow-list, which a dashboard origin is not on.
-      const threadId = this.threadPageId()
-      const created =
-        this.moderator() && threadId
-          ? await this.client().createModerationComment({
-              pageId: threadId,
-              bodyMarkdown: input.body,
-              ...(parentId ? { parentId } : {}),
-            })
-          : await this.client().postComment({
-              url: this.url(),
-              bodyMarkdown: input.body,
-              // Guest posts never carry the session cookie (covers an unreachable session endpoint with a cookie present).
-              anonymous: this.guest(),
-              ...(parentId ? { parentId } : { title: typeof document !== 'undefined' ? document.title : undefined }),
-              ...(input.authorName ? { authorName: input.authorName } : {}),
-              ...(input.token ? { verificationToken: input.token } : {}),
-            })
+      const created = await this.#post(input, null)
       this.comments.set([...this.comments(), created])
+      this.page.set(1)
       this.replyTo.set(null)
-      // Reply/edit drafts clear by unmounting with the rebuilt thread.
-      if (parentId === null) this.composer()?.reset()
-      if (this.status() !== 'ready') this.status.set('ready')
+      // The head composer clears by resetting its own draft.
+      this.composer()?.reset()
       if (this.moderator()) this.moderated.emit()
     } catch (err) {
       this.formError.set(describeError(err, { title: "Your comment wasn't posted" }))
@@ -643,12 +727,50 @@ export class LcCommentsComponent {
     }
   }
 
-  onTopLevelSubmit(input: CommentSubmit): void {
-    void this.submit(input, null)
+  // The inline reply slot owns its pending/error state, so failures return to
+  // the item instead of the page-level composer block.
+  readonly submitReply: CommentSubmitHandler = async (commentId, input) => {
+    if (input.body.trim().length === 0) {
+      return { code: null, title: "Your reply wasn't posted", message: 'Please write a reply first.', action: 'none' }
+    }
+    try {
+      const created = await this.#post(input, commentId)
+      this.comments.set([...this.comments(), created])
+      this.page.set(1)
+      this.replyTo.set(null)
+      if (this.moderator()) this.moderated.emit()
+      return null
+    } catch (err) {
+      return describeError(err, { title: "Your reply wasn't posted" })
+    }
   }
 
-  onReply(event: { parentId: string; submit: CommentSubmit }): void {
-    void this.submit(event.submit, event.parentId)
+  // The item keeps the editor (and its draft) open on failure, so the page-level
+  // action block must stay out of the edit path.
+  readonly submitEdit: CommentSubmitHandler = async (commentId, input) => {
+    this.actionError.set(null)
+    try {
+      // Moderators edit through the moderation endpoint for the same reason
+      // they post through it: the public PATCH checks the site's origins.
+      const editKey = this.moderator() ? null : getEditKey(commentId)
+      const updated = this.moderator()
+        ? await this.client().editModerationComment({ commentId, bodyMarkdown: input.body })
+        : await this.client().editOwnComment({
+            commentId,
+            bodyMarkdown: input.body,
+            ...(editKey ? { editKey } : {}),
+          })
+      this.comments.set(
+        this.comments().map((c) =>
+          c.id === commentId
+            ? { ...c, ...updated, score: updated.score ?? c.score, viewerVote: updated.viewerVote ?? c.viewerVote }
+            : c,
+        ),
+      )
+      return null
+    } catch (err) {
+      return describeError(err, { title: "Your edit wasn't saved" })
+    }
   }
 
   async onVote(event: VoteEvent): Promise<void> {
@@ -668,24 +790,6 @@ export class LcCommentsComponent {
     } catch (err) {
       this.actionError.set(describeError(err, { title: "Your vote wasn't saved" }))
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
-    }
-  }
-
-  async onEdited(event: { id: string; submit: CommentSubmit }): Promise<void> {
-    this.editing.set(true)
-    this.actionError.set(null)
-    try {
-      // Moderators edit through the moderation endpoint for the same reason they
-      // post through it: the public PATCH checks the site's origins.
-      const updated = this.moderator()
-        ? await this.client().editModerationComment({ commentId: event.id, bodyMarkdown: event.submit.body })
-        : await this.client().editOwnComment({ commentId: event.id, bodyMarkdown: event.submit.body })
-      this.comments.set(this.comments().map((c) => (c.id === event.id ? updated : c)))
-    } catch (err) {
-      // The editor closes on submit, so the failure belongs in the page-level block.
-      this.actionError.set(describeError(err, { title: "Your edit wasn't saved" }))
-    } finally {
-      this.editing.set(false)
     }
   }
 

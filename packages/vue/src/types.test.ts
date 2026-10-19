@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { renderMarkdown } from '@last-comments-widgets/client'
-import { canShowEdit, toggleVoteValue } from './types'
+import { canEditComment, toggleVoteValue } from './types'
 
 describe('toggleVoteValue', () => {
   test('clears the active vote, sets a new one', () => {
@@ -25,14 +25,23 @@ describe('renderMarkdown parity', () => {
   })
 })
 
-describe('canShowEdit', () => {
-  test('hidden on 6-minute-old own comment, shown when unlimited', () => {
-    const createdAt = '2026-10-16T00:00:00.000Z'
-    const nowMs = Date.parse('2026-10-16T00:06:00.000Z')
-    const own = { userId: 'u1', createdAt }
-    expect(canShowEdit('u1', own, undefined, nowMs)).toBe(false)
-    expect(canShowEdit('u1', own, 0, nowMs)).toBe(true)
-    expect(canShowEdit('u2', own, 0, nowMs)).toBe(false)
-    expect(canShowEdit(undefined, own, 0, nowMs)).toBe(false)
+describe('canEditComment', () => {
+  test('a signed-in owner edits any time', () => {
+    const own = { userId: 'u1', createdAt: '2020-01-01T00:00:00.000Z' }
+    expect(canEditComment(own, 'u1')).toBe(true)
+    expect(canEditComment(own, 'u2')).toBe(false)
+    expect(canEditComment(own, undefined)).toBe(false)
+  })
+
+  test('a guest edits only while this browser holds the key and the window is open', () => {
+    const guest = { userId: null, createdAt: new Date().toISOString() }
+    expect(canEditComment(guest, undefined, { hasEditKey: true })).toBe(true)
+    expect(canEditComment(guest, undefined, { hasEditKey: false })).toBe(false)
+  })
+
+  test('the anonymous window closes the guest editor', () => {
+    const guest = { userId: null, createdAt: '2020-01-01T00:00:00.000Z' }
+    expect(canEditComment(guest, undefined, { hasEditKey: true, anonWindowMinutes: 10 })).toBe(false)
+    expect(canEditComment(guest, undefined, { hasEditKey: true, anonWindowMinutes: 0 })).toBe(true)
   })
 })

@@ -5,36 +5,49 @@ import {
   beginOAuthSignIn,
   canModerate,
   createClient,
-  DEFAULT_EDIT_WINDOW_MINUTES,
+  DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+  DEFAULT_BODY_LIMIT,
   describeError,
   type ErrorInfo,
   fetchViewerSession,
+  getEditKey,
   loadThreadWindow,
   type ModerationAction,
   moderationCommentToComment,
   normalizePageUrl,
   safeUrl,
+  saveEditKey,
   signOutViewerSession,
+  sortCommentRoots,
   themeVarsToStyle,
+  type ThreadSort,
   type ViewerSession,
   type VoteValue,
 } from '@last-comments-widgets/client'
-import { Check } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref, useTemplateRef, watch } from 'vue'
+import { computed, ref, useTemplateRef, watch } from 'vue'
 import CommentError from './CommentError.vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'
 import CommentSkeleton from './CommentSkeleton.vue'
 import CommentsPager from './CommentsPager.vue'
+import IdentityMenu from './IdentityMenu.vue'
+import ThreadGuides from './ThreadGuides.vue'
+import ThreadSortToggle from './ThreadSortToggle.vue'
 import { setPending, useCommentsUi } from './lib/useCommentsUi'
 import { useLazyLoad } from './lib/useLazyLoad'
+import { threadSignature } from './lib/useGuides'
 import { useThreadWindow } from './lib/useThreadWindow'
+import { provideWidgetRoot } from './lib/widgetRoot'
 import { applyVoteOverlay, type CommentsProps, resolvePageUrl, type VoteOverlay } from './types'
 
-const props = withDefaults(defineProps<CommentsProps>(), { limit: 20, theme: 'system', lazy: false })
+const props = withDefaults(defineProps<CommentsProps>(), {
+  limit: 20,
+  theme: 'system',
+  lazy: false,
+  actionMode: 'icon-text',
+  bodyLimit: DEFAULT_BODY_LIMIT,
+})
 const emit = defineEmits<{ 'sign-in': []; moderated: [] }>()
-
-type Status = 'loading' | 'ready' | 'error' | 'locked' | 'blocked'
 
 // Locked and blocked are terminal states, not notices, but their copy still comes
 // from the one error table: the empty message makes describeError use code copy.
@@ -42,6 +55,7 @@ const LOCKED_COPY = describeError(new ApiError('PAGE_LOCKED', '', 409))
 const BLOCKED_COPY = describeError(new ApiError('USER_BLOCKED', '', 403))
 
 const replyTo = ref<string | null>(null)
+const sort = ref<ThreadSort>('newest')
 const dark = useTheme(() => props.theme)
 const { pendingModeration, actionError, lockPending, identityPending, identityError, unauthenticated, clearError } =
   useCommentsUi()
@@ -51,9 +65,9 @@ const pageLock = ref<{ pageId: string; locked: boolean } | null>(null)
 const threadPageId = ref<string | null>(null)
 const session = ref<ViewerSession | null>(null)
 const sessionStatus = ref<'loading' | 'ready'>('loading')
+const formError = ref<ErrorInfo | null>(null)
 const commentAs = ref<'account' | 'anonymous'>('account')
 const identityOpen = ref(false)
-const identityEl = useTemplateRef<HTMLElement>('identityEl')
 
 const rootStyle = computed(() => themeVarsToStyle(props.themeVars, dark.value))
 const client = computed(() => createClient({ baseUrl: props.baseUrl, site: props.site, fetchImpl: props.fetchImpl }))
@@ -76,9 +90,10 @@ const {
   loadFirstPage,
   nextPage,
   previousPage,
-} = useThreadWindow<Status>({
+} = useThreadWindow({
   limit: () => props.limit ?? 20,
-  transform: (nodes) => applyVoteOverlay(nodes, votes.value),
+  // Overlay before sorting: `best` must re-rank on a vote.
+  transform: (nodes) => sortCommentRoots(applyVoteOverlay(nodes, votes.value), sort.value),
   load: async ({ reset, pages, existing }) => {
     if (moderator.value) {
       // A host-supplied `pageId` wins over the URL match: the page list is
@@ -157,35 +172,103 @@ function startReply(id: string) {
   replyTo.value = id
 }
 
+function handleSortChange(next: ThreadSort) {
+  sort.value = next
+  // Window boundaries follow the new order, so start from its first page.
+  page.value = 1
+}
+
+// A guest owns a comment only while this browser still holds its edit key.
+const guestEditKeys = computed(() => {
+  const keys: Record<string, boolean> = {}
+  for (const comment of comments.value) {
+    if (!comment.userId && getEditKey(comment.id)) keys[comment.id] = true
+  }
+  return keys
+})
+
+// Shared create path: head comments and inline replies differ only in the
+// parent, so the moderation/origin branching lives here once.
+async function postOne(
+  parentId: string | null,
+  input: { authorName: string; bodyMarkdown: string; verificationToken?: string },
+) {
+  const bodyMarkdown = input.bodyMarkdown.trim()
+  // Moderators post through the moderation endpoint: the public create path
+  // checks the site's origin allow-list, which a dashboard origin is not on.
+  const created =
+    moderator.value && threadPageId.value
+      ? await client.value.createModerationComment({
+          pageId: threadPageId.value,
+          bodyMarkdown,
+          ...(parentId ? { parentId } : {}),
+          anonymous: guest.value,
+          ...(guest.value && input.authorName.trim() ? { authorName: input.authorName.trim() } : {}),
+        })
+      : await client.value.postComment({
+          url: pageUrl.value,
+          bodyMarkdown,
+          anonymous: guest.value,
+          ...(parentId ? { parentId } : { title: typeof document !== 'undefined' ? document.title : undefined }),
+          ...(input.authorName.trim() ? { authorName: input.authorName.trim() } : {}),
+          ...(input.verificationToken ? { verificationToken: input.verificationToken } : {}),
+        })
+  // The create routes return the raw row, which has no computed score;
+  // without the neutral fields a `best` sort would compare NaNs.
+  const normalized = { ...created, score: created.score ?? 0, viewerVote: created.viewerVote ?? null }
+  // The server returns the guest edit key exactly once.
+  if (normalized.editKey) saveEditKey(normalized.id, normalized.editKey)
+  return normalized
+}
+
 async function submit(input: { authorName: string; bodyMarkdown: string; verificationToken?: string }) {
+  const bodyMarkdown = input.bodyMarkdown.trim()
+  if (!bodyMarkdown) {
+    formError.value = {
+      code: null,
+      title: "Your comment wasn't posted",
+      message: 'Please write a comment first.',
+      action: 'none',
+    }
+    return false
+  }
+  formError.value = null
   try {
-    // Moderators post through the moderation endpoint: the public create path
-    // checks the site's origin allow-list, which a dashboard origin is not on.
-    const created =
-      moderator.value && threadPageId.value
-        ? await client.value.createModerationComment({
-            pageId: threadPageId.value,
-            bodyMarkdown: input.bodyMarkdown,
-            ...(replyTo.value ? { parentId: replyTo.value } : {}),
-          })
-        : await client.value.postComment({
-            url: pageUrl.value,
-            bodyMarkdown: input.bodyMarkdown,
-            ...(replyTo.value
-              ? { parentId: replyTo.value }
-              : { title: typeof document !== 'undefined' ? document.title : undefined }),
-            ...(input.authorName ? { authorName: input.authorName } : {}),
-            ...(input.verificationToken ? { verificationToken: input.verificationToken } : {}),
-            anonymous: guest.value,
-          })
+    const created = await postOne(null, input)
     comments.value = [...comments.value, created]
-    replyTo.value = null
+    page.value = 1
+    if (status.value !== 'ready') status.value = 'ready'
     if (moderator.value) emit('moderated')
+    return true
   } catch (err) {
     if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') unauthenticated.value = true
     else if (err instanceof ApiError && err.code === 'PAGE_LOCKED') status.value = 'locked'
     else if (err instanceof ApiError && err.code === 'USER_BLOCKED') status.value = 'blocked'
-    else throw err
+    else formError.value = describeError(err, { title: "Your comment wasn't posted" })
+    return false
+  }
+}
+
+// The inline reply slot owns its pending/error state, so failures return to
+// the item instead of the page-level composer block.
+async function submitReply(
+  commentId: string,
+  input: { authorName: string; bodyMarkdown: string; verificationToken?: string },
+): Promise<ErrorInfo | null> {
+  const bodyMarkdown = input.bodyMarkdown.trim()
+  if (!bodyMarkdown) {
+    return { code: null, title: "Your reply wasn't posted", message: 'Please write a reply first.', action: 'none' }
+  }
+  try {
+    const created = await postOne(commentId, input)
+    comments.value = [...comments.value, created]
+    page.value = 1
+    replyTo.value = null
+    if (status.value !== 'ready') status.value = 'ready'
+    if (moderator.value) emit('moderated')
+    return null
+  } catch (err) {
+    return describeError(err, { title: "Your reply wasn't posted" })
   }
 }
 
@@ -225,13 +308,24 @@ async function vote(commentId: string, value: VoteValue | 'clear') {
 
 // Edit failures stay with the item's own editor (it must stay open, and the
 // widget's edit form renders the block): this only reports them.
-async function edit(commentId: string, bodyMarkdown: string) {
-  // Moderators edit through the moderation endpoint for the same reason they
-  // post through it: the public PATCH checks the site's origins.
-  const updated = moderator.value
-    ? await client.value.editModerationComment({ commentId, bodyMarkdown })
-    : await client.value.editOwnComment({ commentId, bodyMarkdown })
-  comments.value = comments.value.map((c) => (c.id === commentId ? updated : c))
+async function edit(commentId: string, bodyMarkdown: string): Promise<ErrorInfo | null> {
+  actionError.value = null
+  try {
+    // Moderators edit through the moderation endpoint for the same reason they
+    // post through it: the public PATCH checks the site's origins.
+    const editKey = moderator.value ? null : getEditKey(commentId)
+    const updated = moderator.value
+      ? await client.value.editModerationComment({ commentId, bodyMarkdown })
+      : await client.value.editOwnComment({ commentId, bodyMarkdown, ...(editKey ? { editKey } : {}) })
+    comments.value = comments.value.map((c) =>
+      c.id === commentId
+        ? { ...c, ...updated, score: updated.score ?? c.score, viewerVote: updated.viewerVote ?? c.viewerVote }
+        : c,
+    )
+    return null
+  } catch (err) {
+    return describeError(err, { title: "Your edit wasn't saved" })
+  }
 }
 
 async function remove(commentId: string) {
@@ -347,29 +441,10 @@ async function signOut() {
   }
 }
 
-function closeIdentityOnOutsidePointer(event: PointerEvent) {
-  if (!identityEl.value?.contains(event.target as Node)) identityOpen.value = false
-}
-
-function closeIdentityOnEscape(event: KeyboardEvent) {
-  if (event.key === 'Escape') identityOpen.value = false
-}
-
-function setIdentityListeners(open: boolean) {
-  if (typeof document === 'undefined') return
-  if (open) {
-    document.addEventListener('pointerdown', closeIdentityOnOutsidePointer)
-    document.addEventListener('keydown', closeIdentityOnEscape)
-  } else {
-    document.removeEventListener('pointerdown', closeIdentityOnOutsidePointer)
-    document.removeEventListener('keydown', closeIdentityOnEscape)
-  }
-}
-
-watch(identityOpen, setIdentityListeners)
-onBeforeUnmount(() => setIdentityListeners(false))
-
 const rootEl = useTemplateRef<HTMLElement>('rootEl')
+const listEl = useTemplateRef<HTMLElement>('listEl')
+// Portaled popups stay inside the widget root so they inherit its theme vars.
+provideWidgetRoot(rootEl)
 // `lazy` gates the session probe too: an offscreen embed issues no requests, so
 // the identity stays a disabled skeleton chip until the first intersection.
 const { started } = useLazyLoad(
@@ -433,97 +508,30 @@ defineExpose({ refresh })
       :guest="guest"
       :dark="dark"
       :session-pending="sessionStatus === 'loading'"
-      :parent-id="replyTo"
+      :parent-id="null"
+      :error="formError"
+      :body-limit="props.bodyLimit"
       :on-submit="submit"
-      :on-cancel-reply="replyTo ? cancelReply : undefined"
       :sign-in-href="signInUrl"
       :on-sign-in="startSignIn"
-      @submitted="refresh"
     >
       <template #signIn>
-        <!-- Moderators post as themselves through the moderation endpoint: the
-             anonymous/account switcher does not apply. -->
-        <span v-if="!moderator" class="text-xs text-muted-foreground">Comment as</span>
-        <div v-if="!moderator" ref="identityEl" class="relative min-w-0">
-          <button
-            type="button"
-            class="lc-identity-trigger inline-flex h-8 max-w-[calc(var(--spacing)*40)] items-center gap-1 rounded-md border border-border px-3 text-sm font-medium hover:bg-accent disabled:opacity-50"
-            aria-haspopup="menu"
-            :aria-expanded="identityOpen"
-            :disabled="identityPending || sessionStatus === 'loading'"
-            @click="identityOpen = !identityOpen"
-          >
-            <span v-if="sessionStatus === 'loading'" class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
-            <span v-else class="max-w-[calc(var(--spacing)*40)] truncate">{{ identityLabel }}</span>
-            <span aria-hidden="true" class="shrink-0">▾</span>
-          </button>
-          <div
-            v-if="identityOpen"
-            role="menu"
-            class="lc-identity-menu absolute top-full right-0 mt-1 w-48 max-w-[calc(var(--spacing)*8)] rounded-lg border border-border bg-popover p-1 text-sm text-popover-foreground"
-          >
-            <button
-              type="button"
-              role="menuitemradio"
-              :aria-checked="commentAs === 'anonymous' || !signedIn"
-              class="lc-identity-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
-              @click="chooseIdentity('anonymous')"
-            >
-              <span class="flex-1">Anonymous</span>
-              <Check v-if="commentAs === 'anonymous' || !signedIn" class="size-4 shrink-0" aria-hidden="true" />
-            </button>
-            <button
-              v-if="signedIn"
-              type="button"
-              role="menuitemradio"
-              :aria-checked="commentAs === 'account'"
-              class="lc-identity-item flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-accent"
-              @click="chooseIdentity('account')"
-            >
-              <span class="flex-1 truncate">{{ session?.name || 'Your account' }} (you)</span>
-              <Check v-if="commentAs === 'account'" class="size-4 shrink-0" aria-hidden="true" />
-            </button>
-            <a
-              v-else-if="signInUrl"
-              :href="signInUrl"
-              role="menuitem"
-              class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent"
-              @click="identityOpen = false"
-            >
-              Sign in…
-            </a>
-            <button
-              v-else
-              type="button"
-              role="menuitem"
-              class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
-              :disabled="identityPending"
-              @click="startSignIn"
-            >
-              Sign in…
-            </button>
-            <template v-if="session">
-              <div role="separator" class="my-1 h-px bg-border" />
-              <button
-                type="button"
-                role="menuitem"
-                class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
-                :disabled="identityPending"
-                @click="signOut"
-              >
-                Sign out
-              </button>
-            </template>
-          </div>
-        </div>
-        <div v-if="identityError" class="w-full">
-          <CommentError
-            :info="identityError.info"
-            :sign-in-href="signInUrl"
-            @retry="identityError.retry()"
-            @sign-in="startSignIn"
-          />
-        </div>
+        <IdentityMenu
+          v-if="!moderator"
+          :comment-as="commentAs"
+          :signed-in="signedIn"
+          :session="session"
+          :identity-pending="identityPending"
+          :session-pending="sessionStatus === 'loading'"
+          :identity-label="identityLabel"
+          :identity-open="identityOpen"
+          :sign-in-url="signInUrl"
+          :error="identityError"
+          @update:identity-open="identityOpen = $event"
+          @choose="chooseIdentity"
+          @sign-in="startSignIn"
+          @sign-out="signOut"
+        />
       </template>
     </CommentForm>
 
@@ -547,6 +555,8 @@ defineExpose({ refresh })
         </button>
       </div>
     </div>
+
+    <ThreadSortToggle v-if="status !== 'error' && roots.length > 0" :value="sort" :on-change="handleSortChange" />
 
     <div v-if="status === 'loading'" class="space-y-3">
       <CommentSkeleton :count="3" />
@@ -585,23 +595,54 @@ defineExpose({ refresh })
       >
         No comments yet.
       </p>
-      <CommentList
-        v-else
-        :nodes="pageRoots"
-        :viewer-user-id="props.viewerUserId ?? session?.userId"
-        :viewer-role="props.viewerRole"
-        :hide-votes="moderator && Boolean(pageLock?.locked)"
-        :pending-moderation="pendingModeration"
-        :edit-window-minutes="props.editWindowMinutes ?? DEFAULT_EDIT_WINDOW_MINUTES"
-        :sign-in-href="signInUrl"
-        :on-sign-in="startSignIn"
-        :on-vote="vote"
-        :on-reply="startReply"
-        :on-edit="edit"
-        :on-delete="remove"
-        :on-moderate="moderate"
-        :on-block-user="blockUser"
-      />
+      <section v-else ref="listEl" aria-label="Comments" class="lc-thread-guides relative grid grid-cols-1 gap-3">
+        <!-- New window or a new render order (votes re-rank under `best`) remounts to re-measure. -->
+        <ThreadGuides :key="`${page}:${sort}:${threadSignature(pageRoots)}`" :list-el="listEl" />
+        <CommentList
+          :nodes="pageRoots"
+          :viewer-user-id="props.viewerUserId ?? session?.userId"
+          :viewer-role="props.viewerRole"
+          :hide-votes="moderator && Boolean(pageLock?.locked)"
+          :pending-moderation="pendingModeration"
+          :anon-window-minutes="props.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES"
+          :has-edit-keys="guestEditKeys"
+          :action-mode="props.actionMode"
+          :body-limit="props.bodyLimit"
+          :reply-to="replyTo"
+          :dark="dark"
+          :sign-in-href="signInUrl"
+          :on-sign-in="startSignIn"
+          :on-vote="vote"
+          :on-reply="startReply"
+          :on-edit="edit"
+          :on-delete="remove"
+          :on-reply-submit="submitReply"
+          :reply-site-key="props.turnstileSiteKey"
+          :reply-guest="guest"
+          :on-close-reply="cancelReply"
+          :on-moderate="moderate"
+          :on-block-user="blockUser"
+        >
+          <template #signIn>
+            <IdentityMenu
+              v-if="!moderator"
+              :comment-as="commentAs"
+              :signed-in="signedIn"
+              :session="session"
+              :identity-pending="identityPending"
+              :session-pending="sessionStatus === 'loading'"
+              :identity-label="identityLabel"
+              :identity-open="identityOpen"
+              :sign-in-url="signInUrl"
+              :error="identityError"
+              @update:identity-open="identityOpen = $event"
+              @choose="chooseIdentity"
+              @sign-in="startSignIn"
+              @sign-out="signOut"
+            />
+          </template>
+        </CommentList>
+      </section>
       <div v-if="loadingPage" class="space-y-3">
         <CommentSkeleton :count="2" />
       </div>

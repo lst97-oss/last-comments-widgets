@@ -16,6 +16,8 @@ import { LcCommentsComponent, LcCommentViewerComponent } from '@lst97-oss/last-c
         [turnstileSiteKey]="turnstileSiteKey() || undefined"
         [viewerUserId]="viewerUserId() || undefined"
         [viewerRole]="viewerRole() || undefined"
+        [actionMode]="actionMode()"
+        [bodyLimit]="bodyLimit()"
       />
       <h2>Read-only viewer</h2>
       <lc-comment-viewer [site]="site()" [baseUrl]="baseUrl()" />
@@ -33,6 +35,15 @@ import { LcCommentsComponent, LcCommentViewerComponent } from '@lst97-oss/last-c
             <option value="moderator">moderator</option>
           </select>
         </label>
+        <label>
+          Action mode
+          <select [(ngModel)]="actionMode">
+            <option value="icon">icon</option>
+            <option value="icon-text">icon-text</option>
+            <option value="text">text</option>
+          </select>
+        </label>
+        <label>Body limit <input type="number" [(ngModel)]="bodyLimit" /></label>
       </details>
     </main>
   `,
@@ -43,4 +54,6 @@ export class AppComponent {
   turnstileSiteKey = signal('')
   viewerUserId = signal('')
   viewerRole = signal<'admin' | 'moderator' | ''>('')
+  actionMode = signal<'icon' | 'icon-text' | 'text'>('icon-text')
+  bodyLimit = signal(10_000)
 }

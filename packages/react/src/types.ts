@@ -1,4 +1,5 @@
 import type { ViewerRole, WidgetTheme } from '@last-comments-widgets/client'
+import type { TurnstileOptions } from './lib/turnstile'
 
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -16,6 +17,11 @@ export type CommentsProps = {
   // so a dashboard can refresh its own thread list (counts, lock badge).
   onModerated?: () => void
   turnstileSiteKey?: string
+  // Cloudflare owns the challenge box (cross-origin iframe): `theme` defaults to
+  // the widget's own light/dark mode, and these are the only design knobs
+  // (`size`, `appearance`, `language`). Background, border, radius and shadow
+  // cannot be overridden; style the `.lc-turnstile` container instead.
+  turnstileOptions?: TurnstileOptions
   limit?: number
   theme?: Theme
   themeVars?: WidgetTheme

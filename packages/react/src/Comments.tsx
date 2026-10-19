@@ -34,6 +34,7 @@ import { CommentSkeletons } from './CommentSkeletons'
 import { CommentsPager } from './CommentsPager'
 import { ThreadGuides, threadSignature } from './ThreadGuides'
 import { ThreadSortToggle } from './ThreadSortToggle'
+import { TurnstileConfigContext } from './TurnstileConfig'
 import type { CommentsProps } from './types'
 import { Button } from './ui/button'
 import {
@@ -142,6 +143,7 @@ export function Comments({
   pageId,
   onModerated,
   turnstileSiteKey,
+  turnstileOptions,
   limit = 20,
   theme = 'system',
   themeVars,
@@ -156,6 +158,9 @@ export function Comments({
   fetchImpl,
 }: CommentsProps) {
   const dark = useTheme(theme)
+  // Widget-wide Turnstile settings for the head and reply composers; the object
+  // identity is memoized so consumers only re-render when it really changes.
+  const turnstileConfig = useMemo(() => ({ dark, options: turnstileOptions }), [dark, turnstileOptions])
   const moderator = canModerate(viewerRole)
   const [session, setSession] = useState<ViewerSession | null>(null)
   const [commentAs, setCommentAs] = useState<'account' | 'anonymous'>('account')
@@ -707,100 +712,102 @@ export function Comments({
 
   return (
     <WidgetRootContext value={rootRef}>
-      <div
-        ref={rootRef}
-        className={`lc-comments grid grid-cols-1 gap-4 ${dark ? 'dark' : ''}`}
-        style={themeVarsToStyle(themeVars, dark)}
-      >
-        {moderator && pageLock && (
-          <div className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm">
-            <span className="text-muted-foreground">
-              {pageLock.locked ? 'Comments are locked on this page.' : 'Comments are open on this page.'}
-            </span>
-            <Button
-              className="ml-auto"
-              size="sm"
-              variant="outline"
-              disabled={lockPending}
-              onClick={() => void handleToggleLock()}
-            >
-              {pageLock.locked ? 'Unlock' : 'Lock'}
-            </Button>
-          </div>
-        )}
-        {actionError && <CommentError info={actionError} onRetry={() => void load()} {...signInProps} />}
-        <CommentForm
-          key={formEpoch}
-          siteKey={turnstileSiteKey}
-          guest={guest}
-          parentId={null}
-          pending={posting}
-          error={formError}
-          {...signInProps}
-          identityPending={sessionStatus === 'loading'}
-          identity={identity}
-          bodyLimit={bodyLimit}
-          onSubmit={handleSubmit}
-        />
-        {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
-        {status === 'loading' && <CommentSkeletons count={3} />}
-        {status === 'error' && listError && (
-          <CommentError info={listError} onRetry={() => void load()} {...signInProps} />
-        )}
-        {status === 'ready' && roots.length === 0 && (
-          <section className="rounded-lg border border-border p-6 text-sm text-muted-foreground">
-            No comments yet.
-          </section>
-        )}
-        {pageRoots.length > 0 && (
-          <section ref={listRef} aria-label="Comments" className="lc-thread-guides relative grid grid-cols-1 gap-3">
-            {/* New window or a new render order (votes re-rank under `best`) remounts to re-measure. */}
-            <ThreadGuides key={`${currentPage}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
-            {pageRoots.map((node) => (
-              <CommentItem
-                key={node.comment.id}
-                node={node}
-                depth={0}
-                pendingVotes={pendingVotes}
-                replyTo={replyTo}
-                viewerUserId={viewerUserId ?? session?.userId}
-                viewerRole={viewerRole}
-                // Voting is only possible on visible comments of an unlocked page.
-                hideVotes={moderator && (node.comment.status !== 'visible' || Boolean(pageLock?.locked))}
-                pendingModeration={pendingModeration}
-                anonWindowMinutes={anonEditWindowMinutes}
-                hasEditKey={guestEditKeys[node.comment.id] ?? false}
-                actionMode={actionMode}
-                bodyLimit={bodyLimit}
-                onVote={itemActions.onVote}
-                onClear={itemActions.onClear}
-                onReply={setReplyTo}
-                onEdit={itemActions.onEdit}
-                onDelete={itemActions.onDelete}
-                onReplySubmit={itemActions.onReplySubmit}
-                replySiteKey={turnstileSiteKey}
-                replyGuest={guest}
-                replyIdentity={identity}
-                onCloseReply={itemActions.onCloseReply}
-                onModerate={itemActions.onModerate}
-                onBlockUser={itemActions.onBlockUser}
-              />
-            ))}
-          </section>
-        )}
-        {loadingPage && <CommentSkeletons count={2} />}
-        {status === 'ready' && (
-          <CommentsPager
-            page={currentPage}
-            limit={limit}
-            threads={roots.length}
-            hasMore={hasMore}
-            loading={loadingPage}
-            onPrev={goPrev}
-            onNext={goNextClick}
+      <TurnstileConfigContext value={turnstileConfig}>
+        <div
+          ref={rootRef}
+          className={`lc-comments grid grid-cols-1 gap-4 ${dark ? 'dark' : ''}`}
+          style={themeVarsToStyle(themeVars, dark)}
+        >
+          {moderator && pageLock && (
+            <div className="flex items-center gap-2 rounded-lg border border-border p-3 text-sm">
+              <span className="text-muted-foreground">
+                {pageLock.locked ? 'Comments are locked on this page.' : 'Comments are open on this page.'}
+              </span>
+              <Button
+                className="ml-auto"
+                size="sm"
+                variant="outline"
+                disabled={lockPending}
+                onClick={() => void handleToggleLock()}
+              >
+                {pageLock.locked ? 'Unlock' : 'Lock'}
+              </Button>
+            </div>
+          )}
+          {actionError && <CommentError info={actionError} onRetry={() => void load()} {...signInProps} />}
+          <CommentForm
+            key={formEpoch}
+            siteKey={turnstileSiteKey}
+            guest={guest}
+            parentId={null}
+            pending={posting}
+            error={formError}
+            {...signInProps}
+            identityPending={sessionStatus === 'loading'}
+            identity={identity}
+            bodyLimit={bodyLimit}
+            onSubmit={handleSubmit}
           />
-        )}
-      </div>
+          {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
+          {status === 'loading' && <CommentSkeletons count={3} />}
+          {status === 'error' && listError && (
+            <CommentError info={listError} onRetry={() => void load()} {...signInProps} />
+          )}
+          {status === 'ready' && roots.length === 0 && (
+            <section className="rounded-lg border border-border p-6 text-sm text-muted-foreground">
+              No comments yet.
+            </section>
+          )}
+          {pageRoots.length > 0 && (
+            <section ref={listRef} aria-label="Comments" className="lc-thread-guides relative grid grid-cols-1 gap-3">
+              {/* New window or a new render order (votes re-rank under `best`) remounts to re-measure. */}
+              <ThreadGuides key={`${currentPage}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
+              {pageRoots.map((node) => (
+                <CommentItem
+                  key={node.comment.id}
+                  node={node}
+                  depth={0}
+                  pendingVotes={pendingVotes}
+                  replyTo={replyTo}
+                  viewerUserId={viewerUserId ?? session?.userId}
+                  viewerRole={viewerRole}
+                  // Voting is only possible on visible comments of an unlocked page.
+                  hideVotes={moderator && (node.comment.status !== 'visible' || Boolean(pageLock?.locked))}
+                  pendingModeration={pendingModeration}
+                  anonWindowMinutes={anonEditWindowMinutes}
+                  hasEditKey={guestEditKeys[node.comment.id] ?? false}
+                  actionMode={actionMode}
+                  bodyLimit={bodyLimit}
+                  onVote={itemActions.onVote}
+                  onClear={itemActions.onClear}
+                  onReply={setReplyTo}
+                  onEdit={itemActions.onEdit}
+                  onDelete={itemActions.onDelete}
+                  onReplySubmit={itemActions.onReplySubmit}
+                  replySiteKey={turnstileSiteKey}
+                  replyGuest={guest}
+                  replyIdentity={identity}
+                  onCloseReply={itemActions.onCloseReply}
+                  onModerate={itemActions.onModerate}
+                  onBlockUser={itemActions.onBlockUser}
+                />
+              ))}
+            </section>
+          )}
+          {loadingPage && <CommentSkeletons count={2} />}
+          {status === 'ready' && (
+            <CommentsPager
+              page={currentPage}
+              limit={limit}
+              threads={roots.length}
+              hasMore={hasMore}
+              loading={loadingPage}
+              onPrev={goPrev}
+              onNext={goNextClick}
+            />
+          )}
+        </div>
+      </TurnstileConfigContext>
     </WidgetRootContext>
   )
 }

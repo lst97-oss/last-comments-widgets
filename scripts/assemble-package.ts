@@ -28,10 +28,12 @@ function relativeSpecifier(fromFile: string, toFile: string) {
 // tarball root, and its sourcemap is stale once the client import is rewritten.
 const SKIP = ['package.json', 'LICENSE', 'README.md']
 
-async function copyDir(from: string, to: string) {
+async function copyDir(from: string, to: string, skipDirs: string[] = []) {
   for (const rel of new Glob('**/*').scanSync({ cwd: from, onlyFiles: true })) {
     const basename = rel.slice(rel.lastIndexOf('/') + 1)
     if (SKIP.includes(basename) || basename.endsWith('.map')) continue
+    // The fonts live once in dist/files; every stylesheet points at it.
+    if (skipDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`))) continue
     await Bun.write(`${to}/${rel}`, Bun.file(`${from}/${rel}`))
   }
 }
@@ -41,7 +43,9 @@ if ((await clean.exited) !== 0) throw new Error(`could not clear ${OUT}`)
 
 let rewritten = 0
 for (const name of SUBPATHS) {
-  await copyDir(`${ROOT}/packages/${name}/dist`, `${OUT}/${name}`)
+  // The per-package `files/` copies exist for the local dev servers; the
+  // tarball ships one shared copy and the stylesheets point at it.
+  await copyDir(`${ROOT}/packages/${name}/dist`, `${OUT}/${name}`, ['files'])
 }
 
 for (const file of new Glob('**/*.{js,mjs,d.ts}').scanSync({ cwd: OUT, onlyFiles: true })) {

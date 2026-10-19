@@ -1,6 +1,6 @@
 {
   "name": "@lst97-oss/last-comments-widgets",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Drop-in comment widgets for last-comments — React, Vue, Angular and plain HTML on one API client and one Tailwind v4 + shadcn base-nova theme.",
   "license": "MIT",
@@ -67,29 +67,35 @@
     "build": "bun ../../scripts/assemble-package.ts"
   },
   "dependencies": {
+    "@angular/cdk": "22.2.3",
     "@base-ui/react": "^1.9.0",
-    "@marsidev/react-turnstile": "^1.6.2",
     "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.0",
-    "cn": "^0.4.0",
-    "lucide-react": "^1.55.0",
-    "lucide-vue-next": "^0.545.0",
+    "clsx": "^2.1.1",
+    "cn": "^0.5.0",
+    "lucide-react": "^1.59.0",
+    "lucide-vue-next": "^1.0.0",
+    "@lucide/angular": "1.59.0",
     "marked": "^18.1.1",
-    "tailwind-merge": "^3.0.0",
-    "vue-turnstile": "^1.0.0"
+    "reka-ui": "^2.11.0",
+    "tailwind-merge": "^3.7.0",
+    "vue-turnstile": "^1.0.11"
   },
   "peerDependencies": {
-    "@angular/common": "^22.0.0",
-    "@angular/core": "^22.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "vue": "^3.5.0"
+    "@angular/common": "^22.2.3",
+    "@angular/core": "^22.2.3",
+    "@angular/platform-browser": "^22.2.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "vue": "^3.5.44"
   },
   "peerDependenciesMeta": {
     "@angular/common": {
       "optional": true
     },
     "@angular/core": {
+      "optional": true
+    },
+    "@angular/platform-browser": {
       "optional": true
     },
     "react": {
