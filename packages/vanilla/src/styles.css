@@ -1,1 +1,12 @@
 @import "@last-comments-widgets/theme/theme.css";
+
+/* The vanilla port hand-rolls the reply disclosure (no accordion primitive),
+   so its panel animates its own row size. Engines without an animatable
+   grid-template-rows simply snap open — the labels still toggle. */
+@supports (grid-template-rows: 1fr) {
+  @scope (.lc-comments) {
+    [data-slot="accordion-content"] {
+      transition: grid-template-rows 200ms ease-out;
+    }
+  }
+}
