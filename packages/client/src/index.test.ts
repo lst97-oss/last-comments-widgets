@@ -596,8 +596,6 @@ describe('themeVarsToStyle', () => {
             cardPadding: '2rem',
             composerPadding: '1.5rem',
             dropdownShadow: 'none',
-            dialogShadow: 'none',
-            backdrop: 'rgb(0 0 0 / .5)',
           },
           dark: { popover: '#221122' },
         },
@@ -622,8 +620,6 @@ describe('themeVarsToStyle', () => {
       '--lc-card-padding': '2rem',
       '--lc-composer-padding': '1.5rem',
       '--lc-dropdown-shadow': 'none',
-      '--lc-dialog-shadow': 'none',
-      '--lc-backdrop': 'rgb(0 0 0 / .5)',
     })
   })
 

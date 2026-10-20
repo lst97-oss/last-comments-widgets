@@ -31,8 +31,6 @@ export const branded: WidgetTheme = {
     actionHoverColor: '#ff0000',
     cardShadow: 'rgb(1 2 3) 0px 2px 8px',
     dropdownShadow: 'none',
-    dialogShadow: 'none',
-    backdrop: 'rgb(0 0 0 / 0.5)',
   },
   dark: { popover: '#332211', destructive: '#ff99aa' },
 }

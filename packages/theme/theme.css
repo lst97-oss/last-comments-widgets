@@ -350,12 +350,6 @@
       background: var(--accent);
       color: var(--accent-foreground);
     }
-    .lc-dialog {
-      box-shadow: var(--lc-dialog-shadow, 0 20px 25px -5px rgb(0 0 0 / 0.1));
-    }
-    .lc-dialog-backdrop {
-      background: var(--lc-backdrop, rgb(0 0 0 / 0.1));
-    }
   }
 
   @layer components {

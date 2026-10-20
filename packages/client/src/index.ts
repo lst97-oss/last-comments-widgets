@@ -680,8 +680,6 @@ export const THEME_CSS_VARIABLES = {
   composerPadding: '--lc-composer-padding',
   composerBackground: '--lc-composer-background',
   dropdownShadow: '--lc-dropdown-shadow',
-  dialogShadow: '--lc-dialog-shadow',
-  backdrop: '--lc-backdrop',
   menuZIndex: '--lc-menu-z-index',
   commentBorder: '--lc-comment-border',
   borderWidth: '--lc-border-width',
