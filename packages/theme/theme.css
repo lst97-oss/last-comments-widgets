@@ -240,6 +240,9 @@
       padding-inline-start: var(--lc-thread-indent, 1rem);
     }
     .lc-thread-overlay {
+      /* The guide is decoration: hiding it (and the gutter it rides in) is a
+         styling decision, so it lives in CSS rather than behind a prop. */
+      display: var(--lc-thread-guide-display, block);
       position: absolute;
       inset-inline-start: 0;
       top: 0;

@@ -689,6 +689,7 @@ export const THEME_CSS_VARIABLES = {
   threadActive: '--lc-thread-line',
   threadMuted: '--lc-thread-muted',
   threadIndent: '--lc-thread-indent',
+  threadGuideDisplay: '--lc-thread-guide-display',
   avatarRing: '--lc-avatar-ring',
   avatarRadius: '--lc-avatar-radius',
   skeletonRadius: '--lc-skeleton-radius',
@@ -700,7 +701,18 @@ export const THEME_CSS_VARIABLES = {
   actionHoverBackground: '--lc-action-hover-background',
 } as const
 
-export type ThemeVars = Partial<Record<keyof typeof THEME_CSS_VARIABLES, string>>
+// Theme values that are not free-form CSS: a closed set, so a typo is a
+// type error instead of a silently ignored override. Every other key takes
+// any CSS value.
+export const THEME_VAR_VALUES = {
+  threadGuideDisplay: ['block', 'none'],
+} as const satisfies Partial<Record<keyof typeof THEME_CSS_VARIABLES, readonly string[]>>
+
+type ThemeVarValue<K extends keyof typeof THEME_CSS_VARIABLES> = K extends keyof typeof THEME_VAR_VALUES
+  ? (typeof THEME_VAR_VALUES)[K][number]
+  : string
+
+export type ThemeVars = { -readonly [K in keyof typeof THEME_CSS_VARIABLES]?: ThemeVarValue<K> }
 export type WidgetTheme = { vars?: ThemeVars; dark?: ThemeVars }
 
 // Active-mode style record for the widget root: light `vars` when not

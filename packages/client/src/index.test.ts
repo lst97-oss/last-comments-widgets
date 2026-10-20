@@ -645,6 +645,20 @@ describe('themeVarsToStyle', () => {
     expect(themeVarsToStyle({})).toEqual({})
   })
 
+  test('the reply guide can be hidden through a theme override', () => {
+    expect(themeVarsToStyle({ vars: { threadGuideDisplay: 'none' } })).toEqual({
+      '--lc-thread-guide-display': 'none',
+    })
+    // The other guide knobs stay independent of the visibility switch.
+    expect(
+      themeVarsToStyle({ vars: { threadGuideDisplay: 'none', threadIndent: '0px', threadMuted: '#ddd' } }),
+    ).toEqual({
+      '--lc-thread-guide-display': 'none',
+      '--lc-thread-indent': '0px',
+      '--lc-thread-muted': '#ddd',
+    })
+  })
+
   test('maps reply, vote and action component tokens', () => {
     expect(
       themeVarsToStyle({
