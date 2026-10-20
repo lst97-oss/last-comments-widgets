@@ -12,6 +12,8 @@ export default defineConfig({
     },
     outDir: 'dist',
     emptyOutDir: true,
+    // Ship the latest ratified ECMAScript standard (see the repo tsconfig).
+    target: 'es2025',
     rollupOptions: {
       external: [
         'vue',

@@ -28,7 +28,7 @@
   "scripts": {
     "check": "bun run typecheck && bun run lint && bun run format:check && react-doctor .",
     "lint": "biome check --error-on-warnings .",
-    "build": "bunx tsup src/index.tsx --format esm --clean --dts --out-dir dist --external react --external react-dom && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
+    "build": "bunx tsup src/index.tsx --format esm --clean --dts --target es2025 --out-dir dist --external react --external react-dom --external shiki && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",
     "lint:fix": "biome check --error-on-warnings --write .",
     "format": "biome format --write .",
