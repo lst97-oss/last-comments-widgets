@@ -43,6 +43,7 @@ import {
   signOutViewerSession,
   sortCommentRoots,
   THEME_CSS_VARIABLES,
+  THEME_VAR_VALUES,
   themeVarsToStyle,
 } from '@last-comments-widgets/client'
 
@@ -50,6 +51,47 @@ export type Theme = 'light' | 'dark' | 'system'
 
 // Comment action rendering: icon only, icon plus label, or label only.
 export type ActionMode = 'icon' | 'icon-text' | 'text'
+
+// Cloudflare draws the challenge itself inside a cross-origin iframe (in a
+// closed shadow root), so light/dark is the only design surface it exposes.
+// Background, border, radius and shadow of the widget box cannot be styled —
+// hosts can only theme the container around it.
+export type TurnstileWidgetTheme = 'auto' | 'light' | 'dark'
+export type TurnstileWidgetSize = 'normal' | 'compact' | 'flexible'
+export type TurnstileWidgetAppearance = 'always' | 'interaction-only'
+
+// TurnstileOptions are the Cloudflare render knobs the widget exposes to hosts.
+export type TurnstileOptions = {
+  theme?: TurnstileWidgetTheme
+  size?: TurnstileWidgetSize
+  appearance?: TurnstileWidgetAppearance
+  language?: string
+}
+
+export type TurnstileRenderConfig = {
+  theme: TurnstileWidgetTheme
+  size?: TurnstileWidgetSize
+  appearance?: TurnstileWidgetAppearance
+  language?: string
+}
+
+export type TurnstileRenderParams = TurnstileRenderConfig & {
+  sitekey: string
+  callback: (token: string) => void
+  'expired-callback': () => void
+  'error-callback': (code: string) => void
+}
+
+// Follow the widget's own light/dark mode by default so the challenge box
+// matches the theme it is embedded in instead of the OS preference; an explicit
+// host `theme` wins. Nothing else about the box is styleable.
+export function resolveTurnstileConfig(dark: boolean, options?: TurnstileOptions): TurnstileRenderConfig {
+  const config: TurnstileRenderConfig = { theme: options?.theme ?? (dark ? 'dark' : 'light') }
+  if (options?.size !== undefined) config.size = options.size
+  if (options?.appearance !== undefined) config.appearance = options.appearance
+  if (options?.language !== undefined) config.language = options.language
+  return config
+}
 
 export type MountOptions = {
   site: string
@@ -59,6 +101,11 @@ export type MountOptions = {
   // instead of matching `pageUrl` against the site's (capped) page list.
   pageId?: string
   turnstileSiteKey?: string
+  // Cloudflare owns the challenge box (cross-origin iframe): `theme` defaults to
+  // the widget's own light/dark mode, and these are the only design knobs
+  // (`size`, `appearance`, `language`). Background, border, radius and shadow
+  // cannot be overridden; style the `.lc-turnstile` container instead.
+  turnstileOptions?: TurnstileOptions
   limit?: number
   theme?: Theme
   themeVars?: WidgetTheme
@@ -87,7 +134,7 @@ export type WidgetHandle = {
 declare global {
   interface Window {
     turnstile?: {
-      render(el: HTMLElement, opts: Record<string, unknown>): string
+      render(el: HTMLElement, opts: TurnstileRenderParams): string | null | undefined
       reset(widgetId?: string): void
       remove?(widgetId?: string): void
     }
@@ -137,22 +184,25 @@ export function errorMarkup(info: ErrorInfo, opts: { signInUrl?: string; retryAc
 }
 
 // Lucide path data, inlined: the vanilla port ships no icon dependency.
+// The paths are the upstream lucide ones, so every port draws the same glyph.
 const ICONS: Record<string, string> = {
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
   minus: '<path d="M5 12h14"/>',
   'ellipsis-vertical': '<circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/>',
   pencil:
     '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+  'pen-line':
+    '<path d="M13 21h8"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>',
   trash:
     '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
-  eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+  eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
   'eye-off':
-    '<path d="M10.73 5.08a10.74 10.74 0 0 1 11.2 6.57 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-1.44 2.49"/><path d="M14.08 14.16a3 3 0 0 1-4.24-4.24"/><path d="M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14"/><path d="m2 2 20 20"/>',
+    '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
   pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
   'pin-off':
-    '<path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0-1.42 3.42"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h9"/><path d="m2 2 20 20"/>',
-  ban: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
-  'circle-check': '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    '<path d="M12 17v5"/><path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89"/><path d="m2 2 20 20"/><path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11"/>',
+  ban: '<circle cx="12" cy="12" r="10"/><path d="M4.929 4.929 19.07 19.071"/>',
+  'circle-check': '<circle cx="12" cy="12" r="10"/><path d="m16 9-5.5 5.5L8 12"/>',
   reply: '<path d="M20 18v-2a4 4 0 0 0-4-4H4"/><path d="m9 17-5-5 5-5"/>',
   'arrow-up': '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
   'arrow-down': '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
@@ -161,36 +211,55 @@ const ICONS: Record<string, string> = {
     '<line x1="19" x2="10" y1="4" y2="4"/><line x1="14" x2="5" y1="20" y2="20"/><line x1="15" x2="9" y1="4" y2="20"/>',
   quote:
     '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z"/>',
-  code: '<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>',
-  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  code: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',
+  'code-xml': '<path d="m18 16 4-4-4-4"/><path d="m6 8-4 4 4 4"/><path d="m14.5 4-5 16"/>',
+  link: '<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>',
   list: '<path d="M3 5h.01"/><path d="M3 12h.01"/><path d="M3 19h.01"/><path d="M8 5h13"/><path d="M8 12h13"/><path d="M8 19h13"/>',
   'list-ordered':
     '<path d="M11 5h10"/><path d="M11 12h10"/><path d="M11 19h10"/><path d="M4 4h1v5"/><path d="M4 9h2"/><path d="M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02"/>',
   'chevron-down': '<path d="m6 9 6 6 6-6"/>',
   'chevron-up': '<path d="m18 15-6-6-6 6"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
 }
 
 function icon(name: string, className = ''): string {
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${className ? ` class="${className}"` : ''}>${ICONS[name] ?? ''}</svg>`
+  // The width/height attributes mirror lucide's own output, so an icon that
+  // carries no size class still paints at the same 24px box as the other ports.
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${className ? ` class="${className}"` : ''}>${ICONS[name] ?? ''}</svg>`
 }
 
-// The shared Button base (`lc-button` in the React primitives) plus the two
-// variants this port renders, spelled out once.
+// React's `buttonVariants`, spelled out: BASE plus the variants and sizes this
+// port renders. React merges the base icon size away with cva/tailwind-merge,
+// so a caller here puts the size class on the icon itself.
 const BTN =
-  "inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-const BTN_GHOST = 'hover:bg-muted hover:text-foreground'
-const BTN_OUTLINE = 'border-border bg-background hover:bg-muted hover:text-foreground'
-const BTN_SECONDARY = 'bg-secondary text-secondary-foreground'
-const BTN_ICON_XS = "size-6 rounded-[min(var(--radius-md),10px)] [&_svg:not([class*='size-'])]:size-3"
+  "lc-button group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+const BTN_PRIMARY = 'bg-primary text-primary-foreground hover:bg-primary/80'
+const BTN_GHOST =
+  'hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50'
+const BTN_OUTLINE =
+  'border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50'
+const BTN_SECONDARY =
+  'bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground'
+const BTN_DEFAULT = 'h-8 gap-1.5 px-2.5'
+const BTN_ICON_XS = 'size-6 rounded-[min(var(--radius-md),10px)]'
 const BTN_ICON_SM = 'size-7 rounded-[min(var(--radius-md),12px)]'
 const BTN_XS = 'h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs'
-const BTN_SM =
-  "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[length:calc(var(--lc-font-size,1rem)*0.8)] [&_svg:not([class*='size-'])]:size-3.5"
+const BTN_SM = 'h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[length:calc(var(--lc-font-size,1rem)*0.8)]'
 
 const MENU_ITEM_CLASS =
   "lc-action flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
 // Destructive entries (delete) take the alarm colour instead of the action tone.
 const MENU_ITEM_DESTRUCTIVE_CLASS = `${MENU_ITEM_CLASS} lc-action-destructive`
+// React's PopoverContent: a dialog panel (not a menu), portaled into the root.
+const ACTIONS_MENU_CLASS =
+  'lc-actions-menu fixed z-50 flex w-auto min-w-36 flex-col rounded-lg bg-popover p-1 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none'
+// React's DropdownMenuContent: a menu panel, also portaled into the root.
+const IDENTITY_MENU_CLASS =
+  'lc-identity-menu fixed z-50 min-w-32 overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none'
+const IDENTITY_ITEM_COMMON =
+  "lc-identity-item relative flex cursor-default items-center gap-1.5 rounded-md text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+const IDENTITY_RADIO_ITEM_CLASS = `${IDENTITY_ITEM_COMMON} py-1 pr-8 pl-1.5`
+const IDENTITY_ITEM_CLASS = `${IDENTITY_ITEM_COMMON} px-1.5 py-1`
 
 const BADGE =
   'group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all [&>svg]:pointer-events-none [&>svg]:size-3!'
@@ -223,12 +292,12 @@ export function canEditComment(
 }
 
 function voteButtonClass(active: boolean): string {
-  return `${BTN} ${BTN_SM} ${active ? 'bg-primary text-primary-foreground' : BTN_GHOST}`
+  return `${BTN} ${BTN_SM} ${active ? BTN_PRIMARY : BTN_GHOST}`
 }
 
 function voteButton(comment: Comment, value: VoteValue, label: string, glyph: string): string {
   const active = comment.viewerVote === value
-  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}" class="${voteButtonClass(active)}">${icon(glyph)}</button>`
+  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}" class="${voteButtonClass(active)}">${icon(glyph, 'size-3.5')}</button>`
 }
 
 type RowParts = { body: string; initials: string; avatar: string | null }
@@ -339,7 +408,9 @@ export type CommentNodeOptions = {
 
 // The ⋮ menu: secondary actions live behind it so a comment reads as content
 // first. Reply stays outside — it is the one action worth a permanent target.
-function actionsMenu(
+// React renders the panel as a dialog popover portaled into the widget root, so
+// the entries keep no menu role and the panel is mounted only while open.
+function actionEntries(
   comment: Comment,
   ctx: {
     canEdit: boolean
@@ -348,11 +419,11 @@ function actionsMenu(
     viewerRole?: ViewerRole
     pending: boolean
   },
-): string {
+): string[] {
   const { canEdit, editing, isOwn, viewerRole, pending } = ctx
   const id = escapeHtml(comment.id)
   const entry = (attrs: string, iconName: string, label: string, destructive = false) =>
-    `<button type="button" role="menuitem" tabindex="-1" ${attrs} class="${destructive ? MENU_ITEM_DESTRUCTIVE_CLASS : MENU_ITEM_CLASS}">${icon(iconName)}${label}</button>`
+    `<button type="button" ${attrs} class="${destructive ? MENU_ITEM_DESTRUCTIVE_CLASS : MENU_ITEM_CLASS}">${icon(iconName)}${label}</button>`
   const entries: string[] = []
   if (canEdit && !editing) entries.push(entry(`data-action="menu-edit" data-comment-id="${id}"`, 'pencil', 'Edit'))
   // Delete is soft (status 'deleted', restorable by a moderator), so the menu
@@ -404,14 +475,27 @@ function actionsMenu(
           : entry(`data-action="block-user" data-comment-id="${id}"${disabled}`, 'ban', 'Block user'),
       )
   }
+  return entries
+}
+
+function actionsTrigger(comment: Comment, entries: string[]): string {
   if (entries.length === 0) return ''
-  // No popover API in the supported baseline (Firefox 121), so the panel is an
-  // in-flow absolute block toggled by hand; it stays inside the widget root so
-  // the theme's `.lc-actions-menu` hook applies.
-  return `<div class="relative" data-lc-menu>
-      <button type="button" data-action="menu-toggle" aria-haspopup="menu" aria-expanded="false" aria-label="More actions" class="lc-action lc-actions-trigger ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon('ellipsis-vertical')}</button>
-      <div role="menu" class="lc-actions-menu absolute right-0 top-full z-10 mt-1 min-w-36 rounded-lg bg-popover p-1 text-sm text-popover-foreground ring-1 ring-foreground/10" hidden>${entries.join('')}</div>
-    </div>`
+  return `<button type="button" data-action="menu-toggle" data-comment-id="${escapeHtml(comment.id)}" aria-haspopup="dialog" aria-expanded="false" aria-label="More actions" class="lc-action lc-actions-trigger ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon('ellipsis-vertical', 'size-3')}</button>`
+}
+
+// The popover panel's entries. React mounts the panel only while it is open,
+// so the vanilla port builds it on demand too: the row keeps just the trigger.
+export function actionsMenuMarkup(
+  comment: Comment,
+  ctx: {
+    canEdit: boolean
+    editing: boolean
+    isOwn: boolean
+    viewerRole?: ViewerRole
+    pending: boolean
+  },
+): string {
+  return actionEntries(comment, ctx).join('')
 }
 
 // Reply group: hand-rolled disclosure (no popover/`@starting-style` in the
@@ -444,7 +528,7 @@ function replyGroup(node: ThreadNode, depth: number, options: CommentNodeOptions
             ${icon('chevron-down', 'ml-auto hidden size-4 shrink-0 text-muted-foreground')}${icon('chevron-up', 'ml-auto size-4 shrink-0 text-muted-foreground')}
           </button>
           <div id="${escapeHtml(panelId)}" data-slot="accordion-content" data-state="open" class="grid grid-rows-[1fr]">
-            <div class="overflow-hidden"><div class="grid grid-cols-1 gap-4 pt-1">${nested}</div></div>
+            <div class="min-h-0 overflow-clip"><div class="grid grid-cols-1 gap-4 pt-1">${nested}</div></div>
           </div>
         </div>
       </div>
@@ -487,7 +571,7 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   const score = readOnly
     ? `<span class="text-sm text-muted-foreground">${escapeHtml(String(comment.score))}</span>`
     : `${voteButton(comment, 1, 'Upvote', 'arrow-up')}
-      <span class="min-w-6 text-center text-sm text-muted-foreground" aria-label="Score">${escapeHtml(String(comment.score))}</span>
+      <span class="min-w-6 text-center text-sm text-muted-foreground" aria-live="polite">${escapeHtml(String(comment.score))}</span>
       ${voteButton(comment, -1, 'Downvote', 'arrow-down')}`
   const flags = [
     comment.editedAt
@@ -530,7 +614,7 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   const replyAction =
     readOnly || !canReplyHere
       ? ''
-      : `<button type="button" data-action="reply" data-comment-id="${id}" aria-expanded="${replyTo === comment.id}" ${actionMode === 'icon' ? 'aria-label="Reply"' : ''} class="lc-action ${BTN} ${BTN_GHOST} ${actionMode === 'icon' ? BTN_ICON_XS : BTN_XS}">${actionMode !== 'text' ? icon('reply') : ''}<span class="${actionMode === 'icon' ? 'sr-only' : ''}">Reply</span></button>`
+      : `<button type="button" data-action="reply" data-comment-id="${id}" aria-expanded="${replyTo === comment.id}" ${actionMode === 'icon' ? 'aria-label="Reply"' : ''} class="lc-action ${BTN} ${BTN_GHOST} ${actionMode === 'icon' ? BTN_ICON_XS : BTN_XS}">${actionMode !== 'text' ? icon('reply', 'size-3') : ''}<span class="${actionMode === 'icon' ? 'sr-only' : ''}">Reply</span></button>`
   const folded =
     children.length > 0
       ? (() => {
@@ -558,14 +642,14 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   ${children.length > 0 ? replyGroup(node, depth, options) : ''}`
   return `<article class="lc-comment${depth > 0 ? ' lc-reply' : ''}" data-depth="${depth}" data-comment-id="${id}" data-comment-depth="${depth}">
   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-    <button type="button" data-action="collapse" data-comment-id="${id}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} comment by ${escapeHtml(comment.authorName)}" class="lc-action lc-collapse ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon(collapsed ? 'plus' : 'minus')}</button>
+    <button type="button" data-action="collapse" data-comment-id="${id}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} comment by ${escapeHtml(comment.authorName)}" class="lc-action lc-collapse ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon(collapsed ? 'plus' : 'minus', 'size-3')}</button>
     ${avatarMarkup(comment.authorName, parts.avatar)}
     <span class="min-w-0 truncate font-medium${comment.authorRole === 'admin' ? ' text-primary' : ''}">${escapeHtml(comment.authorName)}</span>
     ${comment.authorRole === 'admin' ? badge('default', 'lc-admin-badge', 'Admin') : ''}
     ${comment.userBlocked ? badge('outline', 'lc-blocked-badge', `${icon('ban')}blocked`) : ''}
     <time dateTime="${escapeHtml(comment.createdAt)}" title="${escapeHtml(new Date(comment.createdAt).toLocaleString())}" class="text-xs text-muted-foreground">${escapeHtml(formatRelativeTime(comment.createdAt))}</time>
     ${flags}
-    ${readOnly ? '' : actionsMenu(comment, { canEdit, editing, isOwn, viewerRole, pending: moderationPending })}
+    ${readOnly ? '' : actionsTrigger(comment, actionEntries(comment, { canEdit, editing, isOwn, viewerRole, pending: moderationPending }))}
     ${hideVotes ? '' : `<span class="ml-auto"><div class="lc-vote flex items-center gap-0.5">${score}</div></span>`}
   </div>
   ${collapsed ? `<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-lc-collapsed="">${folded}</div>` : expanded}
@@ -1020,8 +1104,8 @@ function renderForm(opts: {
     ${header}
     <div class="mb-1 flex flex-wrap items-center justify-end gap-0.5">
       <div class="mr-auto flex gap-0.5">
-        <button type="button" data-action="write" aria-pressed="true" class="${BTN} ${BTN_SM} ${BTN_SECONDARY}">${icon('pencil')}<span>Write</span></button>
-        <button type="button" data-action="preview" aria-pressed="false" class="${BTN} ${BTN_SM} ${BTN_GHOST}">${icon('eye')}<span>Preview</span></button>
+        <button type="button" data-action="write" aria-pressed="true" class="${BTN} ${BTN_SM} ${BTN_SECONDARY}">${icon('pen-line', 'size-3.5')}<span>Write</span></button>
+        <button type="button" data-action="preview" aria-pressed="false" class="${BTN} ${BTN_SM} ${BTN_GHOST}">${icon('eye', 'size-3.5')}<span>Preview</span></button>
       </div>
       <div class="flex gap-0.5" role="toolbar" aria-label="Markdown formatting">
         <button type="button" data-action="md-bold" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Bold" aria-label="Bold">${icon('bold')}</button>
@@ -1033,7 +1117,7 @@ function renderForm(opts: {
         <button type="button" data-action="md-ordered" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Numbered list" aria-label="Numbered list">${icon('list-ordered')}</button>
       </div>
     </div>
-    <textarea name="bodyMarkdown" required rows="4" placeholder="${opts.parentId ? 'Write a reply…' : 'Your comment here…'}" aria-label="${opts.parentId ? 'Reply body' : 'Comment body'}" aria-describedby="${escapeHtml(counterId)}" class="w-full border-0 bg-transparent px-1 text-sm focus-visible:ring-0">${escapeHtml(opts.initialBody ?? '')}</textarea>
+    <textarea name="bodyMarkdown" required rows="4" placeholder="${opts.parentId ? 'Write a reply…' : 'Your comment here…'}" aria-label="${opts.parentId ? 'Reply body' : 'Comment body'}" aria-describedby="${escapeHtml(counterId)}" class="flex field-sizing-content min-h-16 w-full rounded-lg border-0 border-input bg-transparent px-1 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-0 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40">${escapeHtml(opts.initialBody ?? '')}</textarea>
     <p id="${escapeHtml(counterId)}" data-lc-char-count class="mt-1 text-right text-xs text-muted-foreground tabular-nums"><span data-lc-char-used>${(opts.initialBody ?? '').length.toLocaleString()}</span> / ${bodyLimit.toLocaleString()}</p>
     ${turnstile}
     ${opts.error ? `<div class="mt-2">${errorMarkup(opts.error)}</div>` : ''}
@@ -1041,9 +1125,11 @@ function renderForm(opts: {
     <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
       ${opts.signInHtml ?? ''}
       ${guest ? '<input name="authorName" type="text" maxlength="80" placeholder="Anonymous" aria-label="Your name" autocomplete="nickname" class="w-32 min-w-0 border-0 bg-transparent px-1 text-sm focus-visible:ring-0 sm:w-40" />' : ''}
-      <p class="hidden text-xs text-muted-foreground sm:block">Styling with <span class="font-medium text-primary">Markdown</span> is supported</p>
-      ${cancel}
-      <button type="submit" ${opts.submitDisabled || opts.pending ? 'disabled' : ''} class="ml-auto ${BTN} bg-primary px-3 py-2 text-primary-foreground hover:bg-primary/80">${opts.pending ? 'Posting…' : submitLabel}</button>
+      <div class="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1">
+        <p class="hidden text-xs text-muted-foreground sm:block">Styling with <span class="font-medium text-primary">Markdown</span> is supported</p>
+        ${cancel}
+        <button type="submit" ${opts.submitDisabled || opts.pending ? 'disabled' : ''} class="${BTN} ${BTN_DEFAULT} ${BTN_PRIMARY}">${opts.pending ? 'Posting…' : submitLabel}</button>
+      </div>
     </div>
   </form>`
 }
@@ -1068,27 +1154,41 @@ function ensureTurnstile(): Promise<void> {
   return turnstileLoad
 }
 
-// One card per expected comment; 3 on a first load, 2 while the next page of
-// rows is fetched.
-function skeletonBlock(count: number): string {
-  const card = `<div class="rounded-lg border border-border p-4">
-      <div class="flex items-center gap-3">
-        <div class="h-8 w-8 shrink-0 animate-pulse rounded-full bg-muted"></div>
-        <div class="h-4 w-32 lc-skeleton animate-pulse bg-muted"></div>
+// One row per expected comment; 3 on a first load, 2 while the next page of
+// rows is fetched. The viewer variant omits the interactive slots the real
+// read-only row never renders (menu, vote buttons, Reply).
+function skeletonBlock(count: number, readOnly = false): string {
+  const nameWidths = ['w-24', 'w-32', 'w-20']
+  const bodyWidths = ['w-3/4', 'w-2/3', 'w-4/5']
+  const rows = Array.from({ length: count }, (_, index) => {
+    const actions = readOnly
+      ? '<div class="ml-auto h-4 w-6 lc-skeleton animate-pulse bg-muted"></div>'
+      : `<div class="ml-auto size-6 rounded-md lc-skeleton animate-pulse bg-muted"></div>
+          <div class="h-6 w-20 rounded-full lc-skeleton animate-pulse bg-muted"></div>`
+    return `<div class="lc-comment-skeleton" data-lc-skeleton>
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <div class="size-6 rounded-md lc-skeleton animate-pulse bg-muted"></div>
+        <div class="size-6 rounded-full lc-skeleton animate-pulse bg-muted"></div>
+        <div class="h-4 ${nameWidths[index % nameWidths.length]} lc-skeleton animate-pulse bg-muted"></div>
+        <div class="h-3 w-10 lc-skeleton animate-pulse bg-muted"></div>
+        ${actions}
       </div>
-      <div class="mt-3 space-y-2">
+      <div class="my-3 space-y-2">
         <div class="h-4 w-full lc-skeleton animate-pulse bg-muted"></div>
-        <div class="h-4 w-4/5 lc-skeleton animate-pulse bg-muted"></div>
+        <div class="h-4 ${bodyWidths[index % bodyWidths.length]} lc-skeleton animate-pulse bg-muted"></div>
       </div>
-      <div class="mt-3 flex gap-2">
-        <div class="h-6 w-16 lc-skeleton animate-pulse bg-muted"></div>
-        <div class="h-6 w-20 lc-skeleton animate-pulse bg-muted"></div>
-      </div>
+      ${readOnly ? '' : '<div class="h-7 w-16 rounded-md lc-skeleton animate-pulse bg-muted"></div>'}
     </div>`
-  return `<div role="status" aria-busy="true" class="grid gap-3">
+  }).join('')
+  return `<div role="status" aria-busy="true">
     <span class="sr-only">Loading comments…</span>
-    <div class="grid gap-3" aria-hidden="true">${card.repeat(count)}</div>
+    <div class="grid ${readOnly ? 'gap-4' : 'gap-3'}" aria-hidden="true">${rows}</div>
   </div>`
+}
+
+// Small attribution footer shared by the comments list and the read-only viewer.
+function attributionMarkup(): string {
+  return `<footer class="lc-footer mt-2 text-right text-xs text-muted-foreground">Powered by <a class="underline underline-offset-4 hover:text-foreground" href="https://github.com/lst97-oss/last-comments" target="_blank" rel="noreferrer">last-comments</a></footer>`
 }
 
 // Restore host-owned inline values and classes when a widget releases its root.
@@ -1188,6 +1288,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   // Load generation: a response from an older load never commits.
   let loadSeq = 0
   let mediaQuery: MediaQueryList | null = null
+  // One open popover/menu at a time; both live at the widget root, never in a row.
+  let identityPanel: HTMLElement | null = null
+  let actionsMenu: { panel: HTMLElement; trigger: HTMLElement } | null = null
 
   const { apply: applyTheme, cleanup: cleanupTheme } = setupTheme(el, theme, options)
   // Theme variables are instance state: apply at mount and on media changes,
@@ -1195,51 +1298,133 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   applyTheme()
 
   // First child of the composer form: which identity the comment posts as,
-  // plus sign-in/sign-out. The panel is hand-rolled HTML driven by
-  // `identityOpen` so a re-render keeps it consistent with the row.
+  // plus sign-in/sign-out. React portals the menu into the widget root, so the
+  // trigger stays a bare flex child of this row and the panel is mounted on
+  // demand by openIdentityMenu.
   function signInRow(): string {
     // Moderators post as themselves through the moderation endpoint: the
     // anonymous/account switcher does not apply.
     if (moderator) return ''
     const { signed, label } = composerIdentity()
-    const signInUrl = safeUrl(options.signInUrl)
     // The identity is unknown until the session request settles; showing a
     // guess here (or letting a post through) would pick the wrong wire flag.
     const trigger =
       sessionStatus === 'loading'
         ? '<span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>'
-        : `<span class="label max-w-[10rem] truncate">${escapeHtml(commentAs === 'anonymous' || !signed ? 'Anonymous' : label)}</span>${icon('chevron-down')}`
-    // A signed-out visitor has no account to be checked, so Anonymous is the
-    // selected item even before they touch the menu.
-    const anonymousSelected = commentAs === 'anonymous' || !signed
-    const anonymous = `<button type="button" role="menuitemradio" aria-checked="${anonymousSelected}" data-action="identity-anonymous" data-selected="${anonymousSelected}" class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent">Anonymous</button>`
-    const account = signed
-      ? `<button type="button" role="menuitemradio" aria-checked="${commentAs === 'account'}" data-action="identity-account" data-selected="${commentAs === 'account'}" class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent">${escapeHtml(label)} (you)</button>`
-      : signInUrl
-        ? `<a role="menuitem" href="${escapeHtml(signInUrl)}" class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent">Sign in…</a>`
-        : `<button type="button" role="menuitem" data-action="signin" ${ui.signInPending ? 'disabled' : ''} class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50">${ui.signInPending ? 'Signing in…' : 'Sign in…'}</button>`
-    const signOut = session
-      ? `<div role="separator" class="my-1 border-t border-border"></div>
-      <button type="button" role="menuitem" data-action="signout" ${ui.signOutPending ? 'disabled' : ''} class="lc-identity-item block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-accent disabled:opacity-50">${ui.signOutPending ? 'Signing out…' : 'Sign out'}</button>`
-      : ''
-    const panel = ui.identityOpen
-      ? `<div role="menu" class="lc-identity-menu absolute left-0 top-full mt-1 max-w-[calc(var(--spacing)*8)] min-w-40 rounded-md border border-border bg-card p-1">${anonymous}${account}${signOut}</div>`
-      : ''
+        : `<span class="label max-w-[10rem] truncate">${escapeHtml(commentAs === 'anonymous' || !signed ? 'Anonymous' : label)}</span>${icon('chevron-down', 'size-3.5')}`
     const alert = ui.identityError
       ? `<div class="w-full">${errorMarkup(ui.identityError.info, { retryAction: ui.identityError.retry })}</div>`
       : ''
     return `<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span class="text-xs text-muted-foreground">Comment as</span>
-      <div class="relative">
-        <button type="button" data-action="identity" aria-haspopup="menu" aria-expanded="${ui.identityOpen}" ${sessionStatus === 'loading' || ui.signInPending || ui.signOutPending ? 'disabled' : ''} class="lc-identity-trigger ${BTN} ${BTN_OUTLINE} ${BTN_SM}">${trigger}</button>
-        ${panel}
-      </div>
+      <button type="button" data-action="identity" aria-haspopup="menu" aria-expanded="${ui.identityOpen}" ${sessionStatus === 'loading' || ui.signInPending || ui.signOutPending ? 'disabled' : ''} class="lc-identity-trigger ${BTN} ${BTN_OUTLINE} ${BTN_SM}">${trigger}</button>
     </div>${alert}`
   }
 
+  // React's DropdownMenuRadioItem/DropdownMenuItem: divs, so the theme's
+  // control radius/min-height for buttons never apply to them.
+  function identityItems(): string {
+    const { signed, label } = composerIdentity()
+    const signInUrl = safeUrl(options.signInUrl)
+    // A signed-out visitor has no account to be checked, so Anonymous is the
+    // selected item even before they touch the menu.
+    const anonymousSelected = commentAs === 'anonymous' || !signed
+    const accountSelected = commentAs === 'account'
+    const check = `<span class="pointer-events-none absolute right-2 flex items-center justify-center">${icon('check')}</span>`
+    const radio = (action: string, checked: boolean, inner: string) =>
+      `<div role="menuitemradio" aria-checked="${checked}" data-action="${action}" data-selected="${checked}" tabindex="-1" class="${IDENTITY_RADIO_ITEM_CLASS}">${checked ? check : ''}${inner}</div>`
+    const anonymous = radio('identity-anonymous', anonymousSelected, 'Anonymous')
+    const account = signed
+      ? radio('identity-account', accountSelected, `${escapeHtml(label)} (you)`)
+      : signInUrl
+        ? `<a role="menuitem" href="${escapeHtml(signInUrl)}" tabindex="-1" class="${IDENTITY_ITEM_CLASS}">Sign in…</a>`
+        : `<div role="menuitem" data-action="signin" tabindex="-1" ${ui.signInPending ? 'aria-disabled="true" data-disabled="true"' : ''} class="${IDENTITY_ITEM_CLASS}">${ui.signInPending ? 'Signing in…' : 'Sign in…'}</div>`
+    const signOut = session
+      ? `<div role="separator" class="-mx-1 my-1 h-px bg-border"></div>
+      <div role="menuitem" data-action="signout" tabindex="-1" ${ui.signOutPending ? 'aria-disabled="true" data-disabled="true"' : ''} class="${IDENTITY_ITEM_CLASS}">${ui.signOutPending ? 'Signing out…' : 'Sign out'}</div>`
+      : ''
+    return `${anonymous}${account}${signOut}`
+  }
+
   function refreshSignInRow() {
+    closeIdentityMenu()
     const host = el.querySelector('[data-lc-signin]')
     if (host) host.innerHTML = signInRow()
+  }
+
+  // Panels mount into the widget root (React portals them there) and are
+  // measured against the trigger, so the row markup stays a plain flex row.
+  function placePanel(panel: HTMLElement, trigger: HTMLElement, align: 'start' | 'end') {
+    const rect = trigger.getBoundingClientRect()
+    panel.style.top = `${rect.bottom + 4}px`
+    if (align === 'start') panel.style.left = `${rect.left}px`
+    else panel.style.right = `${Math.max(0, document.documentElement.clientWidth - rect.right)}px`
+  }
+
+  function openIdentityMenu(trigger: HTMLElement) {
+    closeActionsMenu()
+    closeIdentityMenu()
+    const panel = document.createElement('div')
+    panel.className = IDENTITY_MENU_CLASS
+    panel.setAttribute('role', 'menu')
+    panel.setAttribute('tabindex', '-1')
+    panel.innerHTML = identityItems()
+    el.appendChild(panel)
+    placePanel(panel, trigger, 'start')
+    identityPanel = panel
+    ui = transition(ui, { type: 'identity/open', value: true })
+    trigger.setAttribute('aria-expanded', 'true')
+    // React's menu focuses the popup on pointer open; items stay unfocused
+    // until an arrow key moves the highlight.
+    panel.focus()
+  }
+
+  function closeIdentityMenu(returnFocus = false) {
+    if (!identityPanel) return
+    const trigger = el.querySelector<HTMLElement>('.lc-identity-trigger')
+    identityPanel.remove()
+    identityPanel = null
+    ui = transition(ui, { type: 'identity/open', value: false })
+    trigger?.setAttribute('aria-expanded', 'false')
+    if (returnFocus) trigger?.focus()
+  }
+
+  function closeActionsMenu(returnFocus = false) {
+    if (!actionsMenu) return
+    const { panel, trigger } = actionsMenu
+    panel.remove()
+    actionsMenu = null
+    trigger.setAttribute('aria-expanded', 'false')
+    if (returnFocus) trigger.focus()
+  }
+
+  function openActionsMenu(trigger: HTMLElement) {
+    const commentId = trigger.getAttribute('data-comment-id')
+    const comment = comments.find((c) => c.id === commentId)
+    if (!comment) return
+    closeIdentityMenu()
+    closeActionsMenu()
+    const viewerUserId = composerIdentity().viewerUserId
+    const entries = actionEntries(comment, {
+      canEdit: canEditComment(comment, viewerUserId, {
+        anonWindowMinutes: options.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+        hasEditKey: getEditKey(comment.id) !== null,
+      }),
+      editing: (ui.items[comment.id] ?? ITEM_INITIAL).editing,
+      isOwn: Boolean(viewerUserId && comment.userId && viewerUserId === comment.userId),
+      viewerRole,
+      pending: ui.pendingModeration[comment.id] ?? false,
+    })
+    if (entries.length === 0) return
+    const panel = document.createElement('div')
+    panel.className = ACTIONS_MENU_CLASS
+    panel.setAttribute('role', 'dialog')
+    panel.innerHTML = entries.join('')
+    el.appendChild(panel)
+    placePanel(panel, trigger, 'end')
+    actionsMenu = { panel, trigger }
+    trigger.setAttribute('aria-expanded', 'true')
+    panel.querySelector('button')?.focus()
   }
 
   // A wide markdown table would otherwise widen the page (overflow is ignored
@@ -1295,7 +1480,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   function setIdentity(next: 'account' | 'anonymous') {
-    ui = transition(ui, { type: 'identity/open', value: false })
+    closeIdentityMenu()
     if (commentAs !== next) {
       commentAs = next
       // A token minted for the previous identity must not be posted with this one.
@@ -1310,7 +1495,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   async function signOut() {
     ui = transition(ui, { type: 'signout/pending', value: true })
     ui = transition(ui, { type: 'identity/error', value: null })
-    ui = transition(ui, { type: 'identity/open', value: false })
+    closeIdentityMenu()
     refreshSignInRow()
     try {
       await signOutViewerSession({ baseUrl: options.baseUrl, fetchImpl: options.fetchImpl })
@@ -1329,30 +1514,57 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   // Capture phase: the delegated click handler below runs on bubble, so the
-  // menus must be tested against their pre-click state here.
+  // panels must be tested against their pre-click state here.
   function onDocumentClick(ev: Event) {
     const target = ev.target
-    for (const panel of el.querySelectorAll<HTMLElement>('[data-lc-menu] [role="menu"]')) {
-      if (!panel.hidden && target instanceof Node && !panel.parentElement?.contains(target)) closeMenu(panel, false)
-    }
-    if (!ui.identityOpen) return
-    const host = el.querySelector('[data-lc-signin]')
-    if (target instanceof Node && host?.contains(target)) return
-    ui = transition(ui, { type: 'identity/open', value: false })
-    refreshSignInRow()
+    if (!(target instanceof Node)) return
+    if (actionsMenu && !actionsMenu.panel.contains(target) && !actionsMenu.trigger.contains(target))
+      closeActionsMenu(false)
+    const identityTrigger = el.querySelector<HTMLElement>('.lc-identity-trigger')
+    if (identityPanel && !identityPanel.contains(target) && !identityTrigger?.contains(target)) closeIdentityMenu(false)
   }
 
   function onDocumentKeydown(ev: KeyboardEvent) {
-    if (onMenuKeydown(ev)) return
-    if (ev.key !== 'Escape' || !ui.identityOpen) return
-    ui = transition(ui, { type: 'identity/open', value: false })
-    refreshSignInRow()
+    if (ev.key === 'Escape') {
+      if (actionsMenu) {
+        ev.preventDefault()
+        closeActionsMenu(true)
+        return
+      }
+      if (identityPanel) {
+        ev.preventDefault()
+        closeIdentityMenu(true)
+      }
+      return
+    }
+    // React's identity menu is a menu: arrows rove between its items.
+    if (!identityPanel) return
+    const target = ev.target instanceof HTMLElement ? ev.target : null
+    if (!target || !identityPanel.contains(target)) return
+    const items = [...identityPanel.querySelectorAll<HTMLElement>('.lc-identity-item')]
+    const current = items.indexOf(target)
+    const moves: Record<string, number | 'first' | 'last'> = {
+      ArrowDown: 1,
+      ArrowUp: -1,
+      Home: 'first',
+      End: 'last',
+    }
+    const move = moves[ev.key]
+    if (move === undefined || items.length === 0) return
+    ev.preventDefault()
+    const index =
+      move === 'first'
+        ? 0
+        : move === 'last'
+          ? items.length - 1
+          : ((current < 0 ? 0 : current) + move + items.length) % items.length
+    items[index].focus()
   }
 
   async function signIn() {
     ui = transition(ui, { type: 'signin/pending', value: true })
     ui = transition(ui, { type: 'identity/error', value: null })
-    ui = transition(ui, { type: 'identity/open', value: false })
+    closeIdentityMenu()
     refreshSignInRow()
     try {
       const url = await beginOAuthSignIn({ baseUrl: options.baseUrl, pageUrl, fetchImpl: options.fetchImpl })
@@ -1423,7 +1635,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         ? `<section aria-label="Comments" data-lc-thread-list class="lc-thread-guides relative grid grid-cols-1 gap-3">${tree}</section>`
         : ''
     const pager = pagerMarkup(ui.page, limit, roots.length, hasMore, loadingPage)
-    return `${lockBar}${actionBanner}${signIn}${sortBar}${list}${loadingPage ? `<div class="mt-3">${skeletonBlock(2)}</div>` : ''}<div class="mt-3">${pager}</div>`
+    return `${lockBar}${actionBanner}${signIn}${sortBar}${list}${loadingPage ? `<div class="mt-3">${skeletonBlock(2)}</div>` : ''}${pager ? `<div class="mt-3">${pager}</div>` : ''}${attributionMarkup()}`
   }
 
   function composerHtml(): string {
@@ -1441,6 +1653,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
 
   // Identity-only repaint: the top composer keeps focus, selection and drafts.
   function renderComposer() {
+    closeIdentityMenu()
     const composer = el.querySelector<HTMLElement>('[data-lc-composer]')
     if (!composer) return
     clearTurnstileWidgets(composer)
@@ -1459,6 +1672,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
 
   // List-only repaint: the composer is never touched.
   function renderList() {
+    closeActionsMenu()
     const list = el.querySelector<HTMLElement>('[data-lc-list]')
     if (!list) return
     clearTurnstileWidgets(list)
@@ -1472,8 +1686,10 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
 
   function render() {
     if (destroyed) return
+    closeActionsMenu()
+    closeIdentityMenu()
     clearTurnstileWidgets(el)
-    el.innerHTML = `<section aria-label="Comments" class="space-y-4"><div data-lc-composer>${composerHtml()}</div><div data-lc-list>${listBody()}</div></section>`
+    el.innerHTML = `<section aria-label="Comments" class="space-y-4"><div data-lc-composer>${composerHtml()}</div><div data-lc-list class="flex flex-col gap-4">${listBody()}</div></section>`
     wrapMarkdownTables(el)
     hydrateTurnstile()
     attachGuides()
@@ -1486,7 +1702,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   function hydrateTurnstile() {
-    if (!options.turnstileSiteKey || !composerIdentity().guest) return
+    const siteKey = options.turnstileSiteKey
+    if (!siteKey || !composerIdentity().guest) return
+    const config = resolveTurnstileConfig(el.classList.contains('dark'), options.turnstileOptions)
     void ensureTurnstile().then(() => {
       if (destroyed || !window.turnstile) return
       for (const box of el.querySelectorAll<HTMLElement>('.lc-turnstile')) {
@@ -1495,17 +1713,33 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         if (widgetIds.has(formId)) continue
         try {
           const id = window.turnstile.render(box, {
-            sitekey: options.turnstileSiteKey,
+            sitekey: siteKey,
+            ...config,
             callback: (token: string) => {
               tokens.set(formId, token)
             },
+            'expired-callback': () => {
+              tokens.delete(formId)
+            },
+            'error-callback': () => {
+              tokens.delete(formId)
+            },
           })
-          widgetIds.set(formId, id)
+          if (id) widgetIds.set(formId, id)
         } catch {
           // Turnstile unavailable; server will report a distinct error.
         }
       }
     })
+  }
+
+  // A system light/dark flip changes the class on the root, so the challenge
+  // has to be re-rendered with the new theme (ids and tokens do not survive it).
+  function handleSystemThemeChange() {
+    applyTheme()
+    if (!el.querySelector('.lc-turnstile')) return
+    clearTurnstileWidgets(el)
+    hydrateTurnstile()
   }
 
   function resetTurnstile(formId: string) {
@@ -1799,7 +2033,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const article = el.querySelector(`article[data-comment-id="${CSS.escape(commentId)}"]`)
     const header = article?.firstElementChild
     if (!patch || !header) return
-    const score = header.querySelector('[aria-label="Score"]')
+    const score = header.querySelector('[aria-live="polite"]')
     if (score) score.textContent = String(patch.score)
     // `firstElementChild` scopes this to the row's own headline, never a nested reply.
     for (const button of header.querySelectorAll<HTMLElement>('button[data-action="vote"]')) {
@@ -2018,77 +2252,20 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     renderList()
   }
 
-  // Menu panels are toggled in place: repainting would move the trigger out
-  // from under the pointer.
-  function closeMenu(panel: HTMLElement, returnFocus: boolean) {
-    const trigger = panel.parentElement?.querySelector<HTMLElement>('[data-action="menu-toggle"]')
-    panel.hidden = true
-    trigger?.setAttribute('aria-expanded', 'false')
-    if (returnFocus) trigger?.focus()
-  }
-
-  function openMenu(trigger: HTMLElement) {
-    const panel = trigger.parentElement?.querySelector<HTMLElement>('[role="menu"]')
-    if (!panel) return
-    panel.hidden = false
-    trigger.setAttribute('aria-expanded', 'true')
-    const [first] = panel.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])')
-    for (const entry of panel.querySelectorAll<HTMLElement>('[role="menuitem"]')) entry.tabIndex = -1
-    if (first) {
-      first.tabIndex = 0
-      first.focus()
-    }
-  }
-
-  function focusMenuEntry(panel: HTMLElement, next: number | 'first' | 'last') {
-    const entries = [...panel.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])')]
-    if (entries.length === 0) return
-    const current = entries.findIndex((entry) => entry.tabIndex === 0)
-    const index =
-      next === 'first' ? 0 : next === 'last' ? entries.length - 1 : (current + next + entries.length) % entries.length
-    for (const entry of entries) entry.tabIndex = -1
-    entries[index].tabIndex = 0
-    entries[index].focus()
-  }
-
-  function onMenuKeydown(ev: KeyboardEvent): boolean {
-    // The document listener is shared by every widget on the page: only the
-    // owning root may move focus inside its own menu.
-    if (!(ev.target instanceof Node) || !el.contains(ev.target)) return false
-    const panel = (ev.target as HTMLElement).closest<HTMLElement>('[role="menu"]')
-    if (!panel) return false
-    const moves: Record<string, number | 'first' | 'last'> = {
-      ArrowDown: 1,
-      ArrowUp: -1,
-      Home: 'first',
-      End: 'last',
-    }
-    const move = moves[ev.key]
-    if (move !== undefined) {
-      ev.preventDefault()
-      focusMenuEntry(panel, move)
-      return true
-    }
-    if (ev.key === 'Escape') {
-      ev.preventDefault()
-      closeMenu(panel, true)
-      return true
-    }
-    return false
-  }
-
   function onClick(ev: Event) {
     const target = (ev.target as HTMLElement).closest('[data-action]') as HTMLElement | null
     if (!target || !el.contains(target)) return
     const action = target.getAttribute('data-action')
     const commentId = target.getAttribute('data-comment-id')
+    // Clicking a popover entry runs its action and unmounts the panel first.
+    if (actionsMenu?.panel.contains(target)) closeActionsMenu(false)
     if (action === 'preview' || action === 'write') setPreview(target, action === 'preview')
     else if (action === 'error-retry') void initialLoad()
     else if (action === 'error-sign-in') void signIn()
     else if (action === 'signin') void signIn()
     else if (action === 'identity') {
-      ui = transition(ui, { type: 'identity/open', value: !ui.identityOpen })
-      refreshSignInRow()
+      if (identityPanel) closeIdentityMenu(true)
+      else openIdentityMenu(target)
     } else if (action === 'identity-anonymous') setIdentity('anonymous')
     else if (action === 'identity-account') setIdentity('account')
     else if (action === 'signout') void signOut()
@@ -2105,9 +2282,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       }
     } else if (action === 'page-next') void nextPage()
     else if (action === 'menu-toggle') {
-      const panel = target.parentElement?.querySelector<HTMLElement>('[role="menu"]')
-      if (panel?.hidden) openMenu(target)
-      else if (panel) closeMenu(panel, true)
+      if (actionsMenu) closeActionsMenu(true)
+      else openActionsMenu(target)
     } else if (action === 'collapse') {
       if (!commentId) return
       const item = ui.items[commentId] ?? ITEM_INITIAL
@@ -2178,7 +2354,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   document.addEventListener('keydown', onDocumentKeydown)
   if (theme === 'system' && typeof window !== 'undefined') {
     mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    mediaQuery.addEventListener('change', applyTheme)
+    mediaQuery.addEventListener('change', handleSystemThemeChange)
   }
   // Both requests hang off this: a below-the-fold embed should reach the
   // network only once it is scrolled near.
@@ -2215,7 +2391,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     destroy() {
       destroyed = true
       stopObserver?.()
-      mediaQuery?.removeEventListener('change', applyTheme)
+      mediaQuery?.removeEventListener('change', handleSystemThemeChange)
       cleanupTheme()
       guides?.destroy()
       guides = null
@@ -2278,7 +2454,7 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     const pageRoots = roots.slice((page - 1) * limit, page * limit)
     const body =
       status === 'loading'
-        ? skeletonBlock(3)
+        ? skeletonBlock(3, true)
         : // The read-only viewer has no sign-in path, so its only remedy is a reload.
           status === 'error'
           ? errorMarkup(failure.action === 'sign-in' ? { ...failure, action: 'retry' } : failure)
@@ -2291,8 +2467,8 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
         ? `<section aria-label="Comments" data-lc-thread-list class="lc-thread-guides relative grid gap-4">${renderCommentTree(pageRoots, { readOnly: true })}</section>`
         : ''
     const pager = pagerMarkup(page, limit, roots.length, hasMore, loadingPage)
-    const pending = loadingPage && status === 'ready' ? `<div>${skeletonBlock(2)}</div>` : ''
-    el.innerHTML = `<section aria-label="Comments" class="grid gap-4">${body}${sortBar}${list}${pending}${pager}</section>`
+    const pending = loadingPage && status === 'ready' ? `<div>${skeletonBlock(2, true)}</div>` : ''
+    el.innerHTML = `<section aria-label="Comments" class="grid gap-4">${body}${sortBar}${list}${pending}${pager}${attributionMarkup()}</section>`
     const threadList = el.querySelector<HTMLElement>('[data-lc-thread-list]')
     if (threadList) guides = renderGuides(threadList)
   }
@@ -2413,18 +2589,24 @@ const THEME_ATTR_KEYS = new Map(
 // DOM-free so bun test covers it without a browser: entries are
 // [attrName, attrValue] pairs straight from `node.attributes`.
 export function parseThemeAttrs(attrs: [string, string][]): WidgetTheme | undefined {
-  const vars: ThemeVars = {}
-  const dark: ThemeVars = {}
+  // Collected flat, then narrowed to ThemeVars: the key is a union, so a
+  // per-key assignment cannot be type-checked in place.
+  const vars: Record<string, string> = {}
+  const dark: Record<string, string> = {}
   for (const [name, value] of attrs) {
     const light = name.startsWith('data-lc-theme-var-')
     const darkAttr = name.startsWith('data-lc-theme-dark-var-')
     if (!light && !darkAttr) continue
     const key = THEME_ATTR_KEYS.get(name.slice((light ? 'data-lc-theme-var-' : 'data-lc-theme-dark-var-').length))
     if (!key) continue
+    // Host attributes are untrusted: a value outside a closed set is dropped so
+    // the documented default applies.
+    const allowed = THEME_VAR_VALUES[key as keyof typeof THEME_VAR_VALUES]
+    if (allowed && !(allowed as readonly string[]).includes(value)) continue
     ;(light ? vars : dark)[key] = value
   }
   if (Object.keys(vars).length === 0 && Object.keys(dark).length === 0) return undefined
-  return { vars, dark }
+  return { vars: vars as ThemeVars, dark: dark as ThemeVars }
 }
 
 // Host attributes are untrusted: an unparsable number leaves the option unset
@@ -2439,6 +2621,21 @@ function readNumber(node: HTMLElement, attr: string, parse: (raw: string) => num
 function readActionMode(node: HTMLElement): ActionMode | undefined {
   const raw = node.getAttribute('data-lc-action-mode')
   return raw === 'icon' || raw === 'icon-text' || raw === 'text' ? raw : undefined
+}
+
+// Cloudflare knobs for the declarative embed; invalid values are ignored and
+// the object is omitted entirely when no attribute is present.
+function readTurnstileOptions(node: HTMLElement): TurnstileOptions | undefined {
+  const options: TurnstileOptions = {}
+  const theme = node.getAttribute('data-lc-turnstile-theme')
+  if (theme === 'auto' || theme === 'light' || theme === 'dark') options.theme = theme
+  const size = node.getAttribute('data-lc-turnstile-size')
+  if (size === 'normal' || size === 'compact' || size === 'flexible') options.size = size
+  const appearance = node.getAttribute('data-lc-turnstile-appearance')
+  if (appearance === 'always' || appearance === 'interaction-only') options.appearance = appearance
+  const language = node.getAttribute('data-lc-turnstile-language')
+  if (language) options.language = language
+  return Object.keys(options).length > 0 ? options : undefined
 }
 
 function autoMount() {
@@ -2459,6 +2656,7 @@ function autoMount() {
         node.getAttribute('data-lc-turnstile') ??
         document.currentScript?.getAttribute('data-lc-turnstile') ??
         undefined,
+      turnstileOptions: readTurnstileOptions(node),
       limit: limitRaw ? Number(limitRaw) : undefined,
       theme: (node.getAttribute('data-lc-theme') as Theme | null) ?? undefined,
       signInUrl: node.getAttribute('data-lc-sign-in-url') ?? undefined,

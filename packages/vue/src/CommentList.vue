@@ -8,6 +8,7 @@ import {
   type VoteValue,
 } from '@last-comments-widgets/client'
 import CommentItem, { type CommentFormInput } from './CommentItem.vue'
+import type { TurnstileOptions } from './lib/turnstile'
 import { type ActionMode } from './types'
 
 defineProps<{
@@ -36,6 +37,7 @@ defineProps<{
   onDelete: (commentId: string) => Promise<void>
   onReplySubmit?: (commentId: string, input: CommentFormInput) => Promise<ErrorInfo | null>
   replySiteKey?: string
+  turnstileOptions?: TurnstileOptions
   replyGuest?: boolean
   onCloseReply?: () => void
   onModerate?: (commentId: string, action: ModerationAction) => void
@@ -46,7 +48,8 @@ defineOptions({ name: 'CommentList' })
 </script>
 
 <template>
-  <div class="grid grid-cols-1 gap-4">
+  <!-- Depth 0 is the thread grid itself: a wrapper would take the guides' gap. -->
+  <div :class="(depth ?? 0) === 0 ? 'contents' : 'grid grid-cols-1 gap-4'">
     <CommentItem
       v-for="node in nodes"
       :key="node.comment.id"
@@ -72,6 +75,7 @@ defineOptions({ name: 'CommentList' })
       :on-delete="onDelete"
       :on-reply-submit="onReplySubmit"
       :reply-site-key="replySiteKey"
+      :turnstile-options="turnstileOptions"
       :reply-guest="replyGuest"
       :on-close-reply="onCloseReply"
       :on-moderate="onModerate"

@@ -26,7 +26,7 @@
   },
   "scripts": {
     "check": "bun run typecheck && bun run lint && bun run format:check",
-    "build": "bunx tsup src/index.ts --format esm --clean --dts --out-dir dist",
+    "build": "bunx tsup src/index.ts --format esm --clean --dts --target es2025 --out-dir dist",
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --error-on-warnings --write .",
     "format": "biome format --write .",

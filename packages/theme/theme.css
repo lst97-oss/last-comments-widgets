@@ -221,7 +221,8 @@
       display: contents;
     }
 
-    .lc-comment {
+    .lc-comment,
+    .lc-comment-skeleton {
       background: var(--card);
       color: var(--card-foreground);
       border: var(--lc-comment-border, 0) solid var(--border);
@@ -240,6 +241,9 @@
       padding-inline-start: var(--lc-thread-indent, 1rem);
     }
     .lc-thread-overlay {
+      /* The guide is decoration: hiding it (and the gutter it rides in) is a
+         styling decision, so it lives in CSS rather than behind a prop. */
+      display: var(--lc-thread-guide-display, block);
       position: absolute;
       inset-inline-start: 0;
       top: 0;
@@ -346,12 +350,6 @@
       background: var(--accent);
       color: var(--accent-foreground);
     }
-    .lc-dialog {
-      box-shadow: var(--lc-dialog-shadow, 0 20px 25px -5px rgb(0 0 0 / 0.1));
-    }
-    .lc-dialog-backdrop {
-      background: var(--lc-backdrop, rgb(0 0 0 / 0.1));
-    }
   }
 
   @layer components {
@@ -405,6 +403,119 @@
     }
     .lc-markdown ol {
       @apply list-decimal;
+    }
+
+    /* Highlighted fenced blocks: Shiki owns the inner <pre> colours (dual
+       theme via --shiki-light/--shiki-dark); the frame around it follows the
+       widget's card tokens so hosts can still theme the container. */
+    .lc-codeblock {
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+    }
+    .lc-codeblock-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.375rem 0.5rem 0.375rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklab, var(--muted) 55%, transparent);
+    }
+    .lc-codeblock-lang {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--muted-foreground);
+    }
+    .lc-codeblock-copy {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.5rem;
+      height: 1.5rem;
+      padding: 0;
+      border: 0;
+      border-radius: calc(var(--radius) * 0.6);
+      background: transparent;
+      color: var(--muted-foreground);
+      cursor: pointer;
+    }
+    .lc-codeblock-copy:hover {
+      background: var(--accent);
+      color: var(--accent-foreground);
+    }
+    .lc-codeblock-copy[data-copied] {
+      color: var(--success);
+    }
+    .lc-codeblock pre.shiki {
+      overflow-x: auto;
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+      padding: 1rem;
+      font-size: calc(var(--lc-font-size, 1rem) * 0.8125);
+      line-height: 1.6;
+    }
+    .lc-markdown pre.shiki code {
+      display: grid;
+      min-width: max-content;
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+    }
+    .shiki,
+    .shiki span {
+      color: var(--shiki-light);
+      background-color: var(--shiki-light-bg);
+      font-style: var(--shiki-light-font-style);
+      font-weight: var(--shiki-light-font-weight);
+      text-decoration: var(--shiki-light-text-decoration);
+    }
+    :scope.dark .shiki,
+    :scope.dark .shiki span {
+      color: var(--shiki-dark);
+      background-color: var(--shiki-dark-bg);
+      font-style: var(--shiki-dark-font-style);
+      font-weight: var(--shiki-dark-font-weight);
+      text-decoration: var(--shiki-dark-text-decoration);
+    }
+
+    /* Attribute-only shimmer while the lazy Shiki import is in flight. */
+    .lc-markdown pre[data-shiki="pending"] {
+      position: relative;
+      overflow: hidden;
+    }
+    .lc-markdown pre[data-shiki="pending"] > code {
+      opacity: 0.55;
+    }
+    .lc-markdown pre[data-shiki="pending"]::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        100deg,
+        transparent 20%,
+        color-mix(in oklab, var(--muted-foreground) 12%, transparent) 50%,
+        transparent 80%
+      );
+      animation: shiki-shimmer 1.4s ease-in-out infinite;
+    }
+    @keyframes shiki-shimmer {
+      from {
+        transform: translateX(-100%);
+      }
+      to {
+        transform: translateX(100%);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lc-markdown pre[data-shiki="pending"]::after {
+        animation: none;
+      }
     }
   }
 }

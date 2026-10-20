@@ -1,6 +1,6 @@
 import { Accordion as AccordionPrimitive } from '@base-ui/react/accordion'
-import { cn } from 'cn'
 import { ChevronDown, ChevronUp } from 'lucide-react'
+import { cn } from '../lib/utils'
 
 function Accordion({ className, ...props }: AccordionPrimitive.Root.Props) {
   return <AccordionPrimitive.Root data-slot="accordion" className={cn('flex w-full flex-col', className)} {...props} />
@@ -40,8 +40,15 @@ function AccordionTrigger({ className, children, ...props }: AccordionPrimitive.
 }
 
 function AccordionContent({ className, children, ...props }: AccordionPrimitive.Panel.Props) {
+  // The panel clips the reply cards, so their shadows need room outside the
+  // clip edge. `overflow: clip` (not `hidden`) is what honors the margin.
+  // shortcut: shadows reaching past 16px still clip; raise it if a host theme needs more.
   return (
-    <AccordionPrimitive.Panel data-slot="accordion-content" className="overflow-hidden text-sm" {...props}>
+    <AccordionPrimitive.Panel
+      data-slot="accordion-content"
+      className="overflow-clip text-sm [overflow-clip-margin:16px] data-ending-style:[overflow-clip-margin:0px]"
+      {...props}
+    >
       <div
         className={cn(
           'h-(--accordion-panel-height) transition-[height] duration-200 ease-out data-ending-style:h-0 data-starting-style:h-0',

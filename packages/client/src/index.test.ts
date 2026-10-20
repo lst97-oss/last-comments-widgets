@@ -319,6 +319,12 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('*i* ~~s~~ `c`\nnext')).toContain('<em>i</em>')
     expect(renderMarkdown('| a |\n| - |\n| b |')).toContain('<table>')
   })
+
+  test('leaves fenced code as the language-classed fallback the highlighter upgrades', () => {
+    const html = renderMarkdown('```ts\nconst x = 1\n```')
+    expect(html).toContain('<pre><code class="language-ts">')
+    expect(html).toContain('const x = 1')
+  })
 })
 
 describe('editOwnComment/deleteOwnComment', () => {
@@ -596,8 +602,6 @@ describe('themeVarsToStyle', () => {
             cardPadding: '2rem',
             composerPadding: '1.5rem',
             dropdownShadow: 'none',
-            dialogShadow: 'none',
-            backdrop: 'rgb(0 0 0 / .5)',
           },
           dark: { popover: '#221122' },
         },
@@ -622,8 +626,6 @@ describe('themeVarsToStyle', () => {
       '--lc-card-padding': '2rem',
       '--lc-composer-padding': '1.5rem',
       '--lc-dropdown-shadow': 'none',
-      '--lc-dialog-shadow': 'none',
-      '--lc-backdrop': 'rgb(0 0 0 / .5)',
     })
   })
 
@@ -643,6 +645,20 @@ describe('themeVarsToStyle', () => {
   test('empty and undefined yield no overrides', () => {
     expect(themeVarsToStyle(undefined)).toEqual({})
     expect(themeVarsToStyle({})).toEqual({})
+  })
+
+  test('the reply guide can be hidden through a theme override', () => {
+    expect(themeVarsToStyle({ vars: { threadGuideDisplay: 'none' } })).toEqual({
+      '--lc-thread-guide-display': 'none',
+    })
+    // The other guide knobs stay independent of the visibility switch.
+    expect(
+      themeVarsToStyle({ vars: { threadGuideDisplay: 'none', threadIndent: '0px', threadMuted: '#ddd' } }),
+    ).toEqual({
+      '--lc-thread-guide-display': 'none',
+      '--lc-thread-indent': '0px',
+      '--lc-thread-muted': '#ddd',
+    })
   })
 
   test('maps reply, vote and action component tokens', () => {

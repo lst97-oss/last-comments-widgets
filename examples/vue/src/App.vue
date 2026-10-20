@@ -16,6 +16,8 @@ const actionMode = ref<ActionMode>('icon-text')
 const bodyLimit = ref(Number(new URLSearchParams(window.location.search).get('bodyLimit')) || 10_000)
 // mount-time only: ?lazy makes the demo probe the deferred fetch path
 const lazy = ref(new URLSearchParams(window.location.search).has('lazy'))
+// Template expressions cannot reach window globals on their own.
+const tall = new URLSearchParams(window.location.search).has('tall')
 const preset = ref('Default')
 const presets: Record<string, WidgetTheme> = {
   Default: {},
@@ -34,7 +36,7 @@ const themeVars = computed(() => presets[preset.value])
       </select>
     </label>
     <!-- ?tall pushes the widgets below the fold so the `lazy` path can be exercised -->
-    <div v-if="new URLSearchParams(window.location.search).has('tall')" aria-hidden="true" style="height: 150vh"></div>
+    <div v-if="tall" aria-hidden="true" style="height: 150vh"></div>
     <Comments
       :site="site"
       :base-url="baseUrl"

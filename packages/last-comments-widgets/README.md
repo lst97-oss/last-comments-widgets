@@ -10,6 +10,23 @@ One package, one version, subpath exports — you install only the framework you
 bun add @lst97-oss/last-comments-widgets   # or npm install @lst97-oss/last-comments-widgets
 ```
 
+Then add the runtime libraries your framework's widget imports — every other framework's libraries are optional peers and are never installed:
+
+```bash
+# React
+bun add @base-ui/react lucide-react class-variance-authority clsx tailwind-merge
+# …plus shiki, only if comment code fences should be syntax-highlighted
+bun add shiki
+
+# Vue
+bun add @lucide/vue reka-ui clsx tailwind-merge
+
+# Angular
+bun add @angular/cdk @lucide/angular
+
+# Plain HTML: nothing more — the widget bundle and the theme are self-contained
+```
+
 Only your framework is a peer dependency (React 19, Vue 3.5 or Angular 22); the others are optional peers and are never loaded.
 
 ## Usage

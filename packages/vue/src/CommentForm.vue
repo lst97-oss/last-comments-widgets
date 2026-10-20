@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { DEFAULT_BODY_LIMIT, describeError, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
-import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-vue-next'
+import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from '@lucide/vue'
 import { computed, nextTick, ref, useId, useTemplateRef } from 'vue'
-import VueTurnstile from 'vue-turnstile'
 import CommentError from './CommentError.vue'
+import Turnstile from './Turnstile.vue'
+import { buttonClass } from './lib/button'
+import { cn } from './lib/cn'
+import type { TurnstileOptions } from './lib/turnstile'
 
 const props = defineProps<{
   siteKey?: string
   dark?: boolean
+  // Cloudflare's supported design knobs for the guest challenge.
+  turnstileOptions?: TurnstileOptions
   guest?: boolean
   sessionPending?: boolean
   parentId: string | null
@@ -54,8 +59,15 @@ const submitDisabled = computed(
     (showName.value && props.siteKey ? !token.value : false),
 )
 
-const iconBtn =
-  'inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors outline-none select-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4'
+// The `Textarea` / `Input` primitives plus the composer's call-site override.
+const TEXTAREA_CLASS = cn(
+  'flex field-sizing-content min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40',
+  'border-0 bg-transparent px-1 focus-visible:ring-0',
+)
+const INPUT_CLASS = cn(
+  'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40',
+  'w-32 min-w-0 border-0 bg-transparent px-1 focus-visible:ring-0 sm:w-40',
+)
 
 // Wraps or prefixes the selection: the transform returns the inserted text and
 // where the caret ends up relative to it.
@@ -144,7 +156,7 @@ async function submit() {
       <button
         v-if="props.onCancelReply"
         type="button"
-        class="inline-flex h-7 items-center justify-center rounded-md px-2 text-xs font-medium transition-colors hover:bg-muted hover:text-foreground"
+        :class="buttonClass('ghost', 'sm')"
         @click="props.onCancelReply()"
       >
         Cancel
@@ -154,29 +166,19 @@ async function submit() {
       <div class="mr-auto flex gap-0.5">
         <button
           type="button"
-          class="inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors"
-          :class="
-            preview
-              ? 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              : 'bg-secondary text-secondary-foreground'
-          "
+          :class="buttonClass(preview ? 'ghost' : 'secondary', 'sm')"
           :aria-pressed="!preview"
           @click="preview = false"
         >
-          <PenLine class="size-3.5" /> Write
+          <PenLine /> Write
         </button>
         <button
           type="button"
-          class="inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors"
-          :class="
-            preview
-              ? 'bg-secondary text-secondary-foreground'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-          "
+          :class="buttonClass(preview ? 'secondary' : 'ghost', 'sm')"
           :aria-pressed="preview"
           @click="preview = true"
         >
-          <Eye class="size-3.5" /> Preview
+          <Eye /> Preview
         </button>
       </div>
       <div class="flex gap-0.5" role="toolbar" aria-label="Markdown formatting">
@@ -184,7 +186,7 @@ async function submit() {
           v-for="tool in tools"
           :key="tool.label"
           type="button"
-          :class="iconBtn"
+          :class="buttonClass('ghost', 'icon-sm')"
           :title="tool.label"
           :aria-label="tool.label"
           @click="tool.run()"
@@ -211,18 +213,19 @@ async function submit() {
       :aria-label="props.parentId ? 'Reply body' : 'Comment body'"
       :aria-describedby="counterId"
       :aria-invalid="bodyTooLong || undefined"
-      class="flex min-h-24 w-full bg-transparent px-1 py-2 font-sans text-sm outline-none placeholder:text-muted-foreground"
+      :class="TEXTAREA_CLASS"
     />
     <p :id="counterId" data-lc-char-count class="mt-1 text-right text-xs text-muted-foreground tabular-nums">
       <span :class="bodyTooLong ? 'text-destructive' : undefined">{{ body.length.toLocaleString() }}</span>
       <span> / {{ bodyLimit.toLocaleString() }}</span>
     </p>
-    <VueTurnstile
+    <Turnstile
       v-if="props.siteKey"
       ref="turnstile"
       v-model="token"
       :site-key="props.siteKey"
-      :theme="props.dark ? 'dark' : 'light'"
+      :dark="props.dark"
+      :turnstile-options="props.turnstileOptions"
     />
     <CommentError
       v-if="props.error ?? formError"
@@ -243,18 +246,16 @@ async function submit() {
         autocomplete="nickname"
         maxlength="80"
         aria-label="Your name"
-        class="h-8 w-32 min-w-0 bg-transparent px-1 text-sm outline-none placeholder:text-muted-foreground sm:w-40"
+        :class="INPUT_CLASS"
       />
-      <p class="ml-auto hidden text-xs text-muted-foreground sm:block">
-        Styling with <span class="font-medium text-primary">Markdown</span> is supported
-      </p>
-      <button
-        type="submit"
-        :disabled="submitDisabled"
-        class="ml-auto inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium whitespace-nowrap text-primary-foreground transition-colors outline-none select-none hover:bg-primary/80 disabled:pointer-events-none disabled:opacity-50"
-      >
-        {{ pending ? 'Posting…' : (props.submitLabel ?? (props.parentId ? 'Post reply' : 'Post comment')) }}
-      </button>
+      <div class="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1">
+        <p class="hidden text-xs text-muted-foreground sm:block">
+          Styling with <span class="font-medium text-primary">Markdown</span> is supported
+        </p>
+        <button type="submit" :disabled="submitDisabled" :class="buttonClass()">
+          {{ pending ? 'Posting…' : (props.submitLabel ?? (props.parentId ? 'Post reply' : 'Post comment')) }}
+        </button>
+      </div>
     </div>
   </form>
 </template>

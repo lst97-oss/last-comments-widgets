@@ -22,12 +22,19 @@ export default {
         ],
       },
       {
-        // CommentItem dangerouslySetInnerHTML receives ONLY shared
+        // Markdown's dangerouslySetInnerHTML receives ONLY shared
         // renderMarkdown() output (client strips raw HTML at token level,
-        // allowlists http(s)/mailto links; pinned in client tests).
-        // Never pass raw bodyMarkdown here.
-        files: ['src/CommentItem.tsx', 'CommentItem.tsx'],
+        // allowlists http(s)/mailto links; pinned in client tests). The local
+        // Shiki enhancer only replaces fenced <pre> nodes after paint.
+        files: ['src/Markdown.tsx', 'Markdown.tsx'],
         rules: ['react-doctor/dangerous-html-sink'],
+      },
+      {
+        // Fenced blocks are highlighted sequentially: each codeToHtml call may
+        // load a language grammar, and a comment with several fences should not
+        // fire every grammar request at once.
+        files: ['src/lib/codeBlock.ts', 'lib/codeBlock.ts'],
+        rules: ['react-doctor/async-await-in-loop'],
       },
       {
         // Composer/item branch on orthogonal product states (reply ×

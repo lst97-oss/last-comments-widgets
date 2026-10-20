@@ -75,6 +75,16 @@ for (const name of ['react', 'vue', 'angular', 'vanilla']) {
 }
 
 const problems: string[] = []
+
+// The published theme.css is Tailwind source for hosts that build their own UI
+// on the same theme, not a compiled stylesheet: it must not carry the compiled
+// font URLs that the per-widget stylesheets use.
+const themeCss = await Bun.file(`${OUT}/theme.css`).text()
+if (themeCss.includes('url(./files/') || themeCss.includes('url(../files/')) {
+  problems.push('theme.css contains compiled font URLs; it must stay build-time source')
+}
+if (!themeCss.includes('@scope')) problems.push('theme.css lost its @scope block')
+
 const entries = [
   'client/index.js',
   'react/index.js',

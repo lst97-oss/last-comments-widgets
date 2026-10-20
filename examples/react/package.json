@@ -7,9 +7,15 @@
     "build": "bunx --bun vite build"
   },
   "dependencies": {
+    "@base-ui/react": "^1.9.0",
     "@lst97-oss/last-comments-widgets": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.59.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "shiki": "^4.5.0",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",

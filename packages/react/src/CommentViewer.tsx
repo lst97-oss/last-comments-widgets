@@ -131,7 +131,7 @@ export function CommentViewer({
         style={themeVarsToStyle(themeVars, dark)}
         aria-label="Comments"
       >
-        {status === 'loading' && <CommentSkeletons count={3} />}
+        {status === 'loading' && <CommentSkeletons count={3} readOnly />}
         {status === 'error' && error && <CommentError info={error} onRetry={() => void load()} />}
         {status === 'ready' && roots.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
         {roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
@@ -156,7 +156,7 @@ export function CommentViewer({
             ))}
           </section>
         )}
-        {loadingPage && <CommentSkeletons count={2} />}
+        {loadingPage && <CommentSkeletons count={2} readOnly />}
         {status === 'ready' && (
           <CommentsPager
             page={currentPage}
@@ -168,6 +168,17 @@ export function CommentViewer({
             onNext={goNextClick}
           />
         )}
+        <footer className="lc-footer mt-2 text-right text-xs text-muted-foreground">
+          Powered by{' '}
+          <a
+            className="underline underline-offset-4 hover:text-foreground"
+            href="https://github.com/lst97-oss/last-comments"
+            target="_blank"
+            rel="noreferrer"
+          >
+            last-comments
+          </a>
+        </footer>
       </section>
     </WidgetRootContext>
   )
