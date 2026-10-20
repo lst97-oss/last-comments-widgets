@@ -34,6 +34,13 @@ Every programmatic option also has an attribute, mapped to the same prop:
 | `data-lc-anon-edit-window-minutes` | `anonEditWindowMinutes` | `10` |
 | `data-lc-action-mode` | `actionMode` (`icon` \| `icon-text` \| `text`) | `icon-text` |
 | `data-lc-body-limit` | `bodyLimit` | `10000` |
+| `data-lc-turnstile` | `turnstileSiteKey` | — |
+| `data-lc-turnstile-theme` | `turnstileOptions.theme` (`auto` \| `light` \| `dark`) | widget light/dark mode |
+| `data-lc-turnstile-size` | `turnstileOptions.size` (`normal` \| `compact` \| `flexible`) | `normal` |
+| `data-lc-turnstile-appearance` | `turnstileOptions.appearance` (`always` \| `interaction-only`) | `always` |
+| `data-lc-turnstile-language` | `turnstileOptions.language` | browser language |
+
+The Turnstile rows only apply when `data-lc-turnstile` (the site key) is set. Cloudflare owns the challenge iframe, so `theme`, `size`, `appearance` and `language` are the only knobs; style the `.lc-turnstile` container instead.
 
 Signed-in authors may edit their own comments any time; a guest may edit only from the browser that stored the key returned when they posted, inside the anonymous window above.
 

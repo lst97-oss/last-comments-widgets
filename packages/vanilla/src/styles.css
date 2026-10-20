@@ -10,3 +10,15 @@
     }
   }
 }
+
+/* The reply panel clips its cards, so their shadows need room outside the clip
+   edge; `overflow: clip` (not `hidden`) is what honors the margin. The closed
+   state drops it, so nothing trails the fold while the panel collapses. */
+@scope (.lc-comments) {
+  [data-slot="accordion-content"] > .overflow-clip {
+    overflow-clip-margin: 16px;
+  }
+  [data-slot="accordion-content"][data-state="closed"] > .overflow-clip {
+    overflow-clip-margin: 0;
+  }
+}

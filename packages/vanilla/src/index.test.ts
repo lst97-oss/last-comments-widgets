@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildCommentTree, type Comment, renderMarkdown } from '@last-comments-widgets/client'
 import {
+  actionsMenuMarkup,
   applyVotes,
   canEditComment,
   errorMarkup,
@@ -15,6 +16,7 @@ import {
   pickActive,
   renderCommentNode,
   renderCommentTree,
+  resolveTurnstileConfig,
   sortToggleMarkup,
   transition,
   UI_INITIAL,
@@ -242,11 +244,29 @@ describe('vanilla renderer', () => {
       comment('own', null, 'mine', { userId: 'u1' }),
       comment('other', null, 'theirs', { userId: 'u2' }),
     ])
-    const own = renderCommentTree(tree, { viewerUserId: 'u1' })
-    expect(own).toContain('data-action="menu-edit" data-comment-id="own"')
-    expect(own).not.toContain('data-action="menu-edit" data-comment-id="other"')
-    const guest = renderCommentTree(tree)
-    expect(guest).not.toContain('data-action="menu-edit"')
+    // The edit entry lives in the lazily-built popover panel, so the entry set
+    // is what the test reads, not the row's static markup.
+    const ownPanel = actionsMenuMarkup(tree[0]?.comment as Comment, {
+      canEdit: true,
+      editing: false,
+      isOwn: true,
+      pending: false,
+    })
+    expect(ownPanel).toContain('data-action="menu-edit" data-comment-id="own"')
+    const otherPanel = actionsMenuMarkup(tree[1]?.comment as Comment, {
+      canEdit: false,
+      editing: false,
+      isOwn: false,
+      pending: false,
+    })
+    expect(otherPanel).not.toContain('data-action="menu-edit"')
+    const guestPanel = actionsMenuMarkup(tree[0]?.comment as Comment, {
+      canEdit: false,
+      editing: false,
+      isOwn: false,
+      pending: false,
+    })
+    expect(guestPanel).not.toContain('data-action="menu-edit"')
     const pinned = buildCommentTree([comment('p', null, 'hi', { pinnedAt: new Date().toISOString() })])
     expect(renderCommentTree(pinned)).toContain('pinned')
     const edited = buildCommentTree([comment('e', null, 'hi', { editedAt: new Date().toISOString() })])
@@ -322,6 +342,18 @@ describe('vanilla renderer', () => {
     })
   })
 
+  test('the reply guide hides through an attribute, and a bad value is dropped', () => {
+    expect(
+      parseThemeAttrs([
+        ['data-lc-theme-var-thread-guide-display', 'none'],
+        ['data-lc-theme-var-thread-indent', '0px'],
+      ]),
+    ).toEqual({ vars: { threadGuideDisplay: 'none', threadIndent: '0px' }, dark: {} })
+    // Host attributes are untrusted: a value outside the closed set is dropped
+    // so the documented default applies.
+    expect(parseThemeAttrs([['data-lc-theme-var-thread-guide-display', 'hiden']])).toBeUndefined()
+  })
+
   test('panel composer has preview toggle and full toolbar', () => {
     const tree = buildCommentTree([comment('p', null, 'hi')])
     const html = renderCommentNode(tree[0], 0, { replyTo: 'p' })
@@ -356,29 +388,51 @@ describe('vanilla renderer', () => {
   test('moderator rows render status-appropriate actions and votes', () => {
     const visible = buildCommentTree([comment('v', null, 'hi', { userId: 'u1', score: 2, viewerVote: 1 })])
     const admin = renderCommentTree(visible, { viewerUserId: 'u1', viewerRole: 'admin' })
-    expect(admin).toContain('data-moderation-action="hide"')
-    expect(admin).toContain('data-moderation-action="pin"')
-    expect(admin).toContain('data-moderation-action="delete"')
-    expect(admin).toContain('data-action="block-user"')
+    // The moderation entries live in the lazily-built popover panel.
+    const adminPanel = actionsMenuMarkup(visible[0]?.comment as Comment, {
+      canEdit: true,
+      editing: false,
+      isOwn: true,
+      viewerRole: 'admin',
+      pending: false,
+    })
+    expect(adminPanel).toContain('data-moderation-action="hide"')
+    expect(adminPanel).toContain('data-moderation-action="pin"')
+    expect(adminPanel).toContain('data-moderation-action="delete"')
+    expect(adminPanel).toContain('data-action="block-user"')
     // The moderation payload carries vote state, so moderators vote in place.
     expect(admin).toContain('data-action="vote"')
     expect(admin).toContain('aria-pressed="true"')
     expect(admin).toContain('>2</span>')
-    expect(admin).not.toContain('data-action="delete" data-comment-id="v"')
+    expect(adminPanel).not.toContain('data-action="delete" data-comment-id="v"')
 
     // Hidden, deleted and locked-page rows never offer a vote: the endpoint
     // rejects those clicks.
     const hidden = buildCommentTree([comment('h', null, 'hi', { status: 'hidden' })])
     const hiddenHtml = renderCommentTree(hidden, { viewerRole: 'moderator' })
-    expect(hiddenHtml).toContain('data-moderation-action="restore"')
-    expect(hiddenHtml).not.toContain('data-moderation-action="hide"')
+    const hiddenPanel = actionsMenuMarkup(hidden[0]?.comment as Comment, {
+      canEdit: false,
+      editing: false,
+      isOwn: false,
+      viewerRole: 'moderator',
+      pending: false,
+    })
+    expect(hiddenPanel).toContain('data-moderation-action="restore"')
+    expect(hiddenPanel).not.toContain('data-moderation-action="hide"')
     expect(hiddenHtml).toContain('>hidden</span>')
     expect(hiddenHtml).not.toContain('data-action="vote"')
 
     const deleted = buildCommentTree([comment('d', null, 'hi', { status: 'deleted' })])
     const deletedHtml = renderCommentTree(deleted, { viewerRole: 'moderator' })
-    expect(deletedHtml).toContain('data-moderation-action="restore"')
-    expect(deletedHtml).not.toContain('data-moderation-action="delete"')
+    const deletedPanel = actionsMenuMarkup(deleted[0]?.comment as Comment, {
+      canEdit: false,
+      editing: false,
+      isOwn: false,
+      viewerRole: 'moderator',
+      pending: false,
+    })
+    expect(deletedPanel).toContain('data-moderation-action="restore"')
+    expect(deletedPanel).not.toContain('data-moderation-action="delete"')
     expect(deletedHtml).toContain('>deleted</span>')
     expect(deletedHtml).not.toContain('data-action="reply"')
     expect(deletedHtml).not.toContain('data-action="vote"')
@@ -389,8 +443,14 @@ describe('vanilla renderer', () => {
 
   test('pending moderation disables the row buttons', () => {
     const tree = buildCommentTree([comment('p', null, 'hi')])
-    const html = renderCommentTree(tree, { viewerRole: 'admin', pendingModeration: { p: true } })
-    expect(html).toContain('data-comment-id="p" disabled')
+    const panel = actionsMenuMarkup(tree[0]?.comment as Comment, {
+      canEdit: false,
+      editing: false,
+      isOwn: false,
+      viewerRole: 'admin',
+      pending: true,
+    })
+    expect(panel).toContain('data-comment-id="p" disabled')
   })
 
   test('quote and bullet prefixes insert on lines', () => {
@@ -574,15 +634,42 @@ describe('row contract', () => {
   test('the actions menu carries the React entry set and copy', () => {
     const own = buildCommentTree([comment('p', null, 'hi', { userId: 'u1' })])
     const html = renderCommentTree(own, { viewerUserId: 'u1' })
-    expect(html).toContain('aria-haspopup="menu" aria-expanded="false" aria-label="More actions"')
-    expect(html).toContain('role="menu" class="lc-actions-menu')
-    expect(html).toContain('role="menuitem" tabindex="-1"')
-    expect(html).toContain('>Edit</button>')
-    expect(html).toContain('>Delete</button>')
-    expect(html).toContain('lc-action-destructive')
-    // The panel ships hidden; the trigger opens it in place.
-    expect(html).toContain(' hidden>')
+    // React renders the panel as a dialog popover that mounts only while it is
+    // open, so the row keeps the trigger alone and the panel is built on demand.
+    expect(html).toContain('aria-haspopup="dialog" aria-expanded="false" aria-label="More actions"')
+    expect(html).toContain('data-action="menu-toggle"')
+    expect(html).not.toContain('lc-actions-menu')
+    const panel = actionsMenuMarkup(own[0]?.comment as Comment, {
+      canEdit: true,
+      editing: false,
+      isOwn: true,
+      pending: false,
+    })
+    expect(panel).toContain('>Edit</button>')
+    expect(panel).toContain('>Delete</button>')
+    expect(panel).toContain('lc-action-destructive')
+    // The panel is a popover, so its entries carry no menu role.
+    expect(panel).not.toContain('role="menuitem"')
     const anonymous = renderCommentTree(buildCommentTree([comment('q', null, 'hi')]))
-    expect(anonymous).not.toContain('data-lc-menu')
+    expect(anonymous).not.toContain('data-action="menu-toggle"')
+  })
+})
+
+describe('resolveTurnstileConfig', () => {
+  test('follows the widget light/dark mode unless the host overrides the theme', () => {
+    expect(resolveTurnstileConfig(true)).toEqual({ theme: 'dark' })
+    expect(resolveTurnstileConfig(false)).toEqual({ theme: 'light' })
+    expect(resolveTurnstileConfig(true, { theme: 'light' })).toEqual({ theme: 'light' })
+    expect(resolveTurnstileConfig(false, { theme: 'auto' })).toEqual({ theme: 'auto' })
+  })
+
+  test('forwards the Cloudflare design knobs and omits unset ones', () => {
+    expect(resolveTurnstileConfig(false, { size: 'compact', appearance: 'interaction-only', language: 'de' })).toEqual({
+      theme: 'light',
+      size: 'compact',
+      appearance: 'interaction-only',
+      language: 'de',
+    })
+    expect(resolveTurnstileConfig(true, { size: 'flexible' })).toEqual({ theme: 'dark', size: 'flexible' })
   })
 })
