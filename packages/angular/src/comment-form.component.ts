@@ -1,8 +1,10 @@
 import type { ElementRef } from '@angular/core'
 import { Component, computed, input, type OnInit, output, signal, viewChild } from '@angular/core'
 import { DEFAULT_BODY_LIMIT, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
+import { buttonClass } from './button-classes'
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcTurnstileDirective } from './turnstile.directive'
+import type { TurnstileOptions } from './types'
 
 export type CommentSubmit = { body: string; authorName?: string; token?: string }
 
@@ -22,13 +24,7 @@ let formSeq = 0
       @if (parentId()) {
         <div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>Replying to this comment</span>
-          <button
-            type="button"
-            (click)="cancelReply.emit()"
-            class="h-7 rounded-[min(var(--radius-md),12px)] px-2.5 text-[length:calc(var(--lc-font-size,1rem)*0.8)] font-medium hover:bg-muted hover:text-foreground"
-          >
-            Cancel
-          </button>
+          <button type="button" (click)="cancelReply.emit()" [class]="ghostSmClass">Cancel</button>
         </div>
       }
       <div class="mb-1 flex flex-wrap items-center justify-end gap-0.5">
@@ -37,12 +33,7 @@ let formSeq = 0
             type="button"
             [attr.aria-pressed]="!preview()"
             (click)="preview.set(false)"
-            [class]="
-              'flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ' +
-              (!preview()
-                ? 'bg-secondary text-secondary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground')
-            "
+            [class]="preview() ? ghostSmClass : secondarySmClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -67,12 +58,7 @@ let formSeq = 0
             type="button"
             [attr.aria-pressed]="preview()"
             (click)="preview.set(true)"
-            [class]="
-              'flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ' +
-              (preview()
-                ? 'bg-secondary text-secondary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground')
-            "
+            [class]="preview() ? secondarySmClass : ghostSmClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -100,7 +86,7 @@ let formSeq = 0
             (click)="wrap('**', '**', 'bold')"
             title="Bold"
             aria-label="Bold"
-            class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            [class]="toolbarClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -122,7 +108,7 @@ let formSeq = 0
             (click)="wrap('*', '*', 'italic')"
             title="Italic"
             aria-label="Italic"
-            class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            [class]="toolbarClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -141,13 +127,7 @@ let formSeq = 0
               <line x1="15" x2="9" y1="4" y2="20" />
             </svg>
           </button>
-          <button
-            type="button"
-            (click)="prefix('> ', 'quote')"
-            title="Quote"
-            aria-label="Quote"
-            class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
+          <button type="button" (click)="prefix('> ', 'quote')" title="Quote" aria-label="Quote" [class]="toolbarClass">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
@@ -173,7 +153,7 @@ let formSeq = 0
             (click)="wrap('\`', '\`', 'code')"
             title="Code"
             aria-label="Code"
-            class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            [class]="toolbarClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -197,7 +177,7 @@ let formSeq = 0
             (click)="wrap('[', '](url)', 'link')"
             title="Link"
             aria-label="Link"
-            class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            [class]="toolbarClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -221,7 +201,7 @@ let formSeq = 0
             (click)="prefix('- ', 'item')"
             title="Bullet list"
             aria-label="Bullet list"
-            class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            [class]="toolbarClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -248,7 +228,7 @@ let formSeq = 0
             (click)="prefix('1. ', 'item')"
             title="Numbered list"
             aria-label="Numbered list"
-            class="rounded p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            [class]="toolbarClass"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -283,7 +263,7 @@ let formSeq = 0
           [attr.aria-label]="parentId() ? 'Reply body' : 'Comment body'"
           [attr.aria-describedby]="counterId"
           [attr.aria-invalid]="bodyTooLong() || null"
-          class="w-full border-0 bg-transparent px-1 font-sans text-sm focus-visible:outline-none"
+          [class]="textareaClass"
           [value]="body()"
           (input)="body.set($any($event.target).value)"
         ></textarea>
@@ -294,7 +274,14 @@ let formSeq = 0
         >{{ ' / ' + bodyLimit().toLocaleString() }}
       </p>
       @if (guest() && turnstileSiteKey()) {
-        <div [lcTurnstile]="turnstileSiteKey()" (token)="token.set($event)" (expired)="token.set(undefined)"></div>
+        <div
+          class="lc-turnstile"
+          [lcTurnstile]="turnstileSiteKey()"
+          [dark]="dark()"
+          [turnstileOptions]="turnstileOptions()"
+          (token)="token.set($event)"
+          (expired)="token.set(undefined)"
+        ></div>
       }
       @if (error(); as failure) {
         <lc-comment-error [info]="failure" (retry)="retrySubmit()" (signIn)="signIn.emit()" />
@@ -313,29 +300,26 @@ let formSeq = 0
             (input)="authorName.set($any($event.target).value)"
           />
         }
-        <p class="ml-auto hidden text-xs text-muted-foreground sm:block">
-          Styling with <span class="font-medium text-primary">Markdown</span> is supported
-        </p>
-        <!-- The reply form cancels from its header; a standalone editor needs this row. -->
-        @if (!parentId() && showCancel()) {
+        <div class="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p class="hidden text-xs text-muted-foreground sm:block">
+            Styling with <span class="font-medium text-primary">Markdown</span> is supported
+          </p>
+          <!-- The reply form cancels from its header; a standalone editor needs this row. -->
+          @if (!parentId() && showCancel()) {
+            <button type="button" [disabled]="submitting()" (click)="cancelReply.emit()" [class]="outlineSmClass">
+              Cancel
+            </button>
+          }
           <button
-            type="button"
-            [disabled]="submitting()"
-            (click)="cancelReply.emit()"
-            class="h-7 rounded-[min(var(--radius-md),12px)] border border-border px-2.5 text-[length:calc(var(--lc-font-size,1rem)*0.8)] font-medium hover:bg-muted disabled:opacity-50"
+            type="submit"
+            [disabled]="
+              submitting() || sessionPending() || bodyTooLong() || (guest() && turnstileSiteKey() ? !token() : false)
+            "
+            [class]="submitClass"
           >
-            Cancel
+            {{ submitText() }}
           </button>
-        }
-        <button
-          type="submit"
-          [disabled]="
-            submitting() || sessionPending() || bodyTooLong() || (guest() && turnstileSiteKey() ? !token() : false)
-          "
-          class="shrink-0 rounded-md bg-primary px-4 py-2 text-sm font-medium whitespace-nowrap text-primary-foreground disabled:opacity-50"
-        >
-          {{ submitText() }}
-        </button>
+        </div>
       </div>
     </form>
   `,
@@ -343,6 +327,9 @@ let formSeq = 0
 export class LcCommentFormComponent implements OnInit {
   guest = input(false)
   turnstileSiteKey = input<string | undefined>(undefined)
+  // Cloudflare's supported design knobs for the guest challenge.
+  dark = input(false)
+  turnstileOptions = input<TurnstileOptions | undefined>(undefined)
   parentId = input<string | null>(null)
   submitting = input(false)
   // Posting before the viewer identity resolves would guess `guest` on the wire.
@@ -365,6 +352,14 @@ export class LcCommentFormComponent implements OnInit {
   preview = signal(false)
   turnstile = viewChild(LcTurnstileDirective)
   box = viewChild<ElementRef<HTMLTextAreaElement>>('bodyEl')
+  // The Textarea primitive plus the call-site override the reference uses.
+  protected readonly textareaClass =
+    'flex field-sizing-content min-h-16 w-full rounded-lg border-input bg-transparent py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 border-0 bg-transparent px-1 focus-visible:ring-0'
+  protected readonly ghostSmClass = buttonClass('ghost', 'sm')
+  protected readonly secondarySmClass = buttonClass('secondary', 'sm')
+  protected readonly toolbarClass = buttonClass('ghost', 'icon-sm')
+  protected readonly outlineSmClass = buttonClass('outline', 'sm')
+  protected readonly submitClass = buttonClass('default', 'default')
 
   readonly bodyTooLong = computed(() => this.body().length > this.bodyLimit())
   readonly submitText = computed(() =>

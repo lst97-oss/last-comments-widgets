@@ -1,12 +1,6 @@
 import { Component, input, output } from '@angular/core'
 import type { ThreadSort } from '@last-comments-widgets/client'
-
-// Size/shape of the shadcn `sm` button; the toggle only switches variants.
-const BUTTON_CLASS =
-  'inline-flex shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent px-2.5 h-7 text-[length:calc(var(--lc-font-size,1rem)*0.8)] font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50'
-const ACTIVE_CLASS =
-  'bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)]'
-const IDLE_CLASS = 'hover:bg-muted hover:text-foreground'
+import { buttonClass } from './button-classes'
 
 // Sort toolbar: pinned rows lead every mode, these three order the unpinned ones.
 @Component({
@@ -19,7 +13,7 @@ const IDLE_CLASS = 'hover:bg-muted hover:text-foreground'
           type="button"
           [attr.aria-pressed]="value() === option.value"
           (click)="sortChange.emit(option.value)"
-          [class]="buttonClass(option.value)"
+          [class]="value() === option.value ? activeClass : idleClass"
         >
           {{ option.label }}
         </button>
@@ -30,14 +24,12 @@ const IDLE_CLASS = 'hover:bg-muted hover:text-foreground'
 export class LcThreadSortToggleComponent {
   readonly value = input.required<ThreadSort>()
   readonly sortChange = output<ThreadSort>()
+  protected readonly activeClass = buttonClass('secondary', 'sm')
+  protected readonly idleClass = buttonClass('ghost', 'sm')
 
   protected readonly options: readonly { value: ThreadSort; label: string }[] = [
     { value: 'newest', label: 'Newest' },
     { value: 'oldest', label: 'Oldest' },
     { value: 'best', label: 'Best' },
   ]
-
-  protected buttonClass(value: ThreadSort): string {
-    return `${BUTTON_CLASS} ${this.value() === value ? ACTIVE_CLASS : IDLE_CLASS}`
-  }
 }

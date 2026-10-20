@@ -55,7 +55,7 @@ const noopAsync: CommentSubmitHandler = async () => null
   template: `
     <section class="lc-comments grid gap-4" [class.dark]="dark()" [style]="themeStyle()" aria-label="Comments">
       @if (status() === 'loading') {
-        <lc-comment-skeletons [count]="3" />
+        <lc-comment-skeletons [count]="3" [readOnly]="true" />
       }
       @if (error(); as failure) {
         <lc-comment-error [info]="failure" (retry)="load()" (signIn)="signInFromError()" />
@@ -76,7 +76,7 @@ const noopAsync: CommentSubmitHandler = async () => null
         />
       }
       @if (loadingPage()) {
-        <lc-comment-skeletons [count]="2" />
+        <lc-comment-skeletons [count]="2" [readOnly]="true" />
       }
       @if (page() > 1 || hasMore() || roots().length > pageSize()) {
         <nav aria-label="Comments pagination" class="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -102,6 +102,16 @@ const noopAsync: CommentSubmitHandler = async () => null
           </button>
         </nav>
       }
+      <footer class="lc-footer mt-2 text-right text-xs text-muted-foreground">
+        Powered by
+        <a
+          class="underline underline-offset-4 hover:text-foreground"
+          href="https://github.com/lst97-oss/last-comments"
+          target="_blank"
+          rel="noreferrer"
+          >last-comments</a
+        >
+      </footer>
     </section>
   `,
 })

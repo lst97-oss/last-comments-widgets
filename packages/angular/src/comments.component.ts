@@ -1,5 +1,5 @@
-import { OverlayContainer } from '@angular/cdk/overlay'
-import { LucideChevronDown } from '@lucide/angular'
+import { CdkConnectedOverlay, type ConnectedPosition, OverlayContainer } from '@angular/cdk/overlay'
+import { LucideCheck, LucideChevronDown } from '@lucide/angular'
 import {
   afterNextRender,
   Component,
@@ -44,6 +44,7 @@ import {
   type ViewerSession,
   type WidgetTheme,
 } from '@last-comments-widgets/client'
+import { buttonClass } from './button-classes'
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
@@ -53,7 +54,14 @@ import { LcWidgetOverlayContainer } from './overlay-container'
 import { prefersDark, subscribeSystemTheme } from './theme-media'
 import { threadSignature } from './thread-guides'
 import { LcThreadSortToggleComponent } from './thread-sort-toggle.component'
-import { type ActionMode, applyVoteOverlay, type Theme, type VoteOverlay, resolvePageUrl } from './types'
+import {
+  type ActionMode,
+  applyVoteOverlay,
+  type Theme,
+  type TurnstileOptions,
+  type VoteOverlay,
+  resolvePageUrl,
+} from './types'
 import type { VoteEvent } from './vote-buttons.component'
 
 type Status = 'loading' | 'ready' | 'error'
@@ -77,17 +85,28 @@ type LoadParams = {
   fetchImpl: typeof fetch | undefined
 }
 
+// Identity menu classes: the same strings the React DropdownMenu primitives emit.
+const IDENTITY_MENU_CLASS =
+  'lc-identity-menu z-50 max-h-(--available-height) w-(--anchor-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground ring-1 ring-foreground/10 outline-none left-0 max-w-[calc(100vw-2rem)]'
+const IDENTITY_RADIO_CLASS =
+  "lc-identity-item relative flex cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground focus:**:text-accent-foreground data-inset:pl-7 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+const IDENTITY_ITEM_CLASS =
+  "lc-identity-item group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive"
+const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex items-center justify-center'
+
 // Root widget: comment list + guest/authed form + vote toggle/clear.
 // Voting needs the Better Auth cookie; cross-origin hosts must proxy
 // /api/comments same-origin (reference API sends no ACAO-credentials).
 @Component({
   selector: 'lc-comments',
   imports: [
+    CdkConnectedOverlay,
     LcCommentFormComponent,
     LcCommentListComponent,
     LcCommentErrorComponent,
     LcCommentSkeletonsComponent,
     LcThreadSortToggleComponent,
+    LucideCheck,
     LucideChevronDown,
   ],
   // Menus portal into the themed root, not <body>.
@@ -120,6 +139,8 @@ type LoadParams = {
       <lc-comment-form
         [guest]="guest()"
         [turnstileSiteKey]="turnstileSiteKey()"
+        [dark]="dark()"
+        [turnstileOptions]="turnstileOptions()"
         [parentId]="null"
         [submitting]="posting()"
         [sessionPending]="sessionLoading()"
@@ -133,81 +154,98 @@ type LoadParams = {
              anonymous/account switcher does not apply and the block stays empty. -->
         <div lcSignIn class="flex min-w-0 items-center gap-2 text-sm">
           @if (!moderator()) {
-            <span class="text-muted-foreground">Comment as</span>
-            <div #identityMenu class="relative">
-              <button
-                type="button"
-                aria-haspopup="menu"
-                [attr.aria-expanded]="identityOpen()"
-                [disabled]="sessionLoading() || signInPending() || signOutPending()"
-                (click)="identityOpen.set(!identityOpen())"
-                class="lc-identity-trigger inline-flex shrink-0 items-center justify-center gap-1 rounded-lg border border-border bg-background px-2.5 text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 h-7 rounded-[min(var(--radius-md),12px)] text-[length:calc(var(--lc-font-size,1rem)*0.8)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
-              >
-                @if (sessionLoading()) {
-                  <span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
-                } @else {
-                  <span class="label max-w-[10rem] truncate">{{ identityLabel() }}</span>
-                }
-                <svg lucideChevronDown aria-hidden="true"></svg>
-              </button>
-              @if (identityOpen()) {
-                <div
-                  role="menu"
-                  class="lc-identity-menu absolute left-0 mt-1 w-48 max-w-[calc(var(--spacing)*8)] rounded-lg border border-border bg-popover p-1 text-sm"
-                >
-                  <button
-                    type="button"
+            <span class="text-xs text-muted-foreground">Comment as</span>
+            <button
+              #identityOrigin
+              type="button"
+              aria-haspopup="menu"
+              [attr.aria-expanded]="identityOpen()"
+              [disabled]="sessionLoading() || signInPending() || signOutPending()"
+              (click)="identityOpen.set(!identityOpen())"
+              [class]="identityTriggerClass"
+            >
+              @if (sessionLoading()) {
+                <span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
+              } @else {
+                <span class="label max-w-[10rem] truncate">{{ identityLabel() }}</span>
+              }
+              <svg lucideChevronDown aria-hidden="true"></svg>
+            </button>
+            <ng-template
+              cdkConnectedOverlay
+              [cdkConnectedOverlayOrigin]="identityOrigin"
+              [cdkConnectedOverlayOpen]="identityOpen()"
+              [cdkConnectedOverlayPositions]="identityPositions"
+              (detach)="identityOpen.set(false)"
+              (overlayOutsideClick)="identityOpen.set(false)"
+            >
+              <div role="menu" [class]="identityMenuClass">
+                <div role="group">
+                  <div
                     role="menuitemradio"
+                    tabindex="-1"
                     [attr.aria-checked]="commentAs() === 'anonymous'"
                     (click)="selectIdentity('anonymous')"
-                    class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                    (keydown.enter)="selectIdentity('anonymous')"
+                    (keydown.space)="selectIdentity('anonymous'); $event.preventDefault()"
+                    [class]="identityRadioClass"
                   >
+                    <span [class]="identityIndicatorClass">
+                      @if (commentAs() === 'anonymous') {
+                        <svg lucideCheck aria-hidden="true"></svg>
+                      }
+                    </span>
                     Anonymous
-                  </button>
+                  </div>
                   @if (signedIn()) {
-                    <button
-                      type="button"
+                    <div
                       role="menuitemradio"
+                      tabindex="-1"
                       [attr.aria-checked]="commentAs() === 'account'"
                       (click)="selectIdentity('account')"
-                      class="lc-identity-item block w-full truncate rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                      (keydown.enter)="selectIdentity('account')"
+                      (keydown.space)="selectIdentity('account'); $event.preventDefault()"
+                      [class]="identityRadioClass"
                     >
+                      <span [class]="identityIndicatorClass">
+                        @if (commentAs() === 'account') {
+                          <svg lucideCheck aria-hidden="true"></svg>
+                        }
+                      </span>
                       {{ identityName() }} (you)
-                    </button>
+                    </div>
                   } @else if (safeSignInUrl(); as signInHref) {
-                    <a
-                      role="menuitem"
-                      [href]="signInHref"
-                      (click)="identityOpen.set(false)"
-                      class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                    <a role="menuitem" [href]="signInHref" (click)="identityOpen.set(false)" [class]="identityItemClass"
                       >Sign in…</a
                     >
                   } @else {
-                    <button
-                      type="button"
+                    <div
                       role="menuitem"
-                      [disabled]="signInPending()"
+                      tabindex="-1"
                       (click)="startOAuthSignIn()"
-                      class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
+                      (keydown.enter)="startOAuthSignIn()"
+                      (keydown.space)="startOAuthSignIn(); $event.preventDefault()"
+                      [class]="identityItemClass"
                     >
                       Sign in…
-                    </button>
-                  }
-                  @if (session() !== null) {
-                    <div role="separator" class="my-1 h-px bg-border"></div>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      [disabled]="signOutPending()"
-                      (click)="signOut()"
-                      class="lc-identity-item block w-full rounded-md px-2 py-1.5 text-left hover:bg-accent disabled:opacity-50"
-                    >
-                      Sign out
-                    </button>
+                    </div>
                   }
                 </div>
-              }
-            </div>
+                @if (session() !== null) {
+                  <div role="separator" class="-mx-1 my-1 h-px bg-border"></div>
+                  <div
+                    role="menuitem"
+                    tabindex="-1"
+                    (click)="signOut()"
+                    (keydown.enter)="signOut()"
+                    (keydown.space)="signOut(); $event.preventDefault()"
+                    [class]="identityItemClass"
+                  >
+                    Sign out
+                  </div>
+                }
+              </div>
+            </ng-template>
           }
         </div>
         @if (signInError(); as identityFailure) {
@@ -242,6 +280,8 @@ type LoadParams = {
           [nodes]="pageRoots()"
           [guest]="guest()"
           [turnstileSiteKey]="turnstileSiteKey()"
+          [dark]="dark()"
+          [turnstileOptions]="turnstileOptions()"
           [viewerUserId]="viewerIdentity()"
           [viewerRole]="viewerRole()"
           [hideVotes]="votesHidden()"
@@ -289,6 +329,16 @@ type LoadParams = {
           </button>
         </nav>
       }
+      <footer class="lc-footer mt-2 text-right text-xs text-muted-foreground">
+        Powered by
+        <a
+          class="underline underline-offset-4 hover:text-foreground"
+          href="https://github.com/lst97-oss/last-comments"
+          target="_blank"
+          rel="noreferrer"
+          >last-comments</a
+        >
+      </footer>
     </div>
   `,
 })
@@ -300,6 +350,8 @@ export class LcCommentsComponent {
   // instead of matching `pageUrl` against the site's (capped) page list.
   pageId = input<string | undefined>(undefined)
   turnstileSiteKey = input<string | undefined>(undefined)
+  // Cloudflare's supported design knobs for the guest challenge.
+  turnstileOptions = input<TurnstileOptions | undefined>(undefined)
   limit = input(20)
   theme = input<Theme>('system')
   themeVars = input<WidgetTheme | undefined>(undefined)
@@ -345,7 +397,15 @@ export class LcCommentsComponent {
   signInError = signal<ErrorInfo | null>(null)
   signOutPending = signal(false)
   loadingPage = signal(false)
-  identityMenu = viewChild<ElementRef<HTMLElement>>('identityMenu')
+  // The identity menu portals into the widget root, like the React DropdownMenu.
+  readonly identityTriggerClass = `${buttonClass('outline', 'sm')} lc-identity-trigger`
+  readonly identityMenuClass = IDENTITY_MENU_CLASS
+  readonly identityRadioClass = IDENTITY_RADIO_CLASS
+  readonly identityItemClass = IDENTITY_ITEM_CLASS
+  readonly identityIndicatorClass = IDENTITY_INDICATOR_CLASS
+  readonly identityPositions: ConnectedPosition[] = [
+    { originX: 'start', originY: 'bottom', overlayX: 'start', overlayY: 'top', offsetY: 4 },
+  ]
   // The composer keeps the draft on failure; the widget clears it after a save.
   composer = viewChild(LcCommentFormComponent)
 
@@ -450,22 +510,15 @@ export class LcCommentsComponent {
       )
       if (cleanup) this.#destroyRef.onDestroy(cleanup)
     })
-    // Menu dismissal listeners exist only while the menu is open, so idle page
-    // clicks never mark the widget dirty.
+    // The overlay dismisses itself on an outside click; Escape needs a listener
+    // because focus can still sit on the trigger.
     effect((onCleanup) => {
       if (!this.identityOpen() || typeof document === 'undefined') return
       const onKey = (event: KeyboardEvent) => {
         if (event.key === 'Escape') this.identityOpen.set(false)
       }
-      const onClick = (event: MouseEvent) => {
-        if (!this.identityMenu()?.nativeElement.contains(event.target as Node)) this.identityOpen.set(false)
-      }
       document.addEventListener('keydown', onKey)
-      document.addEventListener('click', onClick)
-      onCleanup(() => {
-        document.removeEventListener('keydown', onKey)
-        document.removeEventListener('click', onClick)
-      })
+      onCleanup(() => document.removeEventListener('keydown', onKey))
     })
   }
 
