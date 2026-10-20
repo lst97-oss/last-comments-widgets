@@ -15,6 +15,7 @@ pnpm-debug.log*
 lerna-debug.log*
 tmp/
 .tmp/
+.angular/
 *.tsbuildinfo
 .eslintcache
 .npmrc

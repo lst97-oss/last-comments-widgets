@@ -1,0 +1,13 @@
+{
+  "/api/moderation": {
+    "target": "http://localhost:3000",
+    "secure": false,
+    "changeOrigin": true,
+    "headers": { "origin": "http://localhost:3000" }
+  },
+  "/api": {
+    "target": "http://localhost:3000",
+    "secure": false,
+    "changeOrigin": true
+  }
+}
