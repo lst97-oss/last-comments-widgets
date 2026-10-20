@@ -5,7 +5,6 @@ import {
   type ErrorInfo,
   formatRelativeTime,
   type ModerationAction,
-  renderMarkdown,
   safeUrl,
   type ThreadNode,
   type ViewerRole,
@@ -30,6 +29,7 @@ import {
 import { type ComponentProps, memo, type ReactNode, useReducer } from 'react'
 import { CommentForm, type CommentFormInput } from './CommentForm'
 import { canEditComment } from './editGate'
+import { Markdown } from './Markdown'
 import type { ActionMode } from './types'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion'
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount, AvatarImage } from './ui/avatar'
@@ -554,11 +554,7 @@ export function CommentItem({
               />
             </div>
           ) : (
-            <div
-              className="lc-markdown my-3 font-sans text-sm"
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by shared renderMarkdown (strips raw HTML, allowlists http(s)/mailto links)
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(comment.bodyMarkdown) }}
-            />
+            <Markdown source={comment.bodyMarkdown} className="lc-markdown my-3 font-sans text-sm" />
           )}
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-1 text-sm">

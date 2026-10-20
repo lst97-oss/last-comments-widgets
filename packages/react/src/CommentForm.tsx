@@ -1,7 +1,8 @@
-import { DEFAULT_BODY_LIMIT, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
-import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-react'
+import { DEFAULT_BODY_LIMIT, type ErrorInfo } from '@last-comments-widgets/client'
+import { Bold, Code, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from 'lucide-react'
 import { type ReactNode, useId, useRef, useState } from 'react'
 import { CommentError } from './CommentError'
+import { Markdown } from './Markdown'
 import { Turnstile, type TurnstileInstance } from './Turnstile'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -43,17 +44,20 @@ function ComposerToolbar({
   onPreview,
   onInsert,
   onPrefix,
+  onCodeBlock,
 }: {
   preview: boolean
   onPreview: (value: boolean) => void
   onInsert: InsertFn
   onPrefix: PrefixFn
+  onCodeBlock: () => void
 }) {
   const tools = [
     { label: 'Bold', icon: <Bold />, action: () => onInsert('**', '**', 'bold') },
     { label: 'Italic', icon: <Italic />, action: () => onInsert('*', '*', 'italic') },
     { label: 'Quote', icon: <Quote />, action: () => onPrefix('> ', 'quote') },
-    { label: 'Code', icon: <CodeXml />, action: () => onInsert('`', '`', 'code') },
+    { label: 'Inline code', icon: <Code />, action: () => onInsert('`', '`', 'code') },
+    { label: 'Code block', icon: <CodeXml />, action: onCodeBlock },
     { label: 'Link', icon: <Link2 />, action: () => onInsert('[', '](url)', 'link') },
     { label: 'Bullet list', icon: <List />, action: () => onPrefix('- ', 'item') },
     { label: 'Numbered list', icon: <ListOrdered />, action: () => onPrefix('1. ', 'item') },
@@ -156,6 +160,27 @@ export function CommentForm({
     })
   }
 
+  function insertCodeBlock() {
+    const el = bodyRef.current
+    if (!el) return
+    const start = el.selectionStart ?? body.length
+    const end = el.selectionEnd ?? body.length
+    const selected = body.slice(start, end) || 'code'
+    // Keep the fence on its own lines when the caret sits mid-line.
+    const leading = start > 0 && body[start - 1] !== '\n' ? '\n' : ''
+    const trailing = end < body.length && body[end] !== '\n' ? '\n' : ''
+    const language = 'language'
+    const fence = '```'
+    const text = `${leading}${fence}${language}\n${selected}\n${fence}${trailing}`
+    setBody(`${body.slice(0, start)}${text}${body.slice(end)}`)
+    requestAnimationFrame(() => {
+      el.focus()
+      // Selecting the placeholder lets the author type a language immediately.
+      const languageStart = start + leading.length + fence.length
+      el.setSelectionRange(languageStart, languageStart + language.length)
+    })
+  }
+
   const bodyTooLong = body.length > bodyLimit
 
   // Form Action: the fields are controlled, so the action reads state rather
@@ -187,14 +212,18 @@ export function CommentForm({
           )}
         </div>
       )}
-      <ComposerToolbar preview={preview} onPreview={setPreview} onInsert={insert} onPrefix={prefixLines} />
+      <ComposerToolbar
+        preview={preview}
+        onPreview={setPreview}
+        onInsert={insert}
+        onPrefix={prefixLines}
+        onCodeBlock={insertCodeBlock}
+      />
       {preview ? (
-        <div
+        <Markdown
+          source={body}
           className="lc-markdown min-h-24 px-1 py-2 font-sans text-sm"
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized by shared renderMarkdown (strips raw HTML, allowlists http(s)/mailto links)
-          dangerouslySetInnerHTML={{
-            __html: renderMarkdown(body) || '<p class="text-muted-foreground">Nothing to preview.</p>',
-          }}
+          empty={<p className="text-muted-foreground">Nothing to preview.</p>}
         />
       ) : (
         <Textarea

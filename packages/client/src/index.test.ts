@@ -319,6 +319,12 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown('*i* ~~s~~ `c`\nnext')).toContain('<em>i</em>')
     expect(renderMarkdown('| a |\n| - |\n| b |')).toContain('<table>')
   })
+
+  test('leaves fenced code as the language-classed fallback the highlighter upgrades', () => {
+    const html = renderMarkdown('```ts\nconst x = 1\n```')
+    expect(html).toContain('<pre><code class="language-ts">')
+    expect(html).toContain('const x = 1')
+  })
 })
 
 describe('editOwnComment/deleteOwnComment', () => {
