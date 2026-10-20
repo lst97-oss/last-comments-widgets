@@ -221,7 +221,8 @@
       display: contents;
     }
 
-    .lc-comment {
+    .lc-comment,
+    .lc-comment-skeleton {
       background: var(--card);
       color: var(--card-foreground);
       border: var(--lc-comment-border, 0) solid var(--border);
