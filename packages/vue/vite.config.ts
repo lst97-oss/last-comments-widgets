@@ -15,15 +15,7 @@ export default defineConfig({
     // Ship the latest ratified ECMAScript standard (see the repo tsconfig).
     target: 'es2025',
     rollupOptions: {
-      external: [
-        'vue',
-        'vue-turnstile',
-        'lucide-vue-next',
-        'reka-ui',
-        '@last-comments-widgets/client',
-        'clsx',
-        'tailwind-merge',
-      ],
+      external: ['vue', '@lucide/vue', 'reka-ui', '@last-comments-widgets/client', 'clsx', 'tailwind-merge'],
     },
   },
 })

@@ -51,9 +51,8 @@
     "@last-comments-widgets/client": "workspace:*",
     "clsx": "^2.1.0",
     "reka-ui": "^2.11.0",
-    "lucide-vue-next": "^1.0.0",
-    "tailwind-merge": "^3.0.0",
-    "vue-turnstile": "^1.0.0"
+    "@lucide/vue": "^1.60.0",
+    "tailwind-merge": "^3.0.0"
   },
   "peerDependencies": {
     "vue": "~3.5.44"
