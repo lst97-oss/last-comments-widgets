@@ -806,6 +806,17 @@ export function Comments({
               onNext={goNextClick}
             />
           )}
+          <footer className="lc-footer mt-2 text-right text-xs text-muted-foreground">
+            Powered by{' '}
+            <a
+              className="underline underline-offset-4 hover:text-foreground"
+              href="https://github.com/lst97-oss/last-comments"
+              target="_blank"
+              rel="noreferrer"
+            >
+              last-comments
+            </a>
+          </footer>
         </div>
       </TurnstileConfigContext>
     </WidgetRootContext>

@@ -262,21 +262,23 @@ export function CommentForm({
             className="w-32 min-w-0 border-0 bg-transparent px-1 focus-visible:ring-0 sm:w-40"
           />
         )}
-        <p className="ml-auto hidden text-xs text-muted-foreground sm:block">
-          Styling with <span className="font-medium text-primary">Markdown</span> is supported
-        </p>
-        {/* The reply form cancels from its header; a standalone editor needs this row. */}
-        {!parentId && onCancelReply && (
-          <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onCancelReply}>
-            Cancel
+        <div className="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            Styling with <span className="font-medium text-primary">Markdown</span> is supported
+          </p>
+          {/* The reply form cancels from its header; a standalone editor needs this row. */}
+          {!parentId && onCancelReply && (
+            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onCancelReply}>
+              Cancel
+            </Button>
+          )}
+          <Button
+            type="submit"
+            disabled={pending || bodyTooLong || identityPending || (guest && siteKey ? !token : false)}
+          >
+            {pending ? 'Posting…' : (submitLabel ?? (parentId ? 'Post reply' : 'Post comment'))}
           </Button>
-        )}
-        <Button
-          type="submit"
-          disabled={pending || bodyTooLong || identityPending || (guest && siteKey ? !token : false)}
-        >
-          {pending ? 'Posting…' : (submitLabel ?? (parentId ? 'Post reply' : 'Post comment'))}
-        </Button>
+        </div>
       </div>
     </form>
   )
