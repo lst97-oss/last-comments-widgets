@@ -1,6 +1,6 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
-import { cn } from 'cn'
 import { use } from 'react'
+import { cn } from '../lib/utils'
 import { WidgetRootContext } from '../WidgetRootContext'
 
 // Portaled popups stay inside the widget root so they inherit its theme vars

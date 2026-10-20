@@ -10,7 +10,6 @@ import {
   type ViewerRole,
   type VoteValue,
 } from '@last-comments-widgets/client'
-import { cn } from 'cn'
 import {
   Ban,
   CircleCheck,
@@ -29,6 +28,7 @@ import {
 import { type ComponentProps, memo, type ReactNode, useReducer } from 'react'
 import { CommentForm, type CommentFormInput } from './CommentForm'
 import { canEditComment } from './editGate'
+import { cn } from './lib/utils'
 import { Markdown } from './Markdown'
 import type { ActionMode } from './types'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion'
