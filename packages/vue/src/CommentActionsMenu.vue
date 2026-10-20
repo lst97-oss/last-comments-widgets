@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Comment, ModerationAction } from '@last-comments-widgets/client'
-import { Ban, CircleCheck, EllipsisVertical, Eye, EyeOff, Pencil, Pin, PinOff, Trash2 } from 'lucide-vue-next'
+import { Ban, CircleCheck, EllipsisVertical, Eye, EyeOff, Pencil, Pin, PinOff, Trash2 } from '@lucide/vue'
 import { PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed } from 'vue'
 import { buttonClass } from './lib/button'

@@ -11,7 +11,7 @@ import {
   type VoteValue,
 } from '@last-comments-widgets/client'
 import { AccordionContent, AccordionHeader, AccordionItem, AccordionRoot, AccordionTrigger } from 'reka-ui'
-import { Ban, ChevronDown, ChevronUp, Minus, Plus, Reply } from 'lucide-vue-next'
+import { Ban, ChevronDown, ChevronUp, Minus, Plus, Reply } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import LcAvatar from './Avatar.vue'
 import CommentActionsMenu from './CommentActionsMenu.vue'
@@ -22,6 +22,7 @@ import VoteButtons from './VoteButtons.vue'
 import { badgeClass } from './lib/badge'
 import { buttonClass } from './lib/button'
 import { ITEM_INITIAL, type ItemAction, type ItemState, itemReducer } from './lib/itemState'
+import type { TurnstileOptions } from './lib/turnstile'
 import { type ActionMode, canEditComment } from './types'
 
 export type CommentFormInput = {
@@ -57,6 +58,7 @@ const props = defineProps<{
   onDelete: (commentId: string) => Promise<void>
   onReplySubmit?: (commentId: string, input: CommentFormInput) => Promise<ErrorInfo | null>
   replySiteKey?: string
+  turnstileOptions?: TurnstileOptions
   replyGuest?: boolean
   onCloseReply?: () => void
   onModerate?: (commentId: string, action: ModerationAction) => void
@@ -248,6 +250,7 @@ function toggleReply() {
       <div v-else-if="!props.readOnly && props.replyTo === comment.id && props.onReplySubmit" class="my-3">
         <CommentForm
           :site-key="props.replySiteKey"
+          :turnstile-options="props.turnstileOptions"
           :guest="props.replyGuest ?? true"
           :dark="props.dark"
           :parent-id="comment.id"
@@ -284,14 +287,14 @@ function toggleReply() {
         type="single"
         collapsible
         :default-value="comment.id"
-        class="mt-2"
+        class="mt-2 flex w-full flex-col"
         data-lc-replies
       >
         <AccordionItem :value="comment.id" class="border-0">
           <div style="padding-inline-start: 16px">
-            <AccordionHeader>
+            <AccordionHeader class="flex">
               <AccordionTrigger
-                class="lc-replies-trigger group/accordion-trigger relative flex flex-1 items-center justify-between rounded-lg border border-transparent py-1 text-left text-sm font-medium transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                class="lc-replies-trigger group/accordion-trigger relative flex flex-1 items-center justify-between rounded-lg border border-transparent py-1 text-left text-sm font-medium transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground"
               >
                 <span class="flex min-w-0 items-center gap-2 group-aria-expanded/accordion-trigger:hidden">
                   <ReplyAvatarStack :nodes="props.node.children" />
@@ -314,41 +317,40 @@ function toggleReply() {
               </AccordionTrigger>
             </AccordionHeader>
             <AccordionContent class="pt-1" data-slot="accordion-content">
-              <div class="grid grid-cols-1 gap-4">
-                <CommentList
-                  :nodes="props.node.children as ThreadNode[]"
-                  :depth="props.depth + 1"
-                  :viewer-user-id="props.viewerUserId"
-                  :viewer-role="props.viewerRole"
-                  :hide-votes="props.hideVotes"
-                  :pending-moderation="props.pendingModeration"
-                  :anon-window-minutes="props.anonWindowMinutes"
-                  :has-edit-key="props.hasEditKey"
-                  :has-edit-keys="props.hasEditKeys"
-                  :read-only="props.readOnly"
-                  :action-mode="actionMode"
-                  :body-limit="bodyLimit"
-                  :parent-author-name="comment.authorName"
-                  :reply-to="props.replyTo"
-                  :dark="props.dark"
-                  :sign-in-href="props.signInHref"
-                  :on-sign-in="props.onSignIn"
-                  :on-vote="props.onVote"
-                  :on-reply="props.onReply"
-                  :on-edit="props.onEdit"
-                  :on-delete="props.onDelete"
-                  :on-reply-submit="props.onReplySubmit"
-                  :reply-site-key="props.replySiteKey"
-                  :reply-guest="props.replyGuest"
-                  :on-close-reply="props.onCloseReply"
-                  :on-moderate="props.onModerate"
-                  :on-block-user="props.onBlockUser"
-                >
-                  <template v-if="$slots.signIn" #signIn>
-                    <slot name="signIn" />
-                  </template>
-                </CommentList>
-              </div>
+              <CommentList
+                :nodes="props.node.children as ThreadNode[]"
+                :depth="props.depth + 1"
+                :viewer-user-id="props.viewerUserId"
+                :viewer-role="props.viewerRole"
+                :hide-votes="props.hideVotes"
+                :pending-moderation="props.pendingModeration"
+                :anon-window-minutes="props.anonWindowMinutes"
+                :has-edit-key="props.hasEditKey"
+                :has-edit-keys="props.hasEditKeys"
+                :read-only="props.readOnly"
+                :action-mode="actionMode"
+                :body-limit="bodyLimit"
+                :parent-author-name="comment.authorName"
+                :reply-to="props.replyTo"
+                :dark="props.dark"
+                :sign-in-href="props.signInHref"
+                :on-sign-in="props.onSignIn"
+                :on-vote="props.onVote"
+                :on-reply="props.onReply"
+                :on-edit="props.onEdit"
+                :on-delete="props.onDelete"
+                :on-reply-submit="props.onReplySubmit"
+                :reply-site-key="props.replySiteKey"
+                :turnstile-options="props.turnstileOptions"
+                :reply-guest="props.replyGuest"
+                :on-close-reply="props.onCloseReply"
+                :on-moderate="props.onModerate"
+                :on-block-user="props.onBlockUser"
+              >
+                <template v-if="$slots.signIn" #signIn>
+                  <slot name="signIn" />
+                </template>
+              </CommentList>
             </AccordionContent>
           </div>
         </AccordionItem>

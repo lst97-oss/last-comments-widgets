@@ -505,6 +505,7 @@ defineExpose({ refresh })
 
     <CommentForm
       :site-key="props.turnstileSiteKey"
+      :turnstile-options="props.turnstileOptions"
       :guest="guest"
       :dark="dark"
       :session-pending="sessionStatus === 'loading'"
@@ -618,6 +619,7 @@ defineExpose({ refresh })
           :on-delete="remove"
           :on-reply-submit="submitReply"
           :reply-site-key="props.turnstileSiteKey"
+          :turnstile-options="props.turnstileOptions"
           :reply-guest="guest"
           :on-close-reply="cancelReply"
           :on-moderate="moderate"
@@ -657,5 +659,15 @@ defineExpose({ refresh })
         @next="nextPage"
       />
     </template>
+    <footer class="lc-footer mt-2 text-right text-xs text-muted-foreground">
+      Powered by
+      <a
+        class="underline underline-offset-4 hover:text-foreground"
+        href="https://github.com/lst97-oss/last-comments"
+        target="_blank"
+        rel="noreferrer"
+        >last-comments</a
+      >
+    </footer>
   </section>
 </template>

@@ -101,7 +101,7 @@ watch(
   >
     <ThreadSortToggle v-if="status !== 'error' && roots.length > 0" :value="sort" :on-change="handleSortChange" />
     <div v-if="status === 'loading'" class="grid gap-3">
-      <CommentSkeleton :count="3" />
+      <CommentSkeleton :count="3" read-only />
     </div>
     <CommentError v-else-if="errorInfo" :info="errorInfo" @retry="loadFirstPage" />
     <p v-else-if="pageRoots.length === 0 && !loadingPage" class="text-sm text-muted-foreground">No comments yet.</p>
@@ -120,7 +120,7 @@ watch(
         />
       </section>
       <div v-if="loadingPage" class="grid gap-3">
-        <CommentSkeleton :count="2" />
+        <CommentSkeleton :count="2" read-only />
       </div>
       <CommentsPager
         :page="page"
@@ -133,5 +133,15 @@ watch(
         @next="nextPage"
       />
     </template>
+    <footer class="lc-footer mt-2 text-right text-xs text-muted-foreground">
+      Powered by
+      <a
+        class="underline underline-offset-4 hover:text-foreground"
+        href="https://github.com/lst97-oss/last-comments"
+        target="_blank"
+        rel="noreferrer"
+        >last-comments</a
+      >
+    </footer>
   </section>
 </template>
