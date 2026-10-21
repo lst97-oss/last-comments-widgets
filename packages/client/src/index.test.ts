@@ -325,6 +325,28 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<pre><code class="language-ts">')
     expect(html).toContain('const x = 1')
   })
+
+  test('renders markdown images lazily, without a referrer, linked to full size', () => {
+    const html = renderMarkdown('![a](https://x.test/y.jpg "t")')
+    expect(html).toContain(
+      '<a href="https://x.test/y.jpg"><img src="https://x.test/y.jpg" alt="a" title="t" loading="lazy" decoding="async" referrerpolicy="no-referrer" />',
+    )
+  })
+
+  test('keeps an authored link on an image instead of nesting anchors', () => {
+    const html = renderMarkdown('[![a](https://x.test/i.jpg)](https://x.test/page)')
+    expect(html).toContain('<a href="https://x.test/page"><img')
+    expect(html).not.toContain('<a href="https://x.test/i.jpg">')
+    expect(html.match(/<a /g)).toHaveLength(1)
+  })
+
+  test('falls back to the alt text for images that can never load', () => {
+    for (const source of ['![a](javascript:alert(1))', '![a](data:image/png;base64,x)', '![a](mailto:x@y.z)']) {
+      const html = renderMarkdown(source)
+      expect(html).not.toContain('<img')
+      expect(html).toContain('a')
+    }
+  })
 })
 
 describe('editOwnComment/deleteOwnComment', () => {
@@ -875,12 +897,22 @@ describe('loadThreadWindow', () => {
 })
 
 describe('describeError', () => {
-  test('keeps the API message for a specific code and adds its title and action', () => {
+  test('uses the curated message for a specific code and adds its title and action', () => {
     const info = describeError(new ApiError('PAGE_LOCKED', 'Commenting is paused.', 409))
     expect(info).toEqual({
       code: 'PAGE_LOCKED',
       title: 'Comments are closed on this page',
-      message: 'Commenting is paused.',
+      message: 'New comments, replies and votes are disabled.',
+      action: 'none',
+    })
+  })
+
+  test('tells a blocked user they are blocked and to contact the admin', () => {
+    const info = describeError(new ApiError('USER_BLOCKED', 'You cannot comment on this site', 403))
+    expect(info).toEqual({
+      code: 'USER_BLOCKED',
+      title: "You're blocked from commenting here",
+      message: 'Your account is blocked from commenting on this site. Contact the site admin for assistance.',
       action: 'none',
     })
   })

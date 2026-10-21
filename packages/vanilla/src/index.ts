@@ -535,6 +535,31 @@ function replyGroup(node: ThreadNode, depth: number, options: CommentNodeOptions
     </div>`
 }
 
+// A removed comment keeps its place in the thread: a deleted row is anonymised
+// like Reddit, a hidden row says it is under review. Replies stay visible.
+function renderPlaceholder(node: ThreadNode, depth: number, options: CommentNodeOptions): string {
+  const { comment, children } = node
+  const deleted = comment.status === 'deleted'
+  const id = escapeHtml(comment.id)
+  const author = deleted
+    ? '<span class="text-sm text-muted-foreground">[deleted]</span>'
+    : `${avatarMarkup(comment.authorName, safeUrl(comment.avatarUrl) ?? null)}<span class="min-w-0 truncate font-medium">${escapeHtml(comment.authorName)}</span>`
+  const caption =
+    depth > 0 && options.parentAuthorName && !deleted
+      ? `<p class="mt-1 text-xs text-muted-foreground">Replying to <span class="font-medium text-foreground">@${escapeHtml(options.parentAuthorName)}</span></p>`
+      : ''
+  const body = deleted ? '[deleted]' : 'This comment is under review.'
+  return `<article class="lc-comment${depth > 0 ? ' lc-reply' : ''}" data-depth="${depth}" data-comment-id="${id}" data-comment-depth="${depth}" data-lc-placeholder="${deleted ? 'deleted' : 'under-review'}">
+  <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+    ${author}
+    <time datetime="${escapeHtml(comment.createdAt)}" title="${escapeHtml(new Date(comment.createdAt).toLocaleString())}" class="text-xs text-muted-foreground">${escapeHtml(formatRelativeTime(comment.createdAt))}</time>
+  </div>
+  ${caption}
+  <p class="my-3 text-sm text-muted-foreground">${body}</p>
+  ${children.length > 0 ? replyGroup(node, depth, options) : ''}
+</article>`
+}
+
 export function renderCommentNode(node: ThreadNode, depth: number, options: CommentNodeOptions = {}): string {
   const { comment, children } = node
   const {
@@ -552,6 +577,9 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
     submitDisabled = false,
     parentAuthorName,
   } = options
+  // Removed comments read as placeholders in the normal view; moderators keep
+  // the body so they can still judge a restore.
+  if (!viewerRole && comment.status !== 'visible') return renderPlaceholder(node, depth, options)
   const item = items[comment.id] ?? ITEM_INITIAL
   const { editing, saving, editError, replying, replyError, collapsedOverride } = item
   const id = escapeHtml(comment.id)
@@ -2178,7 +2206,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     ui = transition(ui, { type: 'error', value: null })
     try {
       await client.deleteOwnComment(commentId)
-      comments = comments.filter((c) => c.id !== commentId)
+      // Keep the row as a tombstone: the thread keeps its shape and the normal
+      // view renders the deleted placeholder instead of the body.
+      comments = comments.map((c) => (c.id === commentId ? { ...c, status: 'deleted' } : c))
       forgetEditKey(commentId)
       ui = transition(ui, { type: 'edit/close', id: commentId })
     } catch (err) {

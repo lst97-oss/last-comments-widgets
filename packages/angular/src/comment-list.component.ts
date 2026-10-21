@@ -102,357 +102,390 @@ function initials(name: string): string {
       [attr.data-depth]="depth()"
       [attr.data-comment-id]="c.id"
       [attr.data-comment-depth]="depth()"
+      [attr.data-lc-placeholder]="placeholder() ? (c.status === 'deleted' ? 'deleted' : 'under-review') : null"
     >
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <button
-          type="button"
-          [class]="collapseClass"
-          [attr.aria-expanded]="!collapsed()"
-          [attr.aria-label]="(collapsed() ? 'Expand' : 'Collapse') + ' comment by ' + c.authorName"
-          (click)="dispatch({ type: 'collapse/toggle', value: !collapsed() })"
-        >
-          @if (collapsed()) {
-            <svg lucidePlus [size]="12"></svg>
+      @if (placeholder()) {
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+          @if (c.status === 'deleted') {
+            <span class="text-sm text-muted-foreground">[deleted]</span>
           } @else {
-            <svg lucideMinus [size]="12"></svg>
-          }
-        </button>
-        <span [class]="avatarClass" data-slot="avatar" data-size="sm">
-          @if (avatarUrl(); as avatarSrc) {
-            <img
-              [src]="avatarSrc"
-              [alt]="c.authorName"
-              referrerpolicy="no-referrer"
-              loading="lazy"
-              decoding="async"
-              class="aspect-square size-full rounded-full object-cover"
-            />
-          }
-          <span [class]="avatarFallbackClass">{{ initialsLabel() }}</span>
-        </span>
-        <span class="min-w-0 truncate font-medium" [class.text-primary]="c.authorRole === 'admin'">{{
-          c.authorName
-        }}</span>
-        @if (c.authorRole === 'admin') {
-          <span [class]="adminBadgeClass">Admin</span>
-        }
-        <!-- Moderation rows carry the block state; the public wire shape omits it. -->
-        @if (c.userBlocked) {
-          <span [class]="blockedBadgeClass">
-            <svg lucideBan [size]="12"></svg>
-            blocked
-          </span>
-        }
-        <!-- Ages are computed at render, not on a timer: they refresh with the next render. -->
-        <time [attr.dateTime]="c.createdAt" [attr.title]="dateLabel()" class="text-xs text-muted-foreground">{{
-          relativeTime()
-        }}</time>
-        @if (c.editedAt) {
-          <span class="text-xs text-muted-foreground" [attr.title]="editedLabel()">edited</span>
-        }
-        @if (c.pinnedAt) {
-          <span class="text-xs text-muted-foreground">pinned</span>
-        }
-        @if (c.status === 'hidden') {
-          <span [class]="hiddenBadgeClass">hidden</span>
-        }
-        @if (c.status === 'deleted') {
-          <span [class]="deletedBadgeClass">deleted</span>
-        }
-        @if (showMenu()) {
-          <button
-            #actionsOrigin
-            type="button"
-            [class]="actionsTriggerClass"
-            aria-label="More actions"
-            aria-haspopup="dialog"
-            [attr.aria-expanded]="actionsOpen()"
-            (click)="actionsOpen.set(!actionsOpen())"
-          >
-            <svg lucideEllipsisVertical [size]="12"></svg>
-          </button>
-          <ng-template
-            cdkConnectedOverlay
-            [cdkConnectedOverlayOrigin]="actionsOrigin"
-            [cdkConnectedOverlayOpen]="actionsOpen()"
-            [cdkConnectedOverlayPositions]="actionsPositions"
-            (detach)="actionsOpen.set(false)"
-            (overlayOutsideClick)="actionsOpen.set(false)"
-          >
-            <div role="dialog" cdkTrapFocus [cdkTrapFocusAutoCapture]="true" [class]="actionsMenuClass">
-              @if (canEdit() && !state.editing) {
-                <button type="button" [class]="menuItemClass" (click)="actionsOpen.set(false); openEditor()">
-                  <svg lucidePencil [size]="16"></svg>
-                  Edit
-                </button>
+            <span [class]="avatarClass" data-slot="avatar" data-size="sm">
+              @if (avatarUrl(); as avatarSrc) {
+                <img
+                  [src]="avatarSrc"
+                  [alt]="c.authorName"
+                  referrerpolicy="no-referrer"
+                  loading="lazy"
+                  decoding="async"
+                  class="aspect-square size-full rounded-full object-cover"
+                />
               }
-              @if (own() && !viewerRole() && !state.editing) {
-                <button
-                  type="button"
-                  [class]="menuDestructiveClass"
-                  (click)="actionsOpen.set(false); deleted.emit(c.id)"
-                >
-                  <svg lucideTrash2 [size]="16"></svg>
-                  Delete
-                </button>
-              }
-              @if (viewerRole()) {
-                @if (c.status === 'visible') {
-                  <button
-                    type="button"
-                    [disabled]="moderationPending()"
-                    [class]="menuItemClass"
-                    (click)="actionsOpen.set(false); moderate.emit({ comment: c, action: 'hide' })"
-                  >
-                    <svg lucideEyeOff [size]="16"></svg>
-                    Hide
-                  </button>
-                } @else {
-                  <button
-                    type="button"
-                    [disabled]="moderationPending()"
-                    [class]="menuItemClass"
-                    (click)="actionsOpen.set(false); moderate.emit({ comment: c, action: 'restore' })"
-                  >
-                    <svg lucideEye [size]="16"></svg>
-                    Restore
-                  </button>
-                }
-                @if (c.status === 'visible') {
-                  <button
-                    type="button"
-                    [disabled]="moderationPending()"
-                    [class]="menuItemClass"
-                    (click)="
-                      actionsOpen.set(false); moderate.emit({ comment: c, action: c.pinnedAt ? 'unpin' : 'pin' })
-                    "
-                  >
-                    @if (c.pinnedAt) {
-                      <svg lucidePinOff [size]="16"></svg>
-                      Unpin
-                    } @else {
-                      <svg lucidePin [size]="16"></svg>
-                      Pin
-                    }
-                  </button>
-                }
-                @if (c.status !== 'deleted') {
-                  <button
-                    type="button"
-                    [disabled]="moderationPending()"
-                    [class]="menuDestructiveClass"
-                    (click)="actionsOpen.set(false); moderate.emit({ comment: c, action: 'delete' })"
-                  >
-                    <svg lucideTrash2 [size]="16"></svg>
-                    Delete
-                  </button>
-                }
-                @if (c.userId) {
-                  <button
-                    type="button"
-                    [disabled]="moderationPending()"
-                    [class]="menuItemClass"
-                    (click)="actionsOpen.set(false); blockUser.emit({ comment: c, blocked: !c.userBlocked })"
-                  >
-                    @if (c.userBlocked) {
-                      <svg lucideCircleCheck [size]="16"></svg>
-                      Unblock user
-                    } @else {
-                      <svg lucideBan [size]="16"></svg>
-                      Block user
-                    }
-                  </button>
-                }
-              }
-            </div>
-          </ng-template>
-        }
-        @if (!votesHidden()) {
-          <span class="ml-auto">
-            @if (readOnly()) {
-              <span class="text-sm text-muted-foreground">{{ c.score }}</span>
-            } @else {
-              <lc-vote-buttons [comment]="c" (vote)="vote.emit($event)" />
-            }
-          </span>
-        }
-      </div>
-      @if (collapsed()) {
-        <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-lc-collapsed="">
-          @if (comment().children.length > 0) {
-            <span class="lc-reply-stack flex -space-x-2">
-              @for (participant of visibleParticipants(); track participant.key) {
-                <span [class]="stackAvatarClass" data-slot="avatar">
-                  @if (participant.avatarUrl; as avatarSrc) {
-                    <img
-                      [src]="avatarSrc"
-                      [alt]="participant.name"
-                      referrerpolicy="no-referrer"
-                      loading="lazy"
-                      decoding="async"
-                      class="aspect-square size-full rounded-full object-cover"
-                    />
-                  } @else {
-                    <span [class]="avatarFallbackClass">{{ participant.initials }}</span>
-                  }
-                </span>
-              }
-              @if (extraParticipants() > 0) {
-                <span [class]="stackAvatarClass" data-slot="avatar-group-count">+{{ extraParticipants() }}</span>
-              }
+              <span [class]="avatarFallbackClass">{{ initialsLabel() }}</span>
             </span>
-            <span class="truncate">{{ repliesLabel() }}</span>
-            @if (replyStateLabel(); as states) {
-              <span class="hidden truncate sm:inline">{{ states }}</span>
-            }
-          } @else {
-            <span>comment hidden</span>
-            <span class="truncate">{{ excerpt() }}</span>
+            <span class="min-w-0 truncate font-medium">{{ c.authorName }}</span>
           }
+          <time [attr.dateTime]="c.createdAt" [attr.title]="dateLabel()" class="text-xs text-muted-foreground">{{
+            relativeTime()
+          }}</time>
         </div>
-      } @else {
         @if (depth() > 0 && parentAuthorName(); as parentName) {
           <p class="mt-1 text-xs text-muted-foreground">
             Replying to <span class="font-medium text-foreground">@{{ parentName }}</span>
           </p>
         }
-        @if (state.editing && !readOnly()) {
-          <div class="my-3">
-            <lc-comment-form
-              [guest]="false"
-              [initialBody]="c.bodyMarkdown"
-              submitLabel="Save"
-              [submitting]="state.saving"
-              [error]="state.editError"
-              [showCancel]="true"
-              [bodyLimit]="bodyLimit()"
-              (submitted)="submitEdit($event)"
-              (signIn)="signIn.emit()"
-              (cancelReply)="dispatch({ type: 'edit/close' })"
-            />
-          </div>
-        } @else if (!readOnly() && replyTo() === c.id) {
-          <div class="my-3">
-            <lc-comment-form
-              [guest]="guest()"
-              [turnstileSiteKey]="turnstileSiteKey()"
-              [dark]="dark()"
-              [turnstileOptions]="turnstileOptions()"
-              [parentId]="c.id"
-              [submitting]="state.replying"
-              [error]="state.replyError"
-              [bodyLimit]="bodyLimit()"
-              (submitted)="submitReply($event)"
-              (signIn)="signIn.emit()"
-              (cancelReply)="cancelReply()"
-            />
-          </div>
-        } @else {
-          <div class="lc-markdown my-3 font-sans text-sm" [innerHTML]="bodyHtml()"></div>
-        }
-        @if (!readOnly()) {
-          <div class="flex flex-wrap items-center gap-1 text-sm">
-            @if (canReplyHere()) {
-              <button
-                type="button"
-                [class]="replyActionClass()"
-                [attr.aria-expanded]="replyTo() === c.id"
-                [attr.aria-label]="actionMode() === 'icon' ? 'Reply' : null"
-                (click)="toggleReply()"
-              >
-                @if (actionMode() !== 'text') {
-                  <svg lucideReply [size]="12"></svg>
-                }
-                <span [class.sr-only]="actionMode() === 'icon'">Reply</span>
-              </button>
+        <p class="my-3 text-sm text-muted-foreground">
+          {{ c.status === 'deleted' ? '[deleted]' : 'This comment is under review.' }}
+        </p>
+      } @else {
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <button
+            type="button"
+            [class]="collapseClass"
+            [attr.aria-expanded]="!collapsed()"
+            [attr.aria-label]="(collapsed() ? 'Expand' : 'Collapse') + ' comment by ' + c.authorName"
+            (click)="dispatch({ type: 'collapse/toggle', value: !collapsed() })"
+          >
+            @if (collapsed()) {
+              <svg lucidePlus [size]="12"></svg>
+            } @else {
+              <svg lucideMinus [size]="12"></svg>
             }
-          </div>
-        }
-        @if (comment().children.length > 0) {
-          <div class="mt-2" data-lc-replies cdkAccordion>
-            <div #group="cdkAccordionItem" cdkAccordionItem [expanded]="true" class="border-0">
-              <div style="padding-inline-start: 16px">
-                <button
-                  type="button"
-                  class="lc-replies-trigger flex w-full items-center justify-between rounded-lg border border-transparent py-1 text-left text-sm font-medium transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                  [attr.aria-expanded]="group.expanded"
-                  (click)="group.toggle()"
-                >
-                  <span class="flex min-w-0 items-center gap-2" [class.hidden]="group.expanded">
-                    <span class="lc-reply-stack flex -space-x-2">
-                      @for (participant of visibleParticipants(); track participant.key) {
-                        <span [class]="stackAvatarClass" data-slot="avatar">
-                          @if (participant.avatarUrl; as avatarSrc) {
-                            <img
-                              [src]="avatarSrc"
-                              [alt]="participant.name"
-                              referrerpolicy="no-referrer"
-                              loading="lazy"
-                              decoding="async"
-                              class="aspect-square size-full rounded-full object-cover"
-                            />
-                          } @else {
-                            <span [class]="avatarFallbackClass">{{ participant.initials }}</span>
-                          }
-                        </span>
-                      }
-                      @if (extraParticipants() > 0) {
-                        <span [class]="stackAvatarClass" data-slot="avatar-group-count"
-                          >+{{ extraParticipants() }}</span
-                        >
-                      }
-                    </span>
-                    <span class="truncate text-xs">{{ repliesLabel() }}</span>
-                    @if (replyStateLabel(); as states) {
-                      <span class="hidden truncate text-xs sm:inline">{{ states }}</span>
-                    }
-                  </span>
-                  <span class="text-xs" [class.hidden]="!group.expanded">Hide {{ repliesLabel() }}</span>
-                  @if (group.expanded) {
-                    <svg lucideChevronUp [size]="16" class="text-muted-foreground"></svg>
+          </button>
+          <span [class]="avatarClass" data-slot="avatar" data-size="sm">
+            @if (avatarUrl(); as avatarSrc) {
+              <img
+                [src]="avatarSrc"
+                [alt]="c.authorName"
+                referrerpolicy="no-referrer"
+                loading="lazy"
+                decoding="async"
+                class="aspect-square size-full rounded-full object-cover"
+              />
+            }
+            <span [class]="avatarFallbackClass">{{ initialsLabel() }}</span>
+          </span>
+          <span class="min-w-0 truncate font-medium" [class.text-primary]="c.authorRole === 'admin'">{{
+            c.authorName
+          }}</span>
+          @if (c.authorRole === 'admin') {
+            <span [class]="adminBadgeClass">Admin</span>
+          }
+          <!-- Moderation rows carry the block state; the public wire shape omits it. -->
+          @if (c.userBlocked) {
+            <span [class]="blockedBadgeClass">
+              <svg lucideBan [size]="12"></svg>
+              blocked
+            </span>
+          }
+          <!-- Ages are computed at render, not on a timer: they refresh with the next render. -->
+          <time [attr.dateTime]="c.createdAt" [attr.title]="dateLabel()" class="text-xs text-muted-foreground">{{
+            relativeTime()
+          }}</time>
+          @if (c.editedAt) {
+            <span class="text-xs text-muted-foreground" [attr.title]="editedLabel()">edited</span>
+          }
+          @if (c.pinnedAt) {
+            <span class="text-xs text-muted-foreground">pinned</span>
+          }
+          @if (c.status === 'hidden') {
+            <span [class]="hiddenBadgeClass">hidden</span>
+          }
+          @if (c.status === 'deleted') {
+            <span [class]="deletedBadgeClass">deleted</span>
+          }
+          @if (showMenu()) {
+            <button
+              #actionsOrigin
+              type="button"
+              [class]="actionsTriggerClass"
+              aria-label="More actions"
+              aria-haspopup="dialog"
+              [attr.aria-expanded]="actionsOpen()"
+              (click)="actionsOpen.set(!actionsOpen())"
+            >
+              <svg lucideEllipsisVertical [size]="12"></svg>
+            </button>
+            <ng-template
+              cdkConnectedOverlay
+              [cdkConnectedOverlayOrigin]="actionsOrigin"
+              [cdkConnectedOverlayOpen]="actionsOpen()"
+              [cdkConnectedOverlayPositions]="actionsPositions"
+              (detach)="actionsOpen.set(false)"
+              (overlayOutsideClick)="actionsOpen.set(false)"
+            >
+              <div role="dialog" cdkTrapFocus [cdkTrapFocusAutoCapture]="true" [class]="actionsMenuClass">
+                @if (canEdit() && !state.editing) {
+                  <button type="button" [class]="menuItemClass" (click)="actionsOpen.set(false); openEditor()">
+                    <svg lucidePencil [size]="16"></svg>
+                    Edit
+                  </button>
+                }
+                @if (own() && !viewerRole() && !state.editing) {
+                  <button
+                    type="button"
+                    [class]="menuDestructiveClass"
+                    (click)="actionsOpen.set(false); deleted.emit(c.id)"
+                  >
+                    <svg lucideTrash2 [size]="16"></svg>
+                    Delete
+                  </button>
+                }
+                @if (viewerRole()) {
+                  @if (c.status === 'visible') {
+                    <button
+                      type="button"
+                      [disabled]="moderationPending()"
+                      [class]="menuItemClass"
+                      (click)="actionsOpen.set(false); moderate.emit({ comment: c, action: 'hide' })"
+                    >
+                      <svg lucideEyeOff [size]="16"></svg>
+                      Hide
+                    </button>
                   } @else {
-                    <svg lucideChevronDown [size]="16" class="text-muted-foreground"></svg>
+                    <button
+                      type="button"
+                      [disabled]="moderationPending()"
+                      [class]="menuItemClass"
+                      (click)="actionsOpen.set(false); moderate.emit({ comment: c, action: 'restore' })"
+                    >
+                      <svg lucideEye [size]="16"></svg>
+                      Restore
+                    </button>
                   }
-                </button>
-                @if (group.expanded) {
-                  <div data-slot="accordion-content" class="overflow-clip pt-1 [overflow-clip-margin:16px]">
-                    <div class="grid grid-cols-1 gap-4">
-                      @for (child of comment().children; track child.comment.id) {
-                        <lc-comment-item
-                          [comment]="child"
-                          [depth]="depth() + 1"
-                          [guest]="guest()"
-                          [turnstileSiteKey]="turnstileSiteKey()"
-                          [dark]="dark()"
-                          [turnstileOptions]="turnstileOptions()"
-                          [viewerUserId]="viewerUserId()"
-                          [viewerRole]="viewerRole()"
-                          [hideVotes]="hideVotes()"
-                          [pendingModeration]="pendingModeration()"
-                          [anonWindowMinutes]="anonWindowMinutes()"
-                          [actionMode]="actionMode()"
-                          [bodyLimit]="bodyLimit()"
-                          [readOnly]="readOnly()"
-                          [replyTo]="replyTo()"
-                          [parentAuthorName]="c.authorName"
-                          [editComment]="editComment()"
-                          [replyComment]="replyComment()"
-                          (vote)="vote.emit($event)"
-                          (deleted)="deleted.emit($event)"
-                          (moderate)="moderate.emit($event)"
-                          (blockUser)="blockUser.emit($event)"
-                          (openReply)="openReply.emit($event)"
-                          (closeReply)="closeReply.emit()"
-                          (signIn)="signIn.emit()"
-                        />
+                  @if (c.status === 'visible') {
+                    <button
+                      type="button"
+                      [disabled]="moderationPending()"
+                      [class]="menuItemClass"
+                      (click)="
+                        actionsOpen.set(false); moderate.emit({ comment: c, action: c.pinnedAt ? 'unpin' : 'pin' })
+                      "
+                    >
+                      @if (c.pinnedAt) {
+                        <svg lucidePinOff [size]="16"></svg>
+                        Unpin
+                      } @else {
+                        <svg lucidePin [size]="16"></svg>
+                        Pin
                       }
-                    </div>
-                  </div>
+                    </button>
+                  }
+                  @if (c.status !== 'deleted') {
+                    <button
+                      type="button"
+                      [disabled]="moderationPending()"
+                      [class]="menuDestructiveClass"
+                      (click)="actionsOpen.set(false); moderate.emit({ comment: c, action: 'delete' })"
+                    >
+                      <svg lucideTrash2 [size]="16"></svg>
+                      Delete
+                    </button>
+                  }
+                  @if (c.userId) {
+                    <button
+                      type="button"
+                      [disabled]="moderationPending()"
+                      [class]="menuItemClass"
+                      (click)="actionsOpen.set(false); blockUser.emit({ comment: c, blocked: !c.userBlocked })"
+                    >
+                      @if (c.userBlocked) {
+                        <svg lucideCircleCheck [size]="16"></svg>
+                        Unblock user
+                      } @else {
+                        <svg lucideBan [size]="16"></svg>
+                        Block user
+                      }
+                    </button>
+                  }
                 }
               </div>
+            </ng-template>
+          }
+          @if (!votesHidden()) {
+            <span class="ml-auto">
+              @if (readOnly()) {
+                <span class="text-sm text-muted-foreground">{{ c.score }}</span>
+              } @else {
+                <lc-vote-buttons [comment]="c" (vote)="vote.emit($event)" />
+              }
+            </span>
+          }
+        </div>
+        @if (collapsed()) {
+          <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-lc-collapsed="">
+            @if (comment().children.length > 0) {
+              <span class="lc-reply-stack flex -space-x-2">
+                @for (participant of visibleParticipants(); track participant.key) {
+                  <span [class]="stackAvatarClass" data-slot="avatar">
+                    @if (participant.avatarUrl; as avatarSrc) {
+                      <img
+                        [src]="avatarSrc"
+                        [alt]="participant.name"
+                        referrerpolicy="no-referrer"
+                        loading="lazy"
+                        decoding="async"
+                        class="aspect-square size-full rounded-full object-cover"
+                      />
+                    } @else {
+                      <span [class]="avatarFallbackClass">{{ participant.initials }}</span>
+                    }
+                  </span>
+                }
+                @if (extraParticipants() > 0) {
+                  <span [class]="stackAvatarClass" data-slot="avatar-group-count">+{{ extraParticipants() }}</span>
+                }
+              </span>
+              <span class="truncate">{{ repliesLabel() }}</span>
+              @if (replyStateLabel(); as states) {
+                <span class="hidden truncate sm:inline">{{ states }}</span>
+              }
+            } @else {
+              <span>comment hidden</span>
+              <span class="truncate">{{ excerpt() }}</span>
+            }
+          </div>
+        } @else {
+          @if (depth() > 0 && parentAuthorName(); as parentName) {
+            <p class="mt-1 text-xs text-muted-foreground">
+              Replying to <span class="font-medium text-foreground">@{{ parentName }}</span>
+            </p>
+          }
+          @if (state.editing && !readOnly()) {
+            <div class="my-3">
+              <lc-comment-form
+                [guest]="false"
+                [initialBody]="c.bodyMarkdown"
+                submitLabel="Save"
+                [submitting]="state.saving"
+                [error]="state.editError"
+                [showCancel]="true"
+                [bodyLimit]="bodyLimit()"
+                (submitted)="submitEdit($event)"
+                (signIn)="signIn.emit()"
+                (cancelReply)="dispatch({ type: 'edit/close' })"
+              />
+            </div>
+          } @else if (!readOnly() && replyTo() === c.id) {
+            <div class="my-3">
+              <lc-comment-form
+                [guest]="guest()"
+                [turnstileSiteKey]="turnstileSiteKey()"
+                [dark]="dark()"
+                [turnstileOptions]="turnstileOptions()"
+                [parentId]="c.id"
+                [submitting]="state.replying"
+                [error]="state.replyError"
+                [bodyLimit]="bodyLimit()"
+                (submitted)="submitReply($event)"
+                (signIn)="signIn.emit()"
+                (cancelReply)="cancelReply()"
+              />
+            </div>
+          } @else {
+            <div class="lc-markdown my-3 font-sans text-sm" [innerHTML]="bodyHtml()"></div>
+          }
+          @if (!readOnly()) {
+            <div class="flex flex-wrap items-center gap-1 text-sm">
+              @if (canReplyHere()) {
+                <button
+                  type="button"
+                  [class]="replyActionClass()"
+                  [attr.aria-expanded]="replyTo() === c.id"
+                  [attr.aria-label]="actionMode() === 'icon' ? 'Reply' : null"
+                  (click)="toggleReply()"
+                >
+                  @if (actionMode() !== 'text') {
+                    <svg lucideReply [size]="12"></svg>
+                  }
+                  <span [class.sr-only]="actionMode() === 'icon'">Reply</span>
+                </button>
+              }
+            </div>
+          }
+        }
+      }
+      @if (comment().children.length > 0 && (placeholder() || !collapsed())) {
+        <div class="mt-2" data-lc-replies cdkAccordion>
+          <div #group="cdkAccordionItem" cdkAccordionItem [expanded]="true" class="border-0">
+            <div style="padding-inline-start: 16px">
+              <button
+                type="button"
+                class="lc-replies-trigger flex w-full items-center justify-between rounded-lg border border-transparent py-1 text-left text-sm font-medium transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                [attr.aria-expanded]="group.expanded"
+                (click)="group.toggle()"
+              >
+                <span class="flex min-w-0 items-center gap-2" [class.hidden]="group.expanded">
+                  <span class="lc-reply-stack flex -space-x-2">
+                    @for (participant of visibleParticipants(); track participant.key) {
+                      <span [class]="stackAvatarClass" data-slot="avatar">
+                        @if (participant.avatarUrl; as avatarSrc) {
+                          <img
+                            [src]="avatarSrc"
+                            [alt]="participant.name"
+                            referrerpolicy="no-referrer"
+                            loading="lazy"
+                            decoding="async"
+                            class="aspect-square size-full rounded-full object-cover"
+                          />
+                        } @else {
+                          <span [class]="avatarFallbackClass">{{ participant.initials }}</span>
+                        }
+                      </span>
+                    }
+                    @if (extraParticipants() > 0) {
+                      <span [class]="stackAvatarClass" data-slot="avatar-group-count">+{{ extraParticipants() }}</span>
+                    }
+                  </span>
+                  <span class="truncate text-xs">{{ repliesLabel() }}</span>
+                  @if (replyStateLabel(); as states) {
+                    <span class="hidden truncate text-xs sm:inline">{{ states }}</span>
+                  }
+                </span>
+                <span class="text-xs" [class.hidden]="!group.expanded">Hide {{ repliesLabel() }}</span>
+                @if (group.expanded) {
+                  <svg lucideChevronUp [size]="16" class="text-muted-foreground"></svg>
+                } @else {
+                  <svg lucideChevronDown [size]="16" class="text-muted-foreground"></svg>
+                }
+              </button>
+              @if (group.expanded) {
+                <div data-slot="accordion-content" class="overflow-clip pt-1 [overflow-clip-margin:16px]">
+                  <div class="grid grid-cols-1 gap-4">
+                    @for (child of comment().children; track child.comment.id) {
+                      <lc-comment-item
+                        [comment]="child"
+                        [depth]="depth() + 1"
+                        [guest]="guest()"
+                        [turnstileSiteKey]="turnstileSiteKey()"
+                        [dark]="dark()"
+                        [turnstileOptions]="turnstileOptions()"
+                        [viewerUserId]="viewerUserId()"
+                        [viewerRole]="viewerRole()"
+                        [hideVotes]="hideVotes()"
+                        [pendingModeration]="pendingModeration()"
+                        [anonWindowMinutes]="anonWindowMinutes()"
+                        [actionMode]="actionMode()"
+                        [bodyLimit]="bodyLimit()"
+                        [readOnly]="readOnly()"
+                        [replyTo]="replyTo()"
+                        [parentAuthorName]="c.authorName"
+                        [editComment]="editComment()"
+                        [replyComment]="replyComment()"
+                        (vote)="vote.emit($event)"
+                        (deleted)="deleted.emit($event)"
+                        (moderate)="moderate.emit($event)"
+                        (blockUser)="blockUser.emit($event)"
+                        (openReply)="openReply.emit($event)"
+                        (closeReply)="closeReply.emit()"
+                        (signIn)="signIn.emit()"
+                      />
+                    }
+                  </div>
+                </div>
+              }
             </div>
           </div>
-        }
+        </div>
       }
     </article>
   `,
@@ -535,6 +568,11 @@ export class LcCommentItemComponent {
   )
   protected readonly moderationPending = computed(() => this.pendingModeration()[this.comment().comment.id] ?? false)
   protected readonly canReplyHere = computed(() => !(this.viewerRole() && this.comment().comment.status !== 'visible'))
+  // Removed comments read as placeholders in the normal view; moderators keep
+  // the body so they can still judge a restore.
+  protected readonly placeholder = computed(
+    () => this.viewerRole() === undefined && this.comment().comment.status !== 'visible',
+  )
   // Voting needs a visible comment: the endpoint rejects the rest.
   protected readonly votesHidden = computed(
     () => this.hideVotes() || (this.viewerRole() !== undefined && this.comment().comment.status !== 'visible'),

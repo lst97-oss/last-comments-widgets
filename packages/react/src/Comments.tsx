@@ -458,7 +458,9 @@ export function Comments({
       setActionError(null)
       try {
         await client.deleteOwnComment(commentId)
-        setComments((prev) => prev.filter((c) => c.id !== commentId))
+        // Keep the row as a tombstone: the thread keeps its shape and the
+        // normal view renders the deleted placeholder instead of the body.
+        setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, status: 'deleted' } : c)))
       } catch (err) {
         setActionError(describeError(err, { title: "Your comment wasn't deleted" }))
       }

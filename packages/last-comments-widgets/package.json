@@ -1,6 +1,6 @@
 {
   "name": "@lst97-oss/last-comments-widgets",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Drop-in comment widgets for last-comments — React, Vue, Angular and plain HTML on one API client and one Tailwind v4 + shadcn base-nova theme.",
   "license": "MIT",

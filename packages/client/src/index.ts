@@ -467,7 +467,7 @@ export function createClient(options: ClientOptions): LastCommentsClient {
 }
 
 // Shared DOM-free markdown renderer. Raw HTML is stripped at the token
-// level; links/images allow http(s): + mailto: only. Output feeds
+// level; links allow http(s): + mailto:, images http(s): only. Output feeds
 // dangerouslySetInnerHTML / v-html / [innerHTML] / innerHTML directly.
 function escapeAttr(raw: string): string {
   return raw.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -484,20 +484,45 @@ function safeHref(href: string): string | null {
   }
 }
 
+// Images may only load over http(s); mailto:/data:/blob: sources can never
+// render, so they fall back to their alt text like any other rejected href.
+function isHttpHref(href: string): boolean {
+  try {
+    const parsed = new URL(href, 'https://invalid.local')
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+// marked gives the image renderer no nesting context, so track whether the
+// image sits inside a link: an authored link wins, otherwise the image links
+// to itself so clicking opens the full size.
+let insideLink = false
+
 const markdown = new Marked({ breaks: true, gfm: true })
 markdown.use({
   renderer: {
     html: () => '',
     link({ href, title, tokens }) {
-      const text = this.parser.parseInline(tokens)
+      const previous = insideLink
+      insideLink = true
+      let text: string
+      try {
+        text = this.parser.parseInline(tokens)
+      } finally {
+        insideLink = previous
+      }
       const safe = safeHref(href)
       if (!safe) return text
       return `<a href="${safe}"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`
     },
     image({ href, title, text }) {
-      const safe = safeHref(href)
-      if (!safe) return escapeAttr(text)
-      return `<img src="${safe}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} />`
+      if (!isHttpHref(href)) return escapeAttr(text)
+      const safe = escapeAttr(href)
+      const img = `<img src="${safe}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
+      if (insideLink) return img
+      return `<a href="${safe}">${img}</a>`
     },
   },
 })
@@ -856,8 +881,8 @@ const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
     specific: true,
   },
   USER_BLOCKED: {
-    title: "You can't comment here",
-    message: 'This account or guest name is blocked from commenting on this site.',
+    title: "You're blocked from commenting here",
+    message: 'Your account is blocked from commenting on this site. Contact the site admin for assistance.',
     specific: true,
   },
   PAGE_LOCKED: {
@@ -924,7 +949,10 @@ export function describeError(error: unknown, overrides: { title?: string; messa
   return {
     code: api?.code ?? null,
     title: copy?.specific ? copy.title : (overrides.title ?? copy?.title ?? 'Something went wrong'),
-    message: overrides.message ?? usable ?? copy?.message ?? 'Try again in a moment.',
+    message:
+      overrides.message ??
+      (copy?.specific ? (copy.message ?? usable) : (usable ?? copy?.message)) ??
+      'Try again in a moment.',
     action: copy?.action ?? (copy === undefined ? 'retry' : 'none'),
   }
 }
