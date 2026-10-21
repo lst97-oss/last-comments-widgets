@@ -1,5 +1,11 @@
 # @lst97-oss/last-comments-widgets
 
+## 0.4.1
+
+### Patch Changes
+
+- b58a260: The widget surface is transparent in both themes: the host page owns the background, so the widget scope no longer paints its own light or dark panel.
+
 ## 0.4.0
 
 ### Minor Changes
