@@ -1,4 +1,5 @@
 # last-comments-widgets
+<img width="600" height="1000" alt="Screenshot 2026-10-22 at 1 13 52 am" src="https://github.com/user-attachments/assets/b318ab0a-f5ac-4bca-97fd-4519d06c485c" />
 
 Standard drop-in comment widgets for [last-comments](https://github.com/lst97-oss/last-comments) — for consumers who don't want to build their own UI. Native widgets for React, Vue, Angular, and plain HTML, all sharing one API client and one self-contained Tailwind v4 + shadcn `base-nova` theme, all shipped in one package with a subpath per framework (`/react`, `/vue`, `/angular`, `/vanilla`, plus `/client` and `/theme.css`).
 
