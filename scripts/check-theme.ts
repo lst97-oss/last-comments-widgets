@@ -120,7 +120,8 @@ try {
     const other = page.locator('#b.lc-comments, #b .lc-comments').first()
     const style = (locator: typeof root, property: string) =>
       locator.evaluate((element, name) => getComputedStyle(element).getPropertyValue(name), property)
-    expect(await style(root, 'background-color')).toBe('rgb(238, 244, 255)')
+    // The scope is transparent: the host page owns the surface.
+    expect(await style(root, 'background-color')).toBe('rgba(0, 0, 0, 0)')
     expect(await style(root, 'color')).toBe('rgb(17, 34, 51)')
     expect(await style(root, 'font-family')).toContain('Georgia')
     expect(await style(root, 'font-size')).toBe('20px')
