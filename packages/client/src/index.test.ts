@@ -325,6 +325,28 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<pre><code class="language-ts">')
     expect(html).toContain('const x = 1')
   })
+
+  test('renders markdown images lazily, without a referrer, linked to full size', () => {
+    const html = renderMarkdown('![a](https://x.test/y.jpg "t")')
+    expect(html).toContain(
+      '<a href="https://x.test/y.jpg"><img src="https://x.test/y.jpg" alt="a" title="t" loading="lazy" decoding="async" referrerpolicy="no-referrer" />',
+    )
+  })
+
+  test('keeps an authored link on an image instead of nesting anchors', () => {
+    const html = renderMarkdown('[![a](https://x.test/i.jpg)](https://x.test/page)')
+    expect(html).toContain('<a href="https://x.test/page"><img')
+    expect(html).not.toContain('<a href="https://x.test/i.jpg">')
+    expect(html.match(/<a /g)).toHaveLength(1)
+  })
+
+  test('falls back to the alt text for images that can never load', () => {
+    for (const source of ['![a](javascript:alert(1))', '![a](data:image/png;base64,x)', '![a](mailto:x@y.z)']) {
+      const html = renderMarkdown(source)
+      expect(html).not.toContain('<img')
+      expect(html).toContain('a')
+    }
+  })
 })
 
 describe('editOwnComment/deleteOwnComment', () => {

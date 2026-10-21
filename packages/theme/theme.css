@@ -380,7 +380,12 @@
       @apply border border-border px-2 py-1 text-left wrap-anywhere;
     }
     .lc-markdown img {
-      @apply max-w-full rounded-lg;
+      @apply block h-auto max-w-full rounded-lg;
+    }
+    /* A markdown image links to itself unless the author linked it; keep that
+       wrapper underline-free and let the image breathe. */
+    .lc-markdown a:has(> img:only-child) {
+      @apply my-2 inline-block no-underline;
     }
     .lc-markdown h1,
     .lc-markdown h2,
