@@ -27,8 +27,9 @@ import {
 } from 'lucide-react'
 import { type ComponentProps, memo, type ReactNode, useReducer } from 'react'
 import { CommentForm, type CommentFormInput } from './CommentForm'
+import { CommentPlaceholder } from './CommentPlaceholder'
 import { canEditComment } from './editGate'
-import { cn } from './lib/utils'
+import { cn, initials } from './lib/utils'
 import { Markdown } from './Markdown'
 import type { ActionMode } from './types'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion'
@@ -121,16 +122,6 @@ type CommentItemProps = {
   onCloseReply?: () => void
   onModerate?: (comment: Comment, action: ModerationAction) => void
   onBlockUser?: (comment: Comment, blocked: boolean) => void
-}
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
 }
 
 function countReplies(nodes: ThreadNode[]): number {
@@ -387,6 +378,64 @@ export function CommentItem({
   // Negative net score collapses in every sort mode; 0 stays expanded.
   const collapsed = collapsedOverride ?? comment.score < 0
   const excerpt = comment.bodyMarkdown.replace(/\s+/g, ' ').trim()
+  // Removed comments are placeholders in the normal view; moderators keep the
+  // body so they can still judge a restore.
+  const placeholder = !viewerRole && comment.status !== 'visible'
+  const replies =
+    node.children.length > 0 ? (
+      <Accordion defaultValue={[comment.id]} className="mt-2" data-lc-replies="">
+        <AccordionItem value={comment.id} className="border-0">
+          <div style={{ paddingInlineStart: 16 }}>
+            <AccordionTrigger className="lc-replies-trigger py-1">
+              <span className="flex min-w-0 items-center gap-2 group-aria-expanded/accordion-trigger:hidden">
+                <ReplyAvatarStack nodes={node.children} />
+                <span className="truncate text-xs">{repliesLabel}</span>
+                {replyStateLabel && <span className="hidden truncate text-xs sm:inline">{replyStateLabel}</span>}
+              </span>
+              <span className="hidden text-xs group-aria-expanded/accordion-trigger:inline">Hide {repliesLabel}</span>
+            </AccordionTrigger>
+            <AccordionContent className="pt-1">
+              <div className="grid grid-cols-1 gap-4">
+                {node.children.map((child) => (
+                  <CommentItem
+                    key={child.comment.id}
+                    node={child}
+                    depth={depth + 1}
+                    pendingVotes={pendingVotes}
+                    replyTo={replyTo}
+                    viewerUserId={viewerUserId}
+                    viewerRole={viewerRole}
+                    hideVotes={hideVotes}
+                    pendingModeration={pendingModeration}
+                    anonWindowMinutes={anonWindowMinutes}
+                    hasEditKey={hasEditKey}
+                    readOnly={readOnly}
+                    actionMode={actionMode}
+                    bodyLimit={bodyLimit}
+                    parentAuthorName={comment.authorName}
+                    onVote={onVote}
+                    onClear={onClear}
+                    onReply={onReply}
+                    onEdit={onEdit}
+                    onDelete={onDelete}
+                    onReplySubmit={onReplySubmit}
+                    replySiteKey={replySiteKey}
+                    replyGuest={replyGuest}
+                    replyIdentity={replyIdentity}
+                    onCloseReply={onCloseReply}
+                    onModerate={onModerate}
+                    onBlockUser={onBlockUser}
+                  />
+                ))}
+              </div>
+            </AccordionContent>
+          </div>
+        </AccordionItem>
+      </Accordion>
+    ) : null
+  if (placeholder) {
+    return <CommentPlaceholder comment={comment} depth={depth} parentAuthorName={parentAuthorName} replies={replies} />
+  }
   return (
     <article
       className={cn('lc-comment', depth > 0 && 'lc-reply')}
@@ -573,59 +622,7 @@ export function CommentItem({
               )}
             </div>
           )}
-          {node.children.length > 0 && (
-            <Accordion defaultValue={[comment.id]} className="mt-2" data-lc-replies="">
-              <AccordionItem value={comment.id} className="border-0">
-                <div style={{ paddingInlineStart: 16 }}>
-                  <AccordionTrigger className="lc-replies-trigger py-1">
-                    <span className="flex min-w-0 items-center gap-2 group-aria-expanded/accordion-trigger:hidden">
-                      <ReplyAvatarStack nodes={node.children} />
-                      <span className="truncate text-xs">{repliesLabel}</span>
-                      {replyStateLabel && <span className="hidden truncate text-xs sm:inline">{replyStateLabel}</span>}
-                    </span>
-                    <span className="hidden text-xs group-aria-expanded/accordion-trigger:inline">
-                      Hide {repliesLabel}
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-1">
-                    <div className="grid grid-cols-1 gap-4">
-                      {node.children.map((child) => (
-                        <CommentItem
-                          key={child.comment.id}
-                          node={child}
-                          depth={depth + 1}
-                          pendingVotes={pendingVotes}
-                          replyTo={replyTo}
-                          viewerUserId={viewerUserId}
-                          viewerRole={viewerRole}
-                          hideVotes={hideVotes}
-                          pendingModeration={pendingModeration}
-                          anonWindowMinutes={anonWindowMinutes}
-                          hasEditKey={hasEditKey}
-                          readOnly={readOnly}
-                          actionMode={actionMode}
-                          bodyLimit={bodyLimit}
-                          parentAuthorName={comment.authorName}
-                          onVote={onVote}
-                          onClear={onClear}
-                          onReply={onReply}
-                          onEdit={onEdit}
-                          onDelete={onDelete}
-                          onReplySubmit={onReplySubmit}
-                          replySiteKey={replySiteKey}
-                          replyGuest={replyGuest}
-                          replyIdentity={replyIdentity}
-                          onCloseReply={onCloseReply}
-                          onModerate={onModerate}
-                          onBlockUser={onBlockUser}
-                        />
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </div>
-              </AccordionItem>
-            </Accordion>
-          )}
+          {replies}
         </>
       )}
     </article>

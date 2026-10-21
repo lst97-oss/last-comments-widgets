@@ -332,7 +332,9 @@ async function remove(commentId: string) {
   actionError.value = null
   try {
     await client.value.deleteOwnComment(commentId)
-    comments.value = comments.value.filter((c) => c.id !== commentId)
+    // Keep the row as a tombstone: the thread keeps its shape and the normal
+    // view renders the deleted placeholder instead of the body.
+    comments.value = comments.value.map((c) => (c.id === commentId ? { ...c, status: 'deleted' } : c))
     // Deleting the last thread of a later page would leave an empty window while
     // `page` still points at it; fall back a page from the cache, never a fetch.
     page.value = Math.min(page.value, Math.max(1, Math.ceil(roots.value.length / limit.value)))

@@ -850,7 +850,9 @@ export class LcCommentsComponent {
     this.actionError.set(null)
     try {
       await this.client().deleteOwnComment(id)
-      this.comments.set(this.comments().filter((c) => c.id !== id))
+      // Keep the row as a tombstone: the thread keeps its shape and the normal
+      // view renders the deleted placeholder instead of the body.
+      this.comments.set(this.comments().map((c) => (c.id === id ? { ...c, status: 'deleted' } : c)))
     } catch (err) {
       this.actionError.set(describeError(err, { title: "Your comment wasn't deleted" }))
     }

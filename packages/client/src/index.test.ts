@@ -897,12 +897,22 @@ describe('loadThreadWindow', () => {
 })
 
 describe('describeError', () => {
-  test('keeps the API message for a specific code and adds its title and action', () => {
+  test('uses the curated message for a specific code and adds its title and action', () => {
     const info = describeError(new ApiError('PAGE_LOCKED', 'Commenting is paused.', 409))
     expect(info).toEqual({
       code: 'PAGE_LOCKED',
       title: 'Comments are closed on this page',
-      message: 'Commenting is paused.',
+      message: 'New comments, replies and votes are disabled.',
+      action: 'none',
+    })
+  })
+
+  test('tells a blocked user they are blocked and to contact the admin', () => {
+    const info = describeError(new ApiError('USER_BLOCKED', 'You cannot comment on this site', 403))
+    expect(info).toEqual({
+      code: 'USER_BLOCKED',
+      title: "You're blocked from commenting here",
+      message: 'Your account is blocked from commenting on this site. Contact the site admin for assistance.',
       action: 'none',
     })
   })

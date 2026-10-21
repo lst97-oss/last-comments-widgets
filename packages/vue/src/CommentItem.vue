@@ -109,6 +109,9 @@ const replyStateLabel = computed(() => {
 // Negative net score collapses in every sort mode; 0 stays expanded.
 const collapsed = computed(() => state.value.collapsedOverride ?? comment.value.score < 0)
 const excerpt = computed(() => comment.value.bodyMarkdown.replace(/\s+/g, ' ').trim())
+// Removed comments read as placeholders in the normal view; moderators keep
+// the body so they can still judge a restore.
+const placeholder = computed(() => !props.viewerRole && comment.value.status !== 'visible')
 
 function toggleCollapse() {
   dispatch({ type: 'collapse/toggle', value: !collapsed.value })
@@ -164,197 +167,219 @@ function toggleReply() {
     :data-depth="props.depth"
     :data-comment-id="comment.id"
     :data-comment-depth="props.depth"
+    :data-lc-placeholder="placeholder ? (comment.status === 'deleted' ? 'deleted' : 'under-review') : undefined"
   >
-    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <button
-        type="button"
-        :class="[buttonClass('ghost', 'icon-xs'), 'lc-action lc-collapse']"
-        :aria-expanded="!collapsed"
-        :aria-label="`${collapsed ? 'Expand' : 'Collapse'} comment by ${comment.authorName}`"
-        @click="toggleCollapse"
+    <template v-if="placeholder">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span v-if="comment.status === 'deleted'" class="text-sm text-muted-foreground">[deleted]</span>
+        <template v-else>
+          <LcAvatar :name="comment.authorName" :src="comment.avatarUrl" />
+          <span class="min-w-0 truncate font-medium">{{ comment.authorName }}</span>
+        </template>
+        <time :dateTime="comment.createdAt" :title="createdTitle" class="text-xs text-muted-foreground">
+          {{ formattedDate }}
+        </time>
+      </div>
+      <p
+        v-if="props.depth > 0 && props.parentAuthorName && comment.status !== 'deleted'"
+        class="mt-1 text-xs text-muted-foreground"
       >
-        <Plus v-if="collapsed" aria-hidden="true" />
-        <Minus v-else aria-hidden="true" />
-      </button>
-      <LcAvatar :name="comment.authorName" :src="comment.avatarUrl" />
-      <span class="min-w-0 truncate font-medium" :class="comment.authorRole === 'admin' ? 'text-primary' : ''">
-        {{ comment.authorName }}
-      </span>
-      <span v-if="comment.authorRole === 'admin'" :class="[badgeClass('default'), 'lc-admin-badge']">Admin</span>
-      <!-- Moderation rows carry the block state; the public wire shape omits it. -->
-      <span v-if="comment.userBlocked" :class="[badgeClass('outline'), 'lc-blocked-badge']">
-        <Ban aria-hidden="true" />
-        blocked
-      </span>
-      <!-- Ages are computed at render, not on a timer: they refresh with the next render. -->
-      <time :dateTime="comment.createdAt" :title="createdTitle" class="text-xs text-muted-foreground">
-        {{ formattedDate }}
-      </time>
-      <span v-if="comment.editedAt" :title="editedTitle" class="text-xs text-muted-foreground">edited</span>
-      <span v-if="comment.pinnedAt" class="text-xs text-muted-foreground">pinned</span>
-      <span v-if="comment.status === 'hidden'" :class="badgeClass('destructive')">hidden</span>
-      <span v-if="comment.status === 'deleted'" :class="badgeClass('secondary')">deleted</span>
-      <CommentActionsMenu
-        v-if="!props.readOnly"
-        :comment="comment"
-        :can-edit="canEdit"
-        :editing="state.editing"
-        :is-own="isOwn"
-        :viewer-role="props.viewerRole"
-        :moderation-pending="moderationPending"
-        @edit="openEdit"
-        @delete="props.onDelete(comment.id)"
-        @moderate="(action) => props.onModerate?.(comment.id, action)"
-        @block-user="(blocked) => props.onBlockUser?.(comment.id, blocked)"
-      />
-      <span v-if="!props.hideVotes" class="ml-auto">
-        <span v-if="props.readOnly" class="text-sm text-muted-foreground">{{ comment.score }}</span>
-        <VoteButtons v-else :comment="comment" :on-vote="props.onVote" />
-      </span>
-    </div>
-    <div
-      v-if="collapsed"
-      class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
-      data-lc-collapsed
-    >
-      <template v-if="props.node.children.length > 0">
-        <ReplyAvatarStack :nodes="props.node.children" />
-        <span class="truncate">{{ repliesLabel }}</span>
-        <span v-if="replyStateLabel" class="hidden truncate sm:inline">{{ replyStateLabel }}</span>
-      </template>
-      <template v-else>
-        <span>comment hidden</span>
-        <span class="truncate">{{ excerpt }}</span>
-      </template>
-    </div>
-    <template v-else>
-      <p v-if="props.depth > 0 && props.parentAuthorName" class="mt-1 text-xs text-muted-foreground">
         Replying to <span class="font-medium text-foreground">@{{ props.parentAuthorName }}</span>
       </p>
-      <div v-if="state.editing && !props.readOnly" class="my-3">
-        <CommentForm
-          :guest="false"
-          :parent-id="null"
-          :pending="state.saving"
-          :error="state.editError"
-          :initial-body="comment.bodyMarkdown"
-          submit-label="Save"
-          error-title="Your edit wasn't saved"
-          :body-limit="bodyLimit"
-          :on-submit="submitEdit"
-          :on-cancel-reply="cancelEdit"
-          :sign-in-href="props.signInHref"
-          :on-sign-in="props.onSignIn"
-        />
-      </div>
-      <div v-else-if="!props.readOnly && props.replyTo === comment.id && props.onReplySubmit" class="my-3">
-        <CommentForm
-          :site-key="props.replySiteKey"
-          :turnstile-options="props.turnstileOptions"
-          :guest="props.replyGuest ?? true"
-          :dark="props.dark"
-          :parent-id="comment.id"
-          :pending="state.replying"
-          :error="state.replyError"
-          :body-limit="bodyLimit"
-          :on-submit="submitReply"
-          :on-cancel-reply="cancelReply"
-          :sign-in-href="props.signInHref"
-          :on-sign-in="props.onSignIn"
-        >
-          <template v-if="$slots.signIn" #signIn>
-            <slot name="signIn" />
-          </template>
-        </CommentForm>
-      </div>
-      <!-- eslint-disable-next-line vue/no-v-html -- renderMarkdown strips raw HTML and restricts link protocols. -->
-      <div v-else class="lc-markdown my-3 font-sans text-sm [overflow-wrap:anywhere]" v-html="rendered" />
-      <div v-if="!props.readOnly" class="flex flex-wrap items-center gap-1 text-sm">
-        <button
-          v-if="canReplyHere"
-          type="button"
-          :class="[buttonClass('ghost', actionMode === 'icon' ? 'icon-xs' : 'xs'), 'lc-action']"
-          :aria-label="actionMode === 'icon' ? 'Reply' : undefined"
-          :aria-expanded="props.replyTo === comment.id"
-          @click="toggleReply"
-        >
-          <Reply v-if="actionMode !== 'text'" aria-hidden="true" />
-          <span :class="actionMode === 'icon' ? 'sr-only' : undefined">Reply</span>
-        </button>
-      </div>
-      <AccordionRoot
-        v-if="props.node.children.length > 0"
-        type="single"
-        collapsible
-        :default-value="comment.id"
-        class="mt-2 flex w-full flex-col"
-        data-lc-replies
-      >
-        <AccordionItem :value="comment.id" class="border-0">
-          <div style="padding-inline-start: 16px">
-            <AccordionHeader class="flex">
-              <AccordionTrigger
-                class="lc-replies-trigger group/accordion-trigger relative flex flex-1 items-center justify-between rounded-lg border border-transparent py-1 text-left text-sm font-medium transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground"
-              >
-                <span class="flex min-w-0 items-center gap-2 group-aria-expanded/accordion-trigger:hidden">
-                  <ReplyAvatarStack :nodes="props.node.children" />
-                  <span class="truncate text-xs">{{ repliesLabel }}</span>
-                  <span v-if="replyStateLabel" class="hidden truncate text-xs sm:inline">{{ replyStateLabel }}</span>
-                </span>
-                <span class="hidden text-xs group-aria-expanded/accordion-trigger:inline">
-                  Hide {{ repliesLabel }}
-                </span>
-                <ChevronDown
-                  data-slot="accordion-trigger-icon"
-                  aria-hidden="true"
-                  class="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
-                />
-                <ChevronUp
-                  data-slot="accordion-trigger-icon"
-                  aria-hidden="true"
-                  class="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
-                />
-              </AccordionTrigger>
-            </AccordionHeader>
-            <AccordionContent class="pt-1" data-slot="accordion-content">
-              <CommentList
-                :nodes="props.node.children as ThreadNode[]"
-                :depth="props.depth + 1"
-                :viewer-user-id="props.viewerUserId"
-                :viewer-role="props.viewerRole"
-                :hide-votes="props.hideVotes"
-                :pending-moderation="props.pendingModeration"
-                :anon-window-minutes="props.anonWindowMinutes"
-                :has-edit-key="props.hasEditKey"
-                :has-edit-keys="props.hasEditKeys"
-                :read-only="props.readOnly"
-                :action-mode="actionMode"
-                :body-limit="bodyLimit"
-                :parent-author-name="comment.authorName"
-                :reply-to="props.replyTo"
-                :dark="props.dark"
-                :sign-in-href="props.signInHref"
-                :on-sign-in="props.onSignIn"
-                :on-vote="props.onVote"
-                :on-reply="props.onReply"
-                :on-edit="props.onEdit"
-                :on-delete="props.onDelete"
-                :on-reply-submit="props.onReplySubmit"
-                :reply-site-key="props.replySiteKey"
-                :turnstile-options="props.turnstileOptions"
-                :reply-guest="props.replyGuest"
-                :on-close-reply="props.onCloseReply"
-                :on-moderate="props.onModerate"
-                :on-block-user="props.onBlockUser"
-              >
-                <template v-if="$slots.signIn" #signIn>
-                  <slot name="signIn" />
-                </template>
-              </CommentList>
-            </AccordionContent>
-          </div>
-        </AccordionItem>
-      </AccordionRoot>
+      <p class="my-3 text-sm text-muted-foreground">
+        {{ comment.status === 'deleted' ? '[deleted]' : 'This comment is under review.' }}
+      </p>
     </template>
+    <template v-else>
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <button
+          type="button"
+          :class="[buttonClass('ghost', 'icon-xs'), 'lc-action lc-collapse']"
+          :aria-expanded="!collapsed"
+          :aria-label="`${collapsed ? 'Expand' : 'Collapse'} comment by ${comment.authorName}`"
+          @click="toggleCollapse"
+        >
+          <Plus v-if="collapsed" aria-hidden="true" />
+          <Minus v-else aria-hidden="true" />
+        </button>
+        <LcAvatar :name="comment.authorName" :src="comment.avatarUrl" />
+        <span class="min-w-0 truncate font-medium" :class="comment.authorRole === 'admin' ? 'text-primary' : ''">
+          {{ comment.authorName }}
+        </span>
+        <span v-if="comment.authorRole === 'admin'" :class="[badgeClass('default'), 'lc-admin-badge']">Admin</span>
+        <!-- Moderation rows carry the block state; the public wire shape omits it. -->
+        <span v-if="comment.userBlocked" :class="[badgeClass('outline'), 'lc-blocked-badge']">
+          <Ban aria-hidden="true" />
+          blocked
+        </span>
+        <!-- Ages are computed at render, not on a timer: they refresh with the next render. -->
+        <time :dateTime="comment.createdAt" :title="createdTitle" class="text-xs text-muted-foreground">
+          {{ formattedDate }}
+        </time>
+        <span v-if="comment.editedAt" :title="editedTitle" class="text-xs text-muted-foreground">edited</span>
+        <span v-if="comment.pinnedAt" class="text-xs text-muted-foreground">pinned</span>
+        <span v-if="comment.status === 'hidden'" :class="badgeClass('destructive')">hidden</span>
+        <span v-if="comment.status === 'deleted'" :class="badgeClass('secondary')">deleted</span>
+        <CommentActionsMenu
+          v-if="!props.readOnly"
+          :comment="comment"
+          :can-edit="canEdit"
+          :editing="state.editing"
+          :is-own="isOwn"
+          :viewer-role="props.viewerRole"
+          :moderation-pending="moderationPending"
+          @edit="openEdit"
+          @delete="props.onDelete(comment.id)"
+          @moderate="(action) => props.onModerate?.(comment.id, action)"
+          @block-user="(blocked) => props.onBlockUser?.(comment.id, blocked)"
+        />
+        <span v-if="!props.hideVotes" class="ml-auto">
+          <span v-if="props.readOnly" class="text-sm text-muted-foreground">{{ comment.score }}</span>
+          <VoteButtons v-else :comment="comment" :on-vote="props.onVote" />
+        </span>
+      </div>
+      <div
+        v-if="collapsed"
+        class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+        data-lc-collapsed
+      >
+        <template v-if="props.node.children.length > 0">
+          <ReplyAvatarStack :nodes="props.node.children" />
+          <span class="truncate">{{ repliesLabel }}</span>
+          <span v-if="replyStateLabel" class="hidden truncate sm:inline">{{ replyStateLabel }}</span>
+        </template>
+        <template v-else>
+          <span>comment hidden</span>
+          <span class="truncate">{{ excerpt }}</span>
+        </template>
+      </div>
+      <template v-else>
+        <p v-if="props.depth > 0 && props.parentAuthorName" class="mt-1 text-xs text-muted-foreground">
+          Replying to <span class="font-medium text-foreground">@{{ props.parentAuthorName }}</span>
+        </p>
+        <div v-if="state.editing && !props.readOnly" class="my-3">
+          <CommentForm
+            :guest="false"
+            :parent-id="null"
+            :pending="state.saving"
+            :error="state.editError"
+            :initial-body="comment.bodyMarkdown"
+            submit-label="Save"
+            error-title="Your edit wasn't saved"
+            :body-limit="bodyLimit"
+            :on-submit="submitEdit"
+            :on-cancel-reply="cancelEdit"
+            :sign-in-href="props.signInHref"
+            :on-sign-in="props.onSignIn"
+          />
+        </div>
+        <div v-else-if="!props.readOnly && props.replyTo === comment.id && props.onReplySubmit" class="my-3">
+          <CommentForm
+            :site-key="props.replySiteKey"
+            :turnstile-options="props.turnstileOptions"
+            :guest="props.replyGuest ?? true"
+            :dark="props.dark"
+            :parent-id="comment.id"
+            :pending="state.replying"
+            :error="state.replyError"
+            :body-limit="bodyLimit"
+            :on-submit="submitReply"
+            :on-cancel-reply="cancelReply"
+            :sign-in-href="props.signInHref"
+            :on-sign-in="props.onSignIn"
+          >
+            <template v-if="$slots.signIn" #signIn>
+              <slot name="signIn" />
+            </template>
+          </CommentForm>
+        </div>
+        <!-- eslint-disable-next-line vue/no-v-html -- renderMarkdown strips raw HTML and restricts link protocols. -->
+        <div v-else class="lc-markdown my-3 font-sans text-sm [overflow-wrap:anywhere]" v-html="rendered" />
+        <div v-if="!props.readOnly" class="flex flex-wrap items-center gap-1 text-sm">
+          <button
+            v-if="canReplyHere"
+            type="button"
+            :class="[buttonClass('ghost', actionMode === 'icon' ? 'icon-xs' : 'xs'), 'lc-action']"
+            :aria-label="actionMode === 'icon' ? 'Reply' : undefined"
+            :aria-expanded="props.replyTo === comment.id"
+            @click="toggleReply"
+          >
+            <Reply v-if="actionMode !== 'text'" aria-hidden="true" />
+            <span :class="actionMode === 'icon' ? 'sr-only' : undefined">Reply</span>
+          </button>
+        </div>
+      </template>
+    </template>
+    <AccordionRoot
+      v-if="props.node.children.length > 0 && (placeholder || !collapsed)"
+      type="single"
+      collapsible
+      :default-value="comment.id"
+      class="mt-2 flex w-full flex-col"
+      data-lc-replies
+    >
+      <AccordionItem :value="comment.id" class="border-0">
+        <div style="padding-inline-start: 16px">
+          <AccordionHeader class="flex">
+            <AccordionTrigger
+              class="lc-replies-trigger group/accordion-trigger relative flex flex-1 items-center justify-between rounded-lg border border-transparent py-1 text-left text-sm font-medium transition-all outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground"
+            >
+              <span class="flex min-w-0 items-center gap-2 group-aria-expanded/accordion-trigger:hidden">
+                <ReplyAvatarStack :nodes="props.node.children" />
+                <span class="truncate text-xs">{{ repliesLabel }}</span>
+                <span v-if="replyStateLabel" class="hidden truncate text-xs sm:inline">{{ replyStateLabel }}</span>
+              </span>
+              <span class="hidden text-xs group-aria-expanded/accordion-trigger:inline"> Hide {{ repliesLabel }} </span>
+              <ChevronDown
+                data-slot="accordion-trigger-icon"
+                aria-hidden="true"
+                class="pointer-events-none shrink-0 group-aria-expanded/accordion-trigger:hidden"
+              />
+              <ChevronUp
+                data-slot="accordion-trigger-icon"
+                aria-hidden="true"
+                class="pointer-events-none hidden shrink-0 group-aria-expanded/accordion-trigger:inline"
+              />
+            </AccordionTrigger>
+          </AccordionHeader>
+          <AccordionContent class="pt-1" data-slot="accordion-content">
+            <CommentList
+              :nodes="props.node.children as ThreadNode[]"
+              :depth="props.depth + 1"
+              :viewer-user-id="props.viewerUserId"
+              :viewer-role="props.viewerRole"
+              :hide-votes="props.hideVotes"
+              :pending-moderation="props.pendingModeration"
+              :anon-window-minutes="props.anonWindowMinutes"
+              :has-edit-key="props.hasEditKey"
+              :has-edit-keys="props.hasEditKeys"
+              :read-only="props.readOnly"
+              :action-mode="actionMode"
+              :body-limit="bodyLimit"
+              :parent-author-name="comment.authorName"
+              :reply-to="props.replyTo"
+              :dark="props.dark"
+              :sign-in-href="props.signInHref"
+              :on-sign-in="props.onSignIn"
+              :on-vote="props.onVote"
+              :on-reply="props.onReply"
+              :on-edit="props.onEdit"
+              :on-delete="props.onDelete"
+              :on-reply-submit="props.onReplySubmit"
+              :reply-site-key="props.replySiteKey"
+              :turnstile-options="props.turnstileOptions"
+              :reply-guest="props.replyGuest"
+              :on-close-reply="props.onCloseReply"
+              :on-moderate="props.onModerate"
+              :on-block-user="props.onBlockUser"
+            >
+              <template v-if="$slots.signIn" #signIn>
+                <slot name="signIn" />
+              </template>
+            </CommentList>
+          </AccordionContent>
+        </div>
+      </AccordionItem>
+    </AccordionRoot>
   </article>
 </template>

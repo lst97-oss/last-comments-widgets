@@ -881,8 +881,8 @@ const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
     specific: true,
   },
   USER_BLOCKED: {
-    title: "You can't comment here",
-    message: 'This account or guest name is blocked from commenting on this site.',
+    title: "You're blocked from commenting here",
+    message: 'Your account is blocked from commenting on this site. Contact the site admin for assistance.',
     specific: true,
   },
   PAGE_LOCKED: {
@@ -949,7 +949,10 @@ export function describeError(error: unknown, overrides: { title?: string; messa
   return {
     code: api?.code ?? null,
     title: copy?.specific ? copy.title : (overrides.title ?? copy?.title ?? 'Something went wrong'),
-    message: overrides.message ?? usable ?? copy?.message ?? 'Try again in a moment.',
+    message:
+      overrides.message ??
+      (copy?.specific ? (copy.message ?? usable) : (usable ?? copy?.message)) ??
+      'Try again in a moment.',
     action: copy?.action ?? (copy === undefined ? 'retry' : 'none'),
   }
 }
