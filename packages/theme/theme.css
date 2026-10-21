@@ -364,7 +364,13 @@
       @apply bg-muted px-1 font-mono text-[0.85em];
     }
     .lc-markdown pre {
-      @apply overflow-x-auto rounded-lg bg-muted p-3;
+      @apply overflow-x-auto rounded-lg p-3;
+    }
+    /* A highlighted block owns its background (Shiki's --shiki-light-bg /
+       --shiki-dark-bg); the muted fill belongs to the plain fallback only,
+       otherwise it shows as a grey band around the highlighted code. */
+    .lc-markdown pre:not(.shiki) {
+      @apply bg-muted;
     }
     .lc-markdown pre code {
       @apply bg-transparent p-0;
