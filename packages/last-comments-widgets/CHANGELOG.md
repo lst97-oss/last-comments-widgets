@@ -1,5 +1,35 @@
 # @lst97-oss/last-comments-widgets
 
+## 0.4.0
+
+### Minor Changes
+
+- 7eb0460: Removed comments now read as placeholders in the normal view: a deleted comment
+  shows a `[deleted]` tombstone (author anonymised, body gone) and a hidden
+  comment says it is under review, both Reddit-style. Replies stay visible under
+  the placeholder, and moderators still see the original body plus the status
+  badge so a restore can still be judged. Deleting your own comment leaves the
+  tombstone in place instead of dropping the row.
+
+  A blocked account now gets a clear reason when it posts or replies: the error
+  says the account is blocked and to contact the site admin for assistance,
+  instead of the server's generic "You cannot comment on this site".
+
+### Patch Changes
+
+- 45591ba: Highlighted code blocks no longer show a grey band around the code. The muted
+  fill now belongs to the plain fallback block only, so a Shiki-highlighted block
+  paints its own background (light and dark) instead of leaving a muted frame
+  around the highlighted code.
+- cb0b0aa: Markdown images (`![alt](url)`) now render the way the widget's avatars
+  already do: lazily loaded, decoded asynchronously and sent without a
+  referrer. A bare image also links to itself, so clicking it opens the full
+  size, while an image the author already linked keeps that link.
+
+  Plain image URLs are still rendered as links — only the markdown form embeds
+  an image — and an image whose source cannot load (`mailto:`, `data:`,
+  `javascript:`) falls back to its alt text as before.
+
 ## 0.3.0
 
 ### Minor Changes
