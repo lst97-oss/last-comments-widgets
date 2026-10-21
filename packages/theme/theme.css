@@ -196,7 +196,10 @@
       font-size: var(--lc-font-size, 1rem);
       line-height: var(--lc-line-height, 1.5);
       color: var(--foreground);
-      background-color: var(--background);
+      /* The widget is embedded: the host owns the page surface, so the scope
+         stays transparent in both themes. Components that need a surface of
+         their own (composer, cards, menus) paint it. */
+      background-color: transparent;
       color-scheme: light;
       -webkit-text-size-adjust: 100%;
       tab-size: 4;
