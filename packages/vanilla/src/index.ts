@@ -1592,7 +1592,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         ? 0
         : move === 'last'
           ? items.length - 1
-          : ((current < 0 ? 0 : current) + move + items.length) % items.length
+          : (Math.max(current, 0) + move + items.length) % items.length
     items[index].focus()
   }
 

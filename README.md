@@ -1,4 +1,5 @@
 # last-comments-widgets
+
 <img width="600" height="1000" alt="Screenshot 2026-10-22 at 1 13 52 am" src="https://github.com/user-attachments/assets/b318ab0a-f5ac-4bca-97fd-4519d06c485c" />
 
 Standard drop-in comment widgets for [last-comments](https://github.com/lst97-oss/last-comments) — for consumers who don't want to build their own UI. Native widgets for React, Vue, Angular, and plain HTML, all sharing one API client and one self-contained Tailwind v4 + shadcn `base-nova` theme, all shipped in one package with a subpath per framework (`/react`, `/vue`, `/angular`, `/vanilla`, plus `/client` and `/theme.css`).
@@ -31,14 +32,10 @@ bun add @angular/cdk @lucide/angular
 React:
 
 ```tsx
-import { Comments } from "@lst97-oss/last-comments-widgets/react";
-import "@lst97-oss/last-comments-widgets/react/styles.css";
+import { Comments } from '@lst97-oss/last-comments-widgets/react'
+import '@lst97-oss/last-comments-widgets/react/styles.css'
 
-<Comments
-  site="demo"
-  baseUrl="https://comments.example.com"
-  turnstileSiteKey="…"
-/>;
+;<Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
 ```
 
 Vue:
@@ -61,8 +58,8 @@ import "@lst97-oss/last-comments-widgets/vue/styles.css";
 Angular:
 
 ```ts
-import { LcCommentsComponent } from "@lst97-oss/last-comments-widgets/angular";
-import "@lst97-oss/last-comments-widgets/angular/styles.css";
+import { LcCommentsComponent } from '@lst97-oss/last-comments-widgets/angular'
+import '@lst97-oss/last-comments-widgets/angular/styles.css'
 
 @Component({
   imports: [LcCommentsComponent],
@@ -100,8 +97,7 @@ Props (all frameworks): `site` (required), `baseUrl` (required), `pageUrl` (defa
 
 ```ts
 // fetchImpl receives (url, init) exactly as the widget would call fetch.
-const fetchImpl: typeof fetch = (input, init) =>
-  fetch(toSameOriginProxy(input), init);
+const fetchImpl: typeof fetch = (input, init) => fetch(toSameOriginProxy(input), init)
 ```
 
 Signed-in viewers are detected from the API session (`GET {baseUrl}/api/auth/get-session`), with the host's `viewerUserId` prop as the fallback when the API cannot answer (no same-origin proxy): when signed in, the composer drops the guest name field and Turnstile, posting uses the session identity, and votes work; the identity menu below lets the user post anonymously instead.
@@ -137,33 +133,33 @@ const brand: WidgetTheme = {
 
 Vue uses `:theme-vars="brand"`; Angular uses `[themeVars]="brand"`; vanilla accepts `{ themeVars: brand }` in `mountComments` and `renderCommentViewer`. Pass complete CSS colors (hex, `rgb()`, `oklch()`, etc.), lengths with units, and unitless line heights. Fonts must be loaded by the host if they are not already available.
 
-**`themeVars` is the widget's one configuration object.** Every design knob lives there — colors, sizes, radii, shadows, and visibility switches — so a host adjusts the look in one place instead of through a growing list of props. Props stay reserved for behaviour (`limit`, `lazy`, `actionMode`, `viewerRole`, …), and a new *design* knob becomes a new `themeVars` key rather than a new prop. Keys whose value is not free-form CSS (`threadGuideDisplay` is `block` or `none`) are typed, so a typo is a compile error instead of a silently ignored override; the plain-HTML port drops an out-of-range value the same way it drops an unparsable number.
+**`themeVars` is the widget's one configuration object.** Every design knob lives there — colors, sizes, radii, shadows, and visibility switches — so a host adjusts the look in one place instead of through a growing list of props. Props stay reserved for behaviour (`limit`, `lazy`, `actionMode`, `viewerRole`, …), and a new _design_ knob becomes a new `themeVars` key rather than a new prop. Keys whose value is not free-form CSS (`threadGuideDisplay` is `block` or `none`) are typed, so a typo is a compile error instead of a silently ignored override; the plain-HTML port drops an out-of-range value the same way it drops an unparsable number.
 
-| Theme keys                                                     | Controls                                                                |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `background`, `foreground`                                     | Widget surface and default text                                         |
-| `primary`, `primaryForeground`                                 | Primary actions and links                                               |
-| `card`, `cardForeground`                                       | Comment surfaces and text                                               |
-| `popover`, `popoverForeground`                                 | Identity menus and React dialogs                                        |
-| `muted`, `mutedForeground`, `secondary`, `secondaryForeground` | Composer, placeholders, secondary surfaces and text                     |
-| `accent`, `accentForeground`                                   | Selector hover and keyboard highlight                                   |
-| `border`, `input`, `ring`                                      | Borders and focus indicators                                            |
-| `destructive`, `destructiveForeground`                         | Errors and destructive actions                                          |
-| `success`, `warning`, `error`, `info`                          | Status palettes; each also has `Foreground` and `Muted` keys            |
-| `radius`, `controlRadius`, `avatarRadius`, `skeletonRadius`    | Surface/control corner radii, avatar shape, and loading placeholder radius |
-| `fontFamily`, `fontFamilyMono`, `fontSize`, `lineHeight`       | Typography, including Markdown and popups                               |
-| `fontWeightMedium`                                             | Weight used by author names, buttons, and other emphasized labels       |
-| `spacing`                                                      | Spacing unit used by gaps, margins, padding, and utility-sized controls |
-| `controlHeight`                                                | Minimum height of buttons, inputs, and selects                          |
-| `cardPadding`, `composerPadding`, `composerBackground`         | Comment/composer padding and the composer surface color; reply indentation is preserved |
+| Theme keys                                                     | Controls                                                                                                |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `background`, `foreground`                                     | Widget surface and default text                                                                         |
+| `primary`, `primaryForeground`                                 | Primary actions and links                                                                               |
+| `card`, `cardForeground`                                       | Comment surfaces and text                                                                               |
+| `popover`, `popoverForeground`                                 | Identity menus and React dialogs                                                                        |
+| `muted`, `mutedForeground`, `secondary`, `secondaryForeground` | Composer, placeholders, secondary surfaces and text                                                     |
+| `accent`, `accentForeground`                                   | Selector hover and keyboard highlight                                                                   |
+| `border`, `input`, `ring`                                      | Borders and focus indicators                                                                            |
+| `destructive`, `destructiveForeground`                         | Errors and destructive actions                                                                          |
+| `success`, `warning`, `error`, `info`                          | Status palettes; each also has `Foreground` and `Muted` keys                                            |
+| `radius`, `controlRadius`, `avatarRadius`, `skeletonRadius`    | Surface/control corner radii, avatar shape, and loading placeholder radius                              |
+| `fontFamily`, `fontFamilyMono`, `fontSize`, `lineHeight`       | Typography, including Markdown and popups                                                               |
+| `fontWeightMedium`                                             | Weight used by author names, buttons, and other emphasized labels                                       |
+| `spacing`                                                      | Spacing unit used by gaps, margins, padding, and utility-sized controls                                 |
+| `controlHeight`                                                | Minimum height of buttons, inputs, and selects                                                          |
+| `cardPadding`, `composerPadding`, `composerBackground`         | Comment/composer padding and the composer surface color; reply indentation is preserved                 |
 | `commentBorder`, `borderWidth`, `replyBackground`              | Comment border width (`0` = none), border width of other surfaces and controls, and reply surface color |
-| `threadActive`, `threadMuted`, `threadIndent`                 | Reply guide line: active and muted colors, and the thread indent        |
-| `threadGuideDisplay`                                           | Reply guide line visibility: `block` (default) or `none` to hide it    |
-| `avatarRing`                                                   | Ring behind stacked reply avatars                                       |
-| `voteBackground`, `voteBorder`, `voteShadow`                   | Vote pill surface, border and shadow                                    |
-| `actionColor`, `actionHoverColor`, `actionHoverBackground`     | Reply/Edit/Delete and moderator action colors on hover                  |
-| `menuZIndex`                                                   | Stacking order of the identity menu                                     |
-| `cardShadow`, `dropdownShadow`                                  | Shadows on the comment card and the popup menus                         |
+| `threadActive`, `threadMuted`, `threadIndent`                  | Reply guide line: active and muted colors, and the thread indent                                        |
+| `threadGuideDisplay`                                           | Reply guide line visibility: `block` (default) or `none` to hide it                                     |
+| `avatarRing`                                                   | Ring behind stacked reply avatars                                                                       |
+| `voteBackground`, `voteBorder`, `voteShadow`                   | Vote pill surface, border and shadow                                                                    |
+| `actionColor`, `actionHoverColor`, `actionHoverBackground`     | Reply/Edit/Delete and moderator action colors on hover                                                  |
+| `menuZIndex`                                                   | Stacking order of the identity menu                                                                     |
+| `cardShadow`, `dropdownShadow`                                 | Shadows on the comment card and the popup menus                                                         |
 
 Styles, resets, and semantic defaults are scoped to `.lc-comments` and `.lc-theme` using native CSS `@scope`; use a browser with `@scope` support. Importing widget CSS does not set the host page's font, colors, margins, or utility classes. Each instance has its own defaults, and an explicitly light widget stays light inside a dark host. React menus portal into their owning root so CSS variables and selectors still apply. Avoid clipping that root with `overflow: hidden` when using popups.
 
@@ -229,29 +225,29 @@ Pass `viewerRole` (`admin` or `moderator`, typically with `viewerUserId`) to ren
 `CommentViewer` (Vue `CommentViewer`, Angular `lc-comment-viewer`, vanilla `data-lc-viewer` + `renderCommentViewer`) renders the same list with no composer and no Reply/Edit/Delete/vote buttons — import it where the page only shows comments. Same `site`/`baseUrl`/`pageUrl`/`limit`/`lazy`/`theme`/`themeVars`, same thread pager and skeletons; voting UI stays available via the exported `VoteButtons` for hosts that opt in.
 
 ```tsx
-import { CommentViewer } from "@lst97-oss/last-comments-widgets/react";
+import { CommentViewer } from '@lst97-oss/last-comments-widgets/react'
 
-<CommentViewer site="demo" baseUrl="https://comments.example.com" />;
+;<CommentViewer site="demo" baseUrl="https://comments.example.com" />
 ```
 
 ## Client API
 
 `@lst97-oss/last-comments-widgets/client` (the bare package name resolves to the same entry point) is what the four widgets are built on; hosts rendering their own UI can import it directly. Every widget subpath depends on it at runtime, which is why all four frameworks ship inside one package and share its version.
 
-| Export                                                                                            | Purpose                                                                                 |
-| ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `createClient({ site, baseUrl, fetchImpl })`                                                      | list, post, edit and delete comments, vote, and run moderation calls                    |
-| `listCommentsPage({ …, offset, limit })`                                                          | one page of rows plus `hasMore` (probes one extra row; the API returns no total)        |
-| `loadThreadWindow({ …, pages, existing })`                                                        | rows accumulated until N whole threads are present — the loader behind the widget pager |
-| `fetchViewerThreads({ … })`                                                                       | one-shot fetch of the flat stream                                                       |
-| `buildCommentTree(rows)`                                                                          | group that stream into thread nodes (orphan replies become roots)                       |
-| `describeError(error, overrides?)`                                                                | the title/message/action copy every widget renders                                      |
-| `beginOAuthSignIn` · `fetchViewerSession` · `signOutViewerSession`                                | the flow behind the identity control                                                    |
-| `renderMarkdown` · `safeUrl`                                                                      | markdown rendering (raw HTML stripped) and URL sanitising                               |
-| `themeVarsToStyle` · `THEME_CSS_VARIABLES`                                                        | map `themeVars` onto the widget's CSS variables                                         |
-| `isEditWindowOpen` · `DEFAULT_EDIT_WINDOW_MINUTES` · `canModerate` · `moderationCommentToComment` · `sortThreadTree` | shared widget rules                                              |
-| `formatRelativeTime` · `collectThreadParticipants`                                                | Reddit-style short ages and the unique authors inside a reply subtree                    |
-| `foldReplySummary(children)`                                                                       | reply total plus the moderator-only pinned/hidden/deleted breakdown of a reply group        |
+| Export                                                                                                               | Purpose                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `createClient({ site, baseUrl, fetchImpl })`                                                                         | list, post, edit and delete comments, vote, and run moderation calls                    |
+| `listCommentsPage({ …, offset, limit })`                                                                             | one page of rows plus `hasMore` (probes one extra row; the API returns no total)        |
+| `loadThreadWindow({ …, pages, existing })`                                                                           | rows accumulated until N whole threads are present — the loader behind the widget pager |
+| `fetchViewerThreads({ … })`                                                                                          | one-shot fetch of the flat stream                                                       |
+| `buildCommentTree(rows)`                                                                                             | group that stream into thread nodes (orphan replies become roots)                       |
+| `describeError(error, overrides?)`                                                                                   | the title/message/action copy every widget renders                                      |
+| `beginOAuthSignIn` · `fetchViewerSession` · `signOutViewerSession`                                                   | the flow behind the identity control                                                    |
+| `renderMarkdown` · `safeUrl`                                                                                         | markdown rendering (raw HTML stripped) and URL sanitising                               |
+| `themeVarsToStyle` · `THEME_CSS_VARIABLES`                                                                           | map `themeVars` onto the widget's CSS variables                                         |
+| `isEditWindowOpen` · `DEFAULT_EDIT_WINDOW_MINUTES` · `canModerate` · `moderationCommentToComment` · `sortThreadTree` | shared widget rules                                                                     |
+| `formatRelativeTime` · `collectThreadParticipants`                                                                   | Reddit-style short ages and the unique authors inside a reply subtree                   |
+| `foldReplySummary(children)`                                                                                         | reply total plus the moderator-only pinned/hidden/deleted breakdown of a reply group    |
 
 Signatures and the complete type list live in `packages/client/src/index.ts`.
 

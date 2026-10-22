@@ -37,7 +37,7 @@ React 19:
 import { Comments } from '@lst97-oss/last-comments-widgets/react'
 import '@lst97-oss/last-comments-widgets/react/styles.css'
 
-<Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
+;<Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
 ```
 
 Vue 3:
@@ -76,15 +76,15 @@ Plain HTML, no build step:
 
 ## Entry points
 
-| Import | What it gives you |
-| --- | --- |
+| Import                                          | What it gives you                                                                                                                                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@lst97-oss/last-comments-widgets` · `…/client` | The framework-free API client: `createClient`, `listCommentsPage`, `loadThreadWindow`, `buildCommentTree`, `describeError`, `renderMarkdown`, `themeVarsToStyle`, `isEditWindowOpen`, `canModerate` and the exported types |
-| `…/react` | `Comments`, `CommentViewer`, `VoteButtons`, `CommentsTheme` |
-| `…/vue` | The same components as Vue SFCs |
-| `…/angular` | `LcCommentsComponent`, `LcCommentViewerComponent`, the vote buttons and the Turnstile directive |
-| `…/vanilla` | `mountComments`, `renderCommentViewer` for plain HTML |
-| `…/theme.css` | The theme tokens on their own |
-| `…/{react,vue,angular,vanilla}/styles.css` | The compiled widget stylesheet for that framework |
+| `…/react`                                       | `Comments`, `CommentViewer`, `VoteButtons`, `CommentsTheme`                                                                                                                                                                |
+| `…/vue`                                         | The same components as Vue SFCs                                                                                                                                                                                            |
+| `…/angular`                                     | `LcCommentsComponent`, `LcCommentViewerComponent`, the vote buttons and the Turnstile directive                                                                                                                            |
+| `…/vanilla`                                     | `mountComments`, `renderCommentViewer` for plain HTML                                                                                                                                                                      |
+| `…/theme.css`                                   | The theme tokens on their own                                                                                                                                                                                              |
+| `…/{react,vue,angular,vanilla}/styles.css`      | The compiled widget stylesheet for that framework                                                                                                                                                                          |
 
 ## Highlights
 
