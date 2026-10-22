@@ -37,7 +37,7 @@ React 19:
 import { Comments } from '@lst97-oss/last-comments-widgets/react'
 import '@lst97-oss/last-comments-widgets/react/styles.css'
 
-<Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
+;<Comments site="demo" baseUrl="https://comments.example.com" turnstileSiteKey="…" />
 ```
 
 Vue 3:
@@ -76,20 +76,20 @@ Plain HTML, no build step:
 
 ## Entry points
 
-| Import | What it gives you |
-| --- | --- |
+| Import                                          | What it gives you                                                                                                                                                                                                          |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@lst97-oss/last-comments-widgets` · `…/client` | The framework-free API client: `createClient`, `listCommentsPage`, `loadThreadWindow`, `buildCommentTree`, `describeError`, `renderMarkdown`, `themeVarsToStyle`, `isEditWindowOpen`, `canModerate` and the exported types |
-| `…/react` | `Comments`, `CommentViewer`, `VoteButtons`, `CommentsTheme` |
-| `…/vue` | The same components as Vue SFCs |
-| `…/angular` | `LcCommentsComponent`, `LcCommentViewerComponent`, the vote buttons and the Turnstile directive |
-| `…/vanilla` | `mountComments`, `renderCommentViewer` for plain HTML |
-| `…/theme.css` | The theme tokens on their own |
-| `…/{react,vue,angular,vanilla}/styles.css` | The compiled widget stylesheet for that framework |
+| `…/react`                                       | `Comments`, `CommentViewer`, `VoteButtons`, `CommentsTheme`                                                                                                                                                                |
+| `…/vue`                                         | The same components as Vue SFCs                                                                                                                                                                                            |
+| `…/angular`                                     | `LcCommentsComponent`, `LcCommentViewerComponent`, the vote buttons and the Turnstile directive                                                                                                                            |
+| `…/vanilla`                                     | `mountComments`, `renderCommentViewer` for plain HTML                                                                                                                                                                      |
+| `…/theme.css`                                   | The theme tokens on their own                                                                                                                                                                                              |
+| `…/{react,vue,angular,vanilla}/styles.css`      | The compiled widget stylesheet for that framework                                                                                                                                                                          |
 
 ## Highlights
 
 - Threads page by **thread**, not by row: a page shows `limit` (default 20) top-level comments with their replies, filled before it renders, with `Previous` served from memory. Loading states are skeletons, and `lazy` defers every request until the widget scrolls into view.
-- Guests post with a name + Cloudflare Turnstile; signed-in viewers get votes and Edit/Delete, and the composer is disabled while the session probe is in flight so a comment can never post with a guessed identity.
+- Every post carries a Cloudflare Turnstile token: guests add a name, signed-in viewers post with their session and get votes and Edit/Delete. The composer is disabled while the session probe is in flight so a comment can never post with a guessed identity.
 - `theme="light | dark | system"` plus per-instance `themeVars`, scoped with native CSS `@scope` so importing the widget CSS does not touch your page's fonts, colors or margins.
 - Every failure renders one alert block with copy from `describeError()`, carrying `data-lc-error` / `data-error-code`.
 - Markdown (GitHub-flavored) with raw HTML stripped and `http(s)`/`mailto` links only.

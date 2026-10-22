@@ -143,6 +143,22 @@ try {
     expect(await style(root.locator('.lc-composer').first(), 'background-color')).toBe('rgb(7, 8, 9)')
     // Every port draws the reply guides in the same measured container.
     expect(await style(root.locator('.lc-thread-guides').first(), 'padding-inline-start')).toBe('13px')
+    // A rail rides the middle of its card's own left padding, never the gutter
+    // outside the card: the card's edge would cut it on a dark surface. The path
+    // builder adds the half pixel that keeps a 2px stroke crisp.
+    expect(
+      await root.evaluate((element) => {
+        const overlay = element.querySelector<HTMLElement>('.lc-thread-overlay')
+        const card = element.querySelector<HTMLElement>('article.lc-comment')
+        const d = overlay?.querySelector('path.track')?.getAttribute('d') ?? ''
+        const origin = overlay?.getBoundingClientRect().left ?? 0
+        return {
+          rail: Number.parseFloat(d.split(' ')[1] ?? ''),
+          cardLeft: (card?.getBoundingClientRect().left ?? 0) - origin,
+          padding: card ? Number.parseFloat(getComputedStyle(card).paddingLeft) : 0,
+        }
+      }),
+    ).toEqual({ rail: 22.5, cardLeft: 13, padding: 18 })
     // Every port routes its secondary actions through the same hover hook.
     const action = root.locator('.lc-comment .lc-action').first()
     expect(await style(action, 'color')).toBe('rgb(11, 22, 33)')
@@ -213,7 +229,9 @@ try {
         '#ff0000',
     )
     expect(await style(root, 'font-family')).not.toContain('Georgia')
-    expect(await style(root.locator('.lc-comment').first(), 'padding-top')).toBe('0px')
+    // With the themeVars dropped, the card falls back to its default padding
+    // (3 × the default spacing), not to a flush card.
+    expect(await style(root.locator('.lc-comment').first(), 'padding-top')).toBe('12px')
     expect(await style(viewer.locator('.lc-comment').first(), 'box-shadow')).toBe('none')
     await page.screenshot({ path: `.tmp/theme-${framework}.png`, fullPage: true })
     expect(pageErrors).toHaveLength(0)

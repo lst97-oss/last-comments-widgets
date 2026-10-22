@@ -191,6 +191,9 @@ export function Comments({
 
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLElement>(null)
+  // The head composer's in-flight lock: it outlives the render that disables
+  // the button, so a second click cannot post the same comment twice.
+  const postingRef = useRef(false)
   const inView = useInView(rootRef, lazy)
 
   // A prop flip can leave an older request in flight; only the newest load may commit.
@@ -377,6 +380,9 @@ export function Comments({
 
   // `false` = nothing was sent: the composer keeps the draft for a retry.
   async function handleSubmit(input: CommentFormInput): Promise<boolean> {
+    // The in-flight lock: a second click must not post the same comment twice.
+    // The ref is the lock, the reducer state only drives the loading state.
+    if (postingRef.current) return false
     const bodyMarkdown = input.bodyMarkdown.trim()
     // Local guard: nothing was sent, so no API copy applies.
     const postTitle = "Your comment wasn't posted"
@@ -384,6 +390,7 @@ export function Comments({
       setFormError({ code: null, title: postTitle, message: 'Please write a comment first.', action: 'none' })
       return false
     }
+    postingRef.current = true
     uiDispatch({ type: 'posting/set', posting: true })
     setFormError(null)
     try {
@@ -399,6 +406,7 @@ export function Comments({
       setFormError(describeError(err, { title: postTitle }))
       return false
     } finally {
+      postingRef.current = false
       uiDispatch({ type: 'posting/set', posting: false })
     }
   }

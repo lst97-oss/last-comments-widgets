@@ -640,6 +640,8 @@ export class LcCommentItemComponent {
   }
 
   protected async submitEdit(submit: CommentSubmit): Promise<void> {
+    // The in-flight lock: a second click must not save the same edit twice.
+    if (this.itemState().saving) return
     this.dispatch({ type: 'saving/set', saving: true })
     try {
       this.dispatch({ type: 'edit/settle', error: await this.editComment()(this.comment().comment.id, submit) })
@@ -649,6 +651,8 @@ export class LcCommentItemComponent {
   }
 
   protected async submitReply(submit: CommentSubmit): Promise<void> {
+    // The in-flight lock: a second click must not post the same reply twice.
+    if (this.itemState().replying) return
     this.dispatch({ type: 'reply/submit' })
     try {
       this.dispatch({ type: 'reply/settle', error: await this.replyComment()(this.comment().comment.id, submit) })

@@ -17,7 +17,7 @@ type TurnstileProps = {
 
 type AttachedWidget = { api: TurnstileApi; id: string }
 
-// Cloudflare Turnstile for the guest composer, driven by a React 19 ref
+// Cloudflare Turnstile for the composer, driven by a React 19 ref
 // callback instead of an effect: committing the div is the moment to attach an
 // external widget, the callback identity change is exactly a re-attach, and
 // the cleanup it returns covers unmount and the extra StrictMode cycle.

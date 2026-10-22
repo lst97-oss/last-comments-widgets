@@ -350,7 +350,7 @@ export class LcCommentsComponent {
   // instead of matching `pageUrl` against the site's (capped) page list.
   pageId = input<string | undefined>(undefined)
   turnstileSiteKey = input<string | undefined>(undefined)
-  // Cloudflare's supported design knobs for the guest challenge.
+  // Cloudflare's supported design knobs for the challenge.
   turnstileOptions = input<TurnstileOptions | undefined>(undefined)
   limit = input(20)
   theme = input<Theme>('system')
@@ -762,6 +762,8 @@ export class LcCommentsComponent {
   }
 
   async onTopLevelSubmit(input: CommentSubmit): Promise<void> {
+    // The in-flight lock: a second click must not post the same comment twice.
+    if (this.posting()) return
     this.posting.set(true)
     this.formError.set(null)
     try {

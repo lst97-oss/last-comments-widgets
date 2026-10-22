@@ -231,10 +231,14 @@
       border: var(--lc-comment-border, 0) solid var(--border);
       border-radius: var(--radius);
       box-shadow: var(--lc-card-shadow, none);
-      padding: var(--lc-card-padding, 0);
+      /* A card's content keeps its distance from the card's own edge; a host
+         that wants a flush card still sets cardPadding to 0. */
+      padding: var(--lc-card-padding, calc(var(--lc-spacing, 0.25rem) * 3));
     }
     .lc-comment.lc-reply {
       background: var(--lc-reply-background, var(--card));
+      /* The inline-start inset is the nesting indent, not card padding: one
+         gutter on top of whatever the host's card padding is. */
       padding-inline-start: calc(var(--lc-card-padding, 0px) + var(--lc-spacing, 0.25rem) * 4);
     }
     /* Reply connectors: one measured Fumadocs-style guide line per comment
@@ -244,8 +248,9 @@
       padding-inline-start: var(--lc-thread-indent, 1rem);
     }
     .lc-thread-overlay {
-      /* The guide is decoration: hiding it (and the gutter it rides in) is a
-         styling decision, so it lives in CSS rather than behind a prop. */
+      /* The guide is decoration: hiding it is a styling decision, so it lives in
+         CSS rather than behind a prop. Rails ride each card's own left padding,
+         so the overlay starts at the card edge. */
       display: var(--lc-thread-guide-display, block);
       position: absolute;
       inset-inline-start: 0;
