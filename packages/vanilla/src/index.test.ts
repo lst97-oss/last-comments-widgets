@@ -506,26 +506,28 @@ describe('guidePath', () => {
   test('a head without replies draws nothing and starts the next thread', () => {
     // A bare head row: nothing to connect, so the path stays empty.
     expect(guidePath([{ depth: 0, left: 16, top: 0, bottom: 40, paddingLeft: 0, hasReplies: false }]).d).toBe('')
-    // The same head with a reply group: it draws its own rail from the gutter.
+    // The same head with a reply group: it draws its own rail inside its card
+    // padding, then bends to the reply's rail.
     const { d } = guidePath([
-      { depth: 0, left: 16, top: 0, bottom: 40, paddingLeft: 0, hasReplies: true },
+      { depth: 0, left: 16, top: 0, bottom: 40, paddingLeft: 12, hasReplies: true },
       { depth: 1, left: 32, top: 60, bottom: 100, paddingLeft: 16, hasReplies: false },
     ])
-    expect(d.startsWith('M 8.5 0')).toBe(true)
-    expect(d).toContain('L 8.5 40')
+    expect(d.startsWith('M 22.5 0')).toBe(true)
+    expect(d).toContain('L 22.5 40')
     expect(d).toContain('C')
-    expect(d.endsWith('L 24.5 100')).toBe(true)
+    expect(d.endsWith('L 40.5 100')).toBe(true)
   })
 
   test('a new thread head breaks the path instead of joining the previous one', () => {
     const { d } = guidePath([
-      { depth: 0, left: 16, top: 0, bottom: 40, paddingLeft: 0, hasReplies: true },
+      { depth: 0, left: 16, top: 0, bottom: 40, paddingLeft: 12, hasReplies: true },
       { depth: 1, left: 32, top: 60, bottom: 100, paddingLeft: 16, hasReplies: false },
-      { depth: 0, left: 16, top: 140, bottom: 180, paddingLeft: 0, hasReplies: true },
+      { depth: 0, left: 16, top: 140, bottom: 180, paddingLeft: 12, hasReplies: true },
     ])
-    // Two subpaths, and no curve bridging the gap between the threads.
-    expect(d.match(/M /g)?.length).toBe(2)
-    expect(d).not.toContain('C 24.5')
+    // Two subpaths, and the second starts fresh instead of curving up from the first.
+    const [first, second] = d.split('M ').filter(Boolean)
+    expect(second).toBe('22.5 140 L 22.5 180')
+    expect(first).toContain('C')
   })
 
   test('a folded group keeps a stub beside its trigger, one gutter lower', () => {
@@ -535,13 +537,14 @@ describe('guidePath', () => {
         left: 16,
         top: 0,
         bottom: 40,
-        paddingLeft: 0,
+        paddingLeft: 12,
         hasReplies: true,
         stub: { top: 40, bottom: 80 },
       },
     ])
-    // stub top = 40 + 2 * 8, drawn at left + paddingLeft + 8.
-    expect(d.endsWith('C 8.5 52 24.5 44 24.5 56 L 24.5 80')).toBe(true)
+    // Stub top = 40 + 2 * 8; x = left + paddingLeft + one reply indent (16) +
+    // half of the folded reply's own padding (8).
+    expect(d.endsWith('C 22.5 52 52.5 44 52.5 56 L 52.5 80')).toBe(true)
   })
 
   test('empty pages and zero-height bands produce no path', () => {

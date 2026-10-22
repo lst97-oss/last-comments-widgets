@@ -879,8 +879,8 @@ export function sortToggleMarkup(value: ThreadSort): string {
 
 // Reply panels clip their contents while they fold, so measurement follows them.
 const PANEL_SELECTOR = '[data-slot="accordion-content"]'
-// Rails ride the middle of the 1rem gutters (the list's and each reply group's),
-// so a line never crosses a comment's content.
+// Rails ride the middle of a comment's own left padding, so a line stays inside
+// the card it belongs to instead of crossing the card's edge.
 export const GUTTER_INSET = 8
 // Reading slice for the scroll spy: a comment is often taller than the Fumadocs
 // TOC's top 20%, so this points at the middle of the viewport.
@@ -908,7 +908,7 @@ export function guidePath(rows: GuideRow[]): { d: string; width: number; height:
     const head = row.depth === 0
     if (head) started = false
     if (row.bottom > row.top && (!head || row.hasReplies)) {
-      items.push({ x: row.left - GUTTER_INSET, top: row.top, bottom: row.bottom, break: !started })
+      items.push({ x: row.left + row.paddingLeft / 2, top: row.top, bottom: row.bottom, break: !started })
       started = true
     }
     if (row.stub) {
@@ -917,7 +917,9 @@ export function guidePath(rows: GuideRow[]): { d: string; width: number; height:
       const top = row.stub.top + GUTTER_INSET * 2
       const bottom = row.stub.bottom
       if (bottom > top) {
-        items.push({ x: row.left + row.paddingLeft + GUTTER_INSET, top, bottom, break: !started })
+        // The folded child's own rail: one reply indent in, then half the
+        // reply's default inline padding (a host cardPadding shifts it).
+        items.push({ x: row.left + row.paddingLeft + GUTTER_INSET * 3, top, bottom, break: !started })
         started = true
       }
     }

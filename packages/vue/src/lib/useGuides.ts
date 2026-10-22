@@ -3,8 +3,8 @@ import { nextTick, onBeforeUnmount, type Ref, shallowRef, watch } from 'vue'
 
 // Reply panels clip their contents while they fold, so measurement follows them.
 const PANEL_SELECTOR = '[data-slot="accordion-content"]'
-// Rails ride the middle of the 1rem gutters (the list's and each reply group's),
-// so a line never crosses a comment's content.
+// Rails ride the middle of a comment's own left padding, so a line stays inside
+// the card it belongs to instead of crossing the card's edge.
 const GUTTER_INSET = 8
 // Reading slice for the scroll spy. The Fumadocs TOC watches its top 20%, but a
 // comment is often taller than that slice, so this points at the middle of the
@@ -109,7 +109,7 @@ export function useGuides(listEl: Ref<HTMLElement | null>, clipEl: Ref<SVGRectEl
       // A head draws a line only when it has replies, and never joins the thread
       // above it: the head's line starts its own subpath.
       if (bottom > top && (!head || group)) {
-        items.push({ x: left - GUTTER_INSET, top, bottom, break: !started })
+        items.push({ x: left + paddingLeft / 2, top, bottom, break: !started })
         started = true
       }
       // A folded group keeps a stub beside its trigger, so hidden replies still
@@ -124,7 +124,9 @@ export function useGuides(listEl: Ref<HTMLElement | null>, clipEl: Ref<SVGRectEl
         const stubBottom = stub.bottom - baseY
         if (stubBottom > stubTop) {
           items.push({
-            x: left + paddingLeft + GUTTER_INSET,
+            // The folded child's own rail: one reply indent in, then half the
+            // reply's default inline padding (a host cardPadding shifts it).
+            x: left + paddingLeft + GUTTER_INSET * 3,
             top: stubTop,
             bottom: stubBottom,
             break: !started,
