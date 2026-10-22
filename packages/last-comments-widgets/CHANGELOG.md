@@ -1,5 +1,16 @@
 # @lst97-oss/last-comments-widgets
 
+## 0.4.2
+
+### Patch Changes
+
+- 376a151: A comment card now keeps its content off its own edge: the default `cardPadding` is three spacing units (12px) instead of 0, matching the composer, so text, code blocks and actions no longer sit flush against the rounded card on a dark surface. A host that wants a flush card still sets `cardPadding: '0px'`.
+
+  The reply guide rails now ride the middle of each comment card's own left padding instead of a gutter outside the card, so a rail stays inside the card it belongs to and is never cut off by the card's edge or pushed outside the container. Every port (React, Vue, Angular, vanilla) measures the same rail.
+
+- ca90f88: The composer's post button now shows its loading state while the comment is in flight and a second click cannot post the same comment twice. React's composer had the state update inside the form action, which React 19 defers until the action settles — the button stayed enabled and read "Post comment" during the whole request; the busy state now starts on the submit event and is held by an in-flight counter. Every port (React, Vue, Angular, vanilla) locks the head composer, the reply and the inline editor, so a double click posts once.
+- 4a86a9d: Turnstile now covers every commenter. The challenge renders for signed-in authors too (React, Angular and vanilla rendered it for guests only) and the submit button waits for the token from every identity, not just the guest one. The server verifies the token for signed-in posts as well, so a signed-in session no longer skips the challenge — hosts need a `turnstileSiteKey` for commenting to work at all.
+
 ## 0.4.1
 
 ### Patch Changes
