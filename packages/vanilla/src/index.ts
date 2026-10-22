@@ -721,6 +721,8 @@ export type UiState = {
   lockPending: boolean
   signInPending: boolean
   signOutPending: boolean
+  // The head composer is posting: its button shows the loading state.
+  posting: boolean
   // The identity error plus the flow its own retry button must re-run.
   identityError: { info: ErrorInfo; retry: 'signin' | 'signout' } | null
 }
@@ -745,6 +747,7 @@ export type UiAction =
   | { type: 'error'; value: ErrorInfo | null }
   | { type: 'moderation/pending'; id: string; value: boolean }
   | { type: 'lock/pending'; value: boolean }
+  | { type: 'posting/set'; value: boolean }
 
 export const UI_INITIAL: UiState = {
   replyTo: null,
@@ -758,6 +761,7 @@ export const UI_INITIAL: UiState = {
   lockPending: false,
   signInPending: false,
   signOutPending: false,
+  posting: false,
   identityError: null,
 }
 
@@ -814,6 +818,8 @@ export function transition(state: UiState, action: UiAction): UiState {
       }
     case 'lock/pending':
       return { ...state, lockPending: action.value }
+    case 'posting/set':
+      return { ...state, posting: action.value }
     default:
       throw new Error(`Unknown UI action: ${JSON.stringify(action)}`)
   }
@@ -1156,7 +1162,7 @@ function renderForm(opts: {
       <div class="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1">
         <p class="hidden text-xs text-muted-foreground sm:block">Styling with <span class="font-medium text-primary">Markdown</span> is supported</p>
         ${cancel}
-        <button type="submit" ${opts.submitDisabled || opts.pending ? 'disabled' : ''} class="${BTN} ${BTN_DEFAULT} ${BTN_PRIMARY}">${opts.pending ? 'Posting…' : submitLabel}</button>
+        <button type="submit" data-lc-label="${submitLabel}" ${opts.submitDisabled || opts.pending ? 'disabled' : ''} class="${BTN} ${BTN_DEFAULT} ${BTN_PRIMARY}">${opts.pending ? 'Posting…' : submitLabel}</button>
       </div>
     </div>
   </form>`
@@ -1943,6 +1949,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
 
   async function submit(form: HTMLFormElement) {
     const formId = form.getAttribute('data-lc-form') ?? 'top'
+    // The in-flight lock: a second click must not post the same comment twice.
+    if (formBusy(formId)) return
     const errBox = form.querySelector('[data-lc-form-error]')
     const fail = (info: ErrorInfo) => {
       if (errBox) {
@@ -1997,6 +2005,10 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       fail(INVALID_BODY)
       return
     }
+    // The head composer keeps its draft in the DOM, so the button shows the
+    // loading state in place instead of repainting the composer.
+    ui = transition(ui, { type: 'posting/set', value: true })
+    syncSubmits()
     try {
       await postOne({ formId, parentId: null, bodyMarkdown, authorName })
       resetTurnstile(formId)
@@ -2015,6 +2027,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       }
       fail(describeError(err, { title: "Your comment wasn't posted" }))
       hydrateTurnstile()
+    } finally {
+      ui = transition(ui, { type: 'posting/set', value: false })
+      syncSubmits()
     }
   }
 
@@ -2127,6 +2142,40 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     }
   }
 
+  // The submit button waits for the challenge token (when a site key is set),
+  // for the body to fit and for the identity to resolve. A form that is already
+  // posting stays disabled: the label is the loading state.
+  function syncSubmits() {
+    for (const form of el.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) {
+      const area = form.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
+      const over = Boolean(area && area.value.length > bodyLimit)
+      const formId = form.getAttribute('data-lc-form') ?? 'top'
+      const busy = formBusy(formId)
+      const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')
+      if (!submit) continue
+      submit.disabled = over || sessionStatus === 'loading' || busy
+      submit.setAttribute('aria-busy', String(busy))
+      // The loading state is swapped in place: the forms keep their draft in
+      // the DOM, so they are never repainted while a request is in flight.
+      const label = submit.dataset.lcLabel ?? submit.textContent ?? ''
+      submit.textContent = busy ? 'Posting…' : label
+    }
+  }
+
+  // The head composer posts under `top`, a reply under `reply-<comment id>` and
+  // the inline editor under `edit-<comment id>`.
+  function formBusy(formId: string): boolean {
+    if (formId === 'top') return ui.posting
+    const id = formId.startsWith('reply-')
+      ? formId.slice('reply-'.length)
+      : formId.startsWith('edit-')
+        ? formId.slice('edit-'.length)
+        : ''
+    if (!id) return false
+    const item = ui.items[id]
+    return formId.startsWith('edit-') ? Boolean(item?.saving) : Boolean(item?.replying)
+  }
+
   // Counts what the author typed: the server caps the same raw length, and the
   // over-limit body never leaves the browser.
   function syncCounter(form: HTMLFormElement) {
@@ -2140,8 +2189,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     }
     if (over) area.setAttribute('aria-invalid', 'true')
     else area.removeAttribute('aria-invalid')
-    const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')
-    if (submit) submit.disabled = over || sessionStatus === 'loading'
+    syncSubmits()
   }
 
   // Hand-rolled disclosure: no popover API / `@starting-style` in the supported
@@ -2176,6 +2224,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       return
     }
     ui = transition(ui, { type: 'saving/set', id: commentId, saving: true })
+    // The editor keeps its draft in the DOM, so its button shows the loading
+    // state in place instead of repainting the row.
+    syncSubmits()
     try {
       // Moderators edit through the moderation endpoint for the same reason they
       // post through it: the public PATCH checks the site's origins.

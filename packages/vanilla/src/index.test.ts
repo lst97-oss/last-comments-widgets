@@ -158,6 +158,14 @@ describe('transition', () => {
     ).toBe('t')
   })
 
+  test('the head composer posts under its own flag', () => {
+    const posting = transition(UI_INITIAL, { type: 'posting/set', value: true })
+    expect(posting.posting).toBe(true)
+    expect(posting.items).toEqual({})
+    expect(transition(posting, { type: 'posting/set', value: false }).posting).toBe(false)
+    expect(UI_INITIAL.posting).toBe(false)
+  })
+
   test('collapse/toggle stores the override and never touches the seed state', () => {
     expect(transition(UI_INITIAL, { type: 'collapse/toggle', id: 'c1', value: true }).items.c1?.collapsedOverride).toBe(
       true,

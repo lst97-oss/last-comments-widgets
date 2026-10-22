@@ -25,7 +25,7 @@ import {
   Reply,
   Trash2,
 } from 'lucide-react'
-import { type ComponentProps, memo, type ReactNode, useReducer } from 'react'
+import { type ComponentProps, memo, type ReactNode, useReducer, useRef } from 'react'
 import { CommentForm, type CommentFormInput } from './CommentForm'
 import { CommentPlaceholder } from './CommentPlaceholder'
 import { canEditComment } from './editGate'
@@ -359,6 +359,11 @@ export function CommentItem({
   const { comment } = node
   const [state, dispatch] = useReducer(itemReducer, ITEM_INITIAL)
   const { editing, saving, editError, replying, replyError, collapsedOverride } = state
+  // The reply composer's in-flight lock: it outlives the render that disables
+  // the button, so a second click cannot post the same reply twice.
+  const replyingRef = useRef(false)
+  // The inline editor's in-flight lock, for the same reason.
+  const savingRef = useRef(false)
   const isOwn = Boolean(viewerUserId && comment.userId && viewerUserId === comment.userId)
   const canEdit = canEditComment(comment, viewerUserId, { anonWindowMinutes, hasEditKey })
   const moderationPending = pendingModeration?.[comment.id] ?? false
@@ -564,12 +569,16 @@ export function CommentItem({
                 submitLabel="Save"
                 bodyLimit={bodyLimit}
                 onSubmit={async (input) => {
+                  // The in-flight lock: a second click must not save the same edit twice.
+                  if (savingRef.current) return false
+                  savingRef.current = true
                   dispatch({ type: 'saving/set', saving: true })
                   try {
                     const error = await onEdit(comment.id, input.bodyMarkdown)
                     dispatch({ type: 'edit/settle', error })
                     return error === null
                   } finally {
+                    savingRef.current = false
                     dispatch({ type: 'saving/set', saving: false })
                   }
                 }}
@@ -587,12 +596,16 @@ export function CommentItem({
                 identity={replyIdentity}
                 bodyLimit={bodyLimit}
                 onSubmit={async (input) => {
+                  // The in-flight lock: a second click must not post the reply twice.
+                  if (replyingRef.current) return false
+                  replyingRef.current = true
                   dispatch({ type: 'reply/submit' })
                   try {
                     const error = await onReplySubmit(comment.id, input)
                     dispatch({ type: 'reply/settle', error })
                     return error === null
                   } finally {
+                    replyingRef.current = false
                     dispatch({ type: 'replying/set', replying: false })
                   }
                 }}

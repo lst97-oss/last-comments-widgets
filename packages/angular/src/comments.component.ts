@@ -762,6 +762,8 @@ export class LcCommentsComponent {
   }
 
   async onTopLevelSubmit(input: CommentSubmit): Promise<void> {
+    // The in-flight lock: a second click must not post the same comment twice.
+    if (this.posting()) return
     this.posting.set(true)
     this.formError.set(null)
     try {

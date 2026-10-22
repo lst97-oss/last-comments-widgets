@@ -123,6 +123,11 @@ export function CommentForm({
   const [body, setBody] = useState(initialBody)
   const [token, setToken] = useState<string | undefined>(undefined)
   const [preview, setPreview] = useState(false)
+  // React 19 defers state updates made inside a form action until it settles,
+  // so the loading state starts on the submit event; the counter keeps it on
+  // while any accepted submit is still in flight (a double click starts two).
+  const [inFlight, setInFlight] = useState(0)
+  const busy = pending || inFlight > 0
   const turnstileRef = useRef<TurnstileInstance>(null)
   const bodyRef = useRef<HTMLTextAreaElement>(null)
   const counterId = useId()
@@ -201,7 +206,19 @@ export function CommentForm({
   }
 
   return (
-    <form action={submitAction} className="lc-composer rounded-xl border border-border p-3">
+    <form
+      action={async () => {
+        try {
+          await submitAction()
+        } finally {
+          setInFlight((count) => Math.max(0, count - 1))
+        }
+      }}
+      // The action's own updates are deferred by React, so the busy state starts
+      // here, where an event handler's update paints immediately.
+      onSubmit={() => setInFlight((count) => count + 1)}
+      className="lc-composer rounded-xl border border-border p-3"
+    >
       {parentId && (
         <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>Replying to this comment</span>
@@ -268,15 +285,15 @@ export function CommentForm({
           </p>
           {/* The reply form cancels from its header; a standalone editor needs this row. */}
           {!parentId && onCancelReply && (
-            <Button type="button" size="sm" variant="outline" disabled={pending} onClick={onCancelReply}>
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onCancelReply}>
               Cancel
             </Button>
           )}
           <Button
             type="submit"
-            disabled={pending || bodyTooLong || identityPending || (guest && siteKey ? !token : false)}
+            disabled={busy || bodyTooLong || identityPending || (guest && siteKey ? !token : false)}
           >
-            {pending ? 'Posting…' : (submitLabel ?? (parentId ? 'Post reply' : 'Post comment'))}
+            {busy ? 'Posting…' : (submitLabel ?? (parentId ? 'Post reply' : 'Post comment'))}
           </Button>
         </div>
       </div>
