@@ -1118,10 +1118,9 @@ function renderForm(opts: {
   const guest = opts.guest ?? true
   const bodyLimit = opts.bodyLimit ?? DEFAULT_BODY_LIMIT
   const counterId = `lc-count-${opts.formId}`
-  const turnstile =
-    guest && opts.turnstileSiteKey
-      ? `<div class="lc-turnstile" data-turnstile-sitekey="${escapeHtml(opts.turnstileSiteKey)}"></div>`
-      : ''
+  const turnstile = opts.turnstileSiteKey
+    ? `<div class="lc-turnstile" data-turnstile-sitekey="${escapeHtml(opts.turnstileSiteKey)}"></div>`
+    : ''
   const header = opts.parentId
     ? `<div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
       <span>Replying to this comment</span>
@@ -1736,8 +1735,11 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   function hydrateTurnstile() {
+    // The token gate lives here, not in the markup: the challenge answers after
+    // the paint, so the rendered button is re-synced with it.
+    syncSubmits()
     const siteKey = options.turnstileSiteKey
-    if (!siteKey || !composerIdentity().guest) return
+    if (!siteKey) return
     const config = resolveTurnstileConfig(el.classList.contains('dark'), options.turnstileOptions)
     void ensureTurnstile().then(() => {
       if (destroyed || !window.turnstile) return
@@ -1751,12 +1753,15 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
             ...config,
             callback: (token: string) => {
               tokens.set(formId, token)
+              syncSubmits()
             },
             'expired-callback': () => {
               tokens.delete(formId)
+              syncSubmits()
             },
             'error-callback': () => {
               tokens.delete(formId)
+              syncSubmits()
             },
           })
           if (id) widgetIds.set(formId, id)
@@ -2153,7 +2158,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       const busy = formBusy(formId)
       const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')
       if (!submit) continue
-      submit.disabled = over || sessionStatus === 'loading' || busy
+      submit.disabled =
+        over || sessionStatus === 'loading' || (Boolean(options.turnstileSiteKey) && !tokens.get(formId)) || busy
       submit.setAttribute('aria-busy', String(busy))
       // The loading state is swapped in place: the forms keep their draft in
       // the DOM, so they are never repainted while a request is in flight.

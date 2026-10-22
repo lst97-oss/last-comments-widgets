@@ -11,7 +11,7 @@ import type { TurnstileOptions } from './lib/turnstile'
 const props = defineProps<{
   siteKey?: string
   dark?: boolean
-  // Cloudflare's supported design knobs for the guest challenge.
+  // Cloudflare's supported design knobs for the challenge.
   turnstileOptions?: TurnstileOptions
   guest?: boolean
   sessionPending?: boolean
@@ -56,7 +56,7 @@ const submitDisabled = computed(
     bodyTooLong.value ||
     // Posting before the identity resolves would guess "guest" and send the wrong wire flag.
     Boolean(props.sessionPending) ||
-    (showName.value && props.siteKey ? !token.value : false),
+    (props.siteKey ? !token.value : false),
 )
 
 // The `Textarea` / `Input` primitives plus the composer's call-site override.

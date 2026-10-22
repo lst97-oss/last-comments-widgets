@@ -12,9 +12,9 @@ export type CommentSubmit = { body: string; authorName?: string; token?: string 
 let formSeq = 0
 
 // Panel composer: Write/Preview toggle + icon toolbar, borderless
-// textarea, guest name + markdown hint + submit row. Name + Turnstile
-// show only for guests when a turnstileSiteKey is set (token resets
-// after every submit).
+// textarea, guest name + markdown hint + submit row. The name field shows
+// only for guests; the Turnstile shows for every commenter when a
+// turnstileSiteKey is set (token resets after every submit).
 @Component({
   selector: 'lc-comment-form',
   standalone: true,
@@ -273,7 +273,7 @@ let formSeq = 0
         <span [class.text-destructive]="bodyTooLong()">{{ body().length.toLocaleString() }}</span
         >{{ ' / ' + bodyLimit().toLocaleString() }}
       </p>
-      @if (guest() && turnstileSiteKey()) {
+      @if (turnstileSiteKey()) {
         <div
           class="lc-turnstile"
           [lcTurnstile]="turnstileSiteKey()"
@@ -312,9 +312,7 @@ let formSeq = 0
           }
           <button
             type="submit"
-            [disabled]="
-              submitting() || sessionPending() || bodyTooLong() || (guest() && turnstileSiteKey() ? !token() : false)
-            "
+            [disabled]="submitting() || sessionPending() || bodyTooLong() || (turnstileSiteKey() ? !token() : false)"
             [class]="submitClass"
           >
             {{ submitText() }}
@@ -327,7 +325,7 @@ let formSeq = 0
 export class LcCommentFormComponent implements OnInit {
   guest = input(false)
   turnstileSiteKey = input<string | undefined>(undefined)
-  // Cloudflare's supported design knobs for the guest challenge.
+  // Cloudflare's supported design knobs for the challenge.
   dark = input(false)
   turnstileOptions = input<TurnstileOptions | undefined>(undefined)
   parentId = input<string | null>(null)

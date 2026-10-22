@@ -17,7 +17,7 @@ import {
       <h1>last-comments Angular demo</h1>
       <p>
         The dev server proxies <code>/api</code> to <code>http://localhost:3000</code>, so the widgets use this
-        origin for cookies and moderation. Enter a Turnstile site key to exercise guest posting.
+        origin for cookies and moderation. Enter a Turnstile site key to exercise posting.
       </p>
       <label>
         Widget theme

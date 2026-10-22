@@ -261,7 +261,7 @@ export function CommentForm({
         <span className={bodyTooLong ? 'text-destructive' : undefined}>{body.length.toLocaleString()}</span>
         {` / ${bodyLimit.toLocaleString()}`}
       </p>
-      {guest && siteKey && <Turnstile ref={turnstileRef} siteKey={siteKey} onToken={setToken} />}
+      {siteKey && <Turnstile ref={turnstileRef} siteKey={siteKey} onToken={setToken} />}
       {error && (
         <div className="mt-2">
           <CommentError info={error} onSignIn={onSignIn} signInHref={signInHref} />
@@ -289,10 +289,7 @@ export function CommentForm({
               Cancel
             </Button>
           )}
-          <Button
-            type="submit"
-            disabled={busy || bodyTooLong || identityPending || (guest && siteKey ? !token : false)}
-          >
+          <Button type="submit" disabled={busy || bodyTooLong || identityPending || (siteKey ? !token : false)}>
             {busy ? 'Posting…' : (submitLabel ?? (parentId ? 'Post reply' : 'Post comment'))}
           </Button>
         </div>

@@ -89,7 +89,7 @@ Plain HTML, no build step:
 ## Highlights
 
 - Threads page by **thread**, not by row: a page shows `limit` (default 20) top-level comments with their replies, filled before it renders, with `Previous` served from memory. Loading states are skeletons, and `lazy` defers every request until the widget scrolls into view.
-- Guests post with a name + Cloudflare Turnstile; signed-in viewers get votes and Edit/Delete, and the composer is disabled while the session probe is in flight so a comment can never post with a guessed identity.
+- Every post carries a Cloudflare Turnstile token: guests add a name, signed-in viewers post with their session and get votes and Edit/Delete. The composer is disabled while the session probe is in flight so a comment can never post with a guessed identity.
 - `theme="light | dark | system"` plus per-instance `themeVars`, scoped with native CSS `@scope` so importing the widget CSS does not touch your page's fonts, colors or margins.
 - Every failure renders one alert block with copy from `describeError()`, carrying `data-lc-error` / `data-error-code`.
 - Markdown (GitHub-flavored) with raw HTML stripped and `http(s)`/`mailto` links only.

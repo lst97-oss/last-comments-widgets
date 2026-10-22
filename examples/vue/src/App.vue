@@ -68,7 +68,7 @@ const themeVars = computed(() => presets[preset.value])
           <input v-model="pageUrl" class="rounded border border-input px-2 py-1" />
         </label>
         <label class="grid gap-1">
-          Turnstile site key (guest posting)
+          Turnstile site key (required for posting)
           <input v-model="turnstileSiteKey" class="rounded border border-input px-2 py-1" />
         </label>
         <label class="grid gap-1">

@@ -350,7 +350,7 @@ export class LcCommentsComponent {
   // instead of matching `pageUrl` against the site's (capped) page list.
   pageId = input<string | undefined>(undefined)
   turnstileSiteKey = input<string | undefined>(undefined)
-  // Cloudflare's supported design knobs for the guest challenge.
+  // Cloudflare's supported design knobs for the challenge.
   turnstileOptions = input<TurnstileOptions | undefined>(undefined)
   limit = input(20)
   theme = input<Theme>('system')

@@ -383,14 +383,14 @@ describe('vanilla renderer', () => {
     expect(html).not.toContain('data-action="vote"')
   })
 
-  test('guest flag gates the name input and turnstile box', () => {
+  test('guest flag gates the name input, the turnstile box shows for everyone', () => {
     const tree = buildCommentTree([comment('p', null, 'hi')])
     const guestHtml = renderCommentNode(tree[0], 0, { replyTo: 'p', turnstileSiteKey: 'SITEKEY' })
     expect(guestHtml).toContain('name="authorName"')
     expect(guestHtml).toContain('lc-turnstile')
     const signedIn = renderCommentNode(tree[0], 0, { replyTo: 'p', guest: false, turnstileSiteKey: 'SITEKEY' })
     expect(signedIn).not.toContain('name="authorName"')
-    expect(signedIn).not.toContain('lc-turnstile')
+    expect(signedIn).toContain('lc-turnstile')
   })
 
   test('moderator rows render status-appropriate actions and votes', () => {

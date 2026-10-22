@@ -89,7 +89,7 @@ function Demo() {
             />
           </label>
           <label className="grid gap-1">
-            Turnstile site key (guest posting)
+            Turnstile site key (required for posting)
             <input
               className="rounded border border-input px-2 py-1"
               value={turnstileSiteKey}
