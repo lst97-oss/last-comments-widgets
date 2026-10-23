@@ -293,10 +293,18 @@
       color: var(--lc-action-hover-color, var(--foreground));
       background: var(--lc-action-hover-background, transparent);
     }
-    /* Admin flair hook: the Badge default variant already paints with
-       --primary/--primary-foreground; target .lc-admin-badge to restyle. */
-    /* biome-ignore lint/suspicious/noEmptyBlock: public styling hook, no defaults of its own. */
+    /* Account badges. `lc-components` is the last layer, so these beat the Badge
+       variant utilities (bg-primary, bg-secondary) without !important. */
+    .lc-author-admin {
+      color: var(--lc-admin-name-color, var(--destructive));
+    }
     .lc-admin-badge {
+      background: var(--lc-admin-badge-background, color-mix(in oklab, var(--destructive) 15%, transparent));
+      color: var(--lc-admin-badge-foreground, var(--destructive));
+    }
+    .lc-member-badge {
+      background: var(--lc-member-badge-background, var(--secondary));
+      color: var(--lc-member-badge-foreground, var(--secondary-foreground));
     }
     /* Blocked-author indicator (moderation rows only). */
     .lc-blocked-badge {

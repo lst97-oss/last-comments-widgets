@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   ApiError,
+  accountBadge,
   beginOAuthSignIn,
   buildCommentTree,
   buildThreadGuidePath,
@@ -28,8 +29,10 @@ import {
   resolveEditWindow,
   safeUrl,
   saveEditKey,
+  signInFailureUrl,
   signOutViewerSession,
   sortCommentRoots,
+  takeSignInFailure,
   themeVarsToStyle,
 } from './index'
 
@@ -139,6 +142,7 @@ describe('beginOAuthSignIn', () => {
     expect(JSON.parse(String(seen?.init.body))).toEqual({
       provider: 'google',
       callbackURL: 'https://demo.test/p',
+      errorCallbackURL: 'https://demo.test/p?lc_sign_in=failed',
     })
   })
 
@@ -154,7 +158,11 @@ describe('beginOAuthSignIn', () => {
       provider: 'github',
       fetchImpl,
     })
-    expect(body).toEqual({ provider: 'github', callbackURL: 'https://demo.test/p' })
+    expect(body).toEqual({
+      provider: 'github',
+      callbackURL: 'https://demo.test/p',
+      errorCallbackURL: 'https://demo.test/p?lc_sign_in=failed',
+    })
   })
 
   test('throws SIGN_IN_UNAVAILABLE when the server returns no url', async () => {
@@ -168,6 +176,59 @@ describe('beginOAuthSignIn', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).code).toBe('SIGN_IN_UNAVAILABLE')
     expect((err as ApiError).message).toBe('provider not configured')
+  })
+})
+
+describe('accountBadge', () => {
+  test('marks the site admin', () => {
+    expect(accountBadge({ userId: 'u1', authorRole: 'admin' })).toBe('admin')
+  })
+
+  test('marks a signed-in account without a site role as a member', () => {
+    expect(accountBadge({ userId: 'u2', authorRole: null })).toBe('member')
+  })
+
+  test('gives guests and moderators no account badge', () => {
+    expect(accountBadge({ userId: null, authorRole: null })).toBeNull()
+    expect(accountBadge({ userId: 'u3', authorRole: 'moderator' })).toBeNull()
+  })
+})
+
+describe('signInFailureUrl', () => {
+  test('adds the failure marker and keeps the page query', () => {
+    expect(signInFailureUrl('https://demo.test/p?ref=x')).toBe('https://demo.test/p?ref=x&lc_sign_in=failed')
+  })
+
+  test('keeps a relative page path relative', () => {
+    expect(signInFailureUrl('/blog/post?ref=x')).toBe('/blog/post?ref=x&lc_sign_in=failed')
+  })
+})
+
+describe('takeSignInFailure', () => {
+  test('returns null when the page was not returned from a failed sign-in', () => {
+    expect(takeSignInFailure('https://demo.test/p?ref=x')).toBeNull()
+  })
+
+  test('explains the provider error and strips the marker, keeping other params', () => {
+    const failure = takeSignInFailure(
+      'https://demo.test/p?ref=x&lc_sign_in=failed&error=account_not_linked&error_description=Account%20not%20linked',
+    )
+    expect(failure?.info).toMatchObject({ code: 'account_not_linked', action: 'none' })
+    expect(failure?.info.title).toBe("Couldn't link your account")
+    expect(failure?.cleanHref).toBe('https://demo.test/p?ref=x')
+  })
+
+  test('falls back to the generic copy for an unknown provider error', () => {
+    const failure = takeSignInFailure('https://demo.test/p?lc_sign_in=failed&error=something_new')
+    expect(failure?.info).toMatchObject({ code: 'something_new', title: "Sign-in didn't finish" })
+  })
+
+  test('treats a missing error code as unknown', () => {
+    expect(takeSignInFailure('https://demo.test/p?lc_sign_in=failed')?.info.code).toBe('unknown')
+  })
+
+  test('ignores an unparseable page URL', () => {
+    expect(takeSignInFailure('not a url')).toBeNull()
   })
 })
 

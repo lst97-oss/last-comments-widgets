@@ -37,6 +37,7 @@ import {
   saveEditKey,
   signOutViewerSession,
   sortCommentRoots,
+  takeSignInFailure,
   type ThreadNode,
   type ThreadSort,
   themeVarsToStyle,
@@ -494,6 +495,14 @@ export class LcCommentsComponent {
     effect((onCleanup) => {
       if (this.theme() !== 'system') return
       onCleanup(subscribeSystemTheme())
+    })
+    // A sign-in the provider rejected returns here with a failure marker. Explain it
+    // once in the identity control, then drop the marker so a reload does not repeat it.
+    afterNextRender(() => {
+      const failure = takeSignInFailure(window.location.href)
+      if (!failure) return
+      this.signInError.set(failure.info)
+      window.history.replaceState(window.history.state, '', failure.cleanHref)
     })
     // Below-the-fold embeds defer the first request until the root is near the
     // viewport; no IntersectionObserver (SSR/test) loads immediately.

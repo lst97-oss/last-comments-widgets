@@ -17,6 +17,7 @@ import type {
 } from '@last-comments-widgets/client'
 import {
   ApiError,
+  accountBadge,
   beginOAuthSignIn,
   buildCommentTree,
   buildThreadGuidePath,
@@ -44,6 +45,7 @@ import {
   sortCommentRoots,
   THEME_CSS_VARIABLES,
   THEME_VAR_VALUES,
+  takeSignInFailure,
   themeVarsToStyle,
 } from '@last-comments-widgets/client'
 
@@ -85,10 +87,15 @@ export type TurnstileRenderParams = TurnstileRenderConfig & {
 // Follow the widget's own light/dark mode by default so the challenge box
 // matches the theme it is embedded in instead of the OS preference; an explicit
 // host `theme` wins. Nothing else about the box is styleable.
+// The challenge stays out of the way by default: `interaction-only` shows the box
+// only when Cloudflare needs a human check, and the token still arrives silently
+// otherwise. A host opts back into the always-visible box with `appearance: 'always'`.
 export function resolveTurnstileConfig(dark: boolean, options?: TurnstileOptions): TurnstileRenderConfig {
-  const config: TurnstileRenderConfig = { theme: options?.theme ?? (dark ? 'dark' : 'light') }
+  const config: TurnstileRenderConfig = {
+    theme: options?.theme ?? (dark ? 'dark' : 'light'),
+    appearance: options?.appearance ?? 'interaction-only',
+  }
   if (options?.size !== undefined) config.size = options.size
-  if (options?.appearance !== undefined) config.appearance = options.appearance
   if (options?.language !== undefined) config.language = options.language
   return config
 }
@@ -672,8 +679,9 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
     <button type="button" data-action="collapse" data-comment-id="${id}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} comment by ${escapeHtml(comment.authorName)}" class="lc-action lc-collapse ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon(collapsed ? 'plus' : 'minus', 'size-3')}</button>
     ${avatarMarkup(comment.authorName, parts.avatar)}
-    <span class="min-w-0 truncate font-medium${comment.authorRole === 'admin' ? ' text-primary' : ''}">${escapeHtml(comment.authorName)}</span>
-    ${comment.authorRole === 'admin' ? badge('default', 'lc-admin-badge', 'Admin') : ''}
+    <span class="min-w-0 truncate font-medium${accountBadge(comment) === 'admin' ? ' lc-author-admin' : ''}">${escapeHtml(comment.authorName)}</span>
+    ${accountBadge(comment) === 'admin' ? badge('default', 'lc-admin-badge', 'Admin') : ''}
+    ${accountBadge(comment) === 'member' ? badge('default', 'lc-member-badge', 'Member') : ''}
     ${comment.userBlocked ? badge('outline', 'lc-blocked-badge', `${icon('ban')}blocked`) : ''}
     <time dateTime="${escapeHtml(comment.createdAt)}" title="${escapeHtml(new Date(comment.createdAt).toLocaleString())}" class="text-xs text-muted-foreground">${escapeHtml(formatRelativeTime(comment.createdAt))}</time>
     ${flags}
@@ -2465,6 +2473,13 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       for (const form of el.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) syncCounter(form)
     })
     void initialLoad()
+  }
+  // A sign-in the provider rejected returns here with a failure marker. Explain it
+  // once in the identity control, then drop the marker so a reload does not repeat it.
+  const failure = typeof window !== 'undefined' ? takeSignInFailure(window.location.href) : null
+  if (failure) {
+    ui = transition(ui, { type: 'identity/error', value: { info: failure.info, retry: 'signin' } })
+    window.history.replaceState(window.history.state, '', failure.cleanHref)
   }
   // Paint the placeholder so a zero-height root still has an intersection to
   // report, then fetch on the first hit only.

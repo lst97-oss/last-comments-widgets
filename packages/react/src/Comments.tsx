@@ -21,6 +21,7 @@ import {
   sortCommentRoots,
   type ThreadNode,
   type ThreadSort,
+  takeSignInFailure,
   themeVarsToStyle,
   type ViewerSession,
   type VoteValue,
@@ -287,6 +288,15 @@ export function Comments({
       ignored = true
     }
   }, [baseUrl, fetchImpl, inView])
+
+  // A sign-in the provider rejected returns here with a failure marker. Explain it
+  // once in the identity control, then drop the marker so a reload does not repeat it.
+  useEffect(() => {
+    const failure = takeSignInFailure(window.location.href)
+    if (!failure) return
+    uiDispatch({ type: 'sign-in-error/set', error: failure.info })
+    window.history.replaceState(window.history.state, '', failure.cleanHref)
+  }, [])
 
   // Votes live beside the fetched rows. A reload fetches authoritative scores,
   // so its epoch bump drops stale patches; posts and edits keep them.

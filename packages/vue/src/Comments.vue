@@ -19,12 +19,13 @@ import {
   saveEditKey,
   signOutViewerSession,
   sortCommentRoots,
+  takeSignInFailure,
   themeVarsToStyle,
   type ThreadSort,
   type ViewerSession,
   type VoteValue,
 } from '@last-comments-widgets/client'
-import { computed, ref, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 import CommentError from './CommentError.vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'
@@ -422,6 +423,15 @@ async function startSignIn() {
     identityPending.value = false
   }
 }
+
+// A sign-in the provider rejected returns here with a failure marker. Explain it
+// once in the identity control, then drop the marker so a reload does not repeat it.
+onMounted(() => {
+  const failure = takeSignInFailure(window.location.href)
+  if (!failure) return
+  identityError.value = { info: failure.info, retry: startSignIn }
+  window.history.replaceState(window.history.state, '', failure.cleanHref)
+})
 
 function chooseIdentity(value: 'account' | 'anonymous') {
   commentAs.value = value

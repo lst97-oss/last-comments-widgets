@@ -36,10 +36,15 @@ export type TurnstileRenderParams = TurnstileRenderConfig & {
 // Follow the widget's own light/dark mode by default so the challenge box
 // matches the theme it is embedded in instead of the OS preference; an explicit
 // host `theme` wins. Nothing else about the box is styleable.
+// The challenge stays out of the way by default: `interaction-only` shows the box
+// only when Cloudflare needs a human check, and the token still arrives silently
+// otherwise. A host opts back into the always-visible box with `appearance: 'always'`.
 export function resolveTurnstileConfig(dark: boolean, options?: TurnstileOptions): TurnstileRenderConfig {
-  const config: TurnstileRenderConfig = { theme: options?.theme ?? (dark ? 'dark' : 'light') }
+  const config: TurnstileRenderConfig = {
+    theme: options?.theme ?? (dark ? 'dark' : 'light'),
+    appearance: options?.appearance ?? 'interaction-only',
+  }
   if (options?.size !== undefined) config.size = options.size
-  if (options?.appearance !== undefined) config.appearance = options.appearance
   if (options?.language !== undefined) config.language = options.language
   return config
 }

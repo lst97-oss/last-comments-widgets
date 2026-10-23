@@ -1,4 +1,5 @@
 import {
+  accountBadge,
   type Comment,
   collectThreadParticipants,
   DEFAULT_BODY_LIMIT,
@@ -372,6 +373,7 @@ function CommentHeader({
   onModerate,
   onBlockUser,
 }: CommentHeaderProps) {
+  const badge = accountBadge(comment)
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <Button
@@ -397,12 +399,17 @@ function CommentHeader({
         )}
         <AvatarFallback>{initials(comment.authorName)}</AvatarFallback>
       </Avatar>
-      <span className={cn('min-w-0 truncate font-medium', comment.authorRole === 'admin' && 'text-primary')}>
+      <span className={cn('min-w-0 truncate font-medium', badge === 'admin' && 'lc-author-admin')}>
         {comment.authorName}
       </span>
-      {comment.authorRole === 'admin' && (
+      {badge === 'admin' && (
         <Badge variant="default" className="lc-admin-badge">
           Admin
+        </Badge>
+      )}
+      {badge === 'member' && (
+        <Badge variant="default" className="lc-member-badge">
+          Member
         </Badge>
       )}
       {/* Moderation rows carry the block state; the public wire shape omits it. */}
