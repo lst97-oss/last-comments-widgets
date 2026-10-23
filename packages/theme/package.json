@@ -28,8 +28,8 @@
   "scripts": {
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --error-on-warnings --write .",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
     "check": "bun run lint && bun run format:check"
   }
 }

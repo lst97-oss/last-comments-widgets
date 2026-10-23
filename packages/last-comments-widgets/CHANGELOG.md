@@ -1,5 +1,11 @@
 # @lst97-oss/last-comments-widgets
 
+## 0.4.3
+
+### Patch Changes
+
+- Internal maintenance: adopt Bun 1.4.4 `bun fmt`/`bun check` and split `CommentItem` into smaller components. Public API and rendered markup are unchanged.
+
 ## 0.4.2
 
 ### Patch Changes

@@ -43,8 +43,8 @@
     "build": "bunx vite build && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",
     "lint:fix": "eslint . --fix --max-warnings 0",
-    "format": "prettier --ignore-path ../../.prettierignore --write \"**/*.{ts,vue,html,css,json}\"",
-    "format:check": "prettier --ignore-path ../../.prettierignore --check \"**/*.{ts,vue,html,css,json}\"",
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {

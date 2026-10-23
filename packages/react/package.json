@@ -31,9 +31,9 @@
     "build": "bunx tsup src/index.tsx --format esm --clean --dts --target es2025 --out-dir dist --external react --external react-dom --external shiki && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",
     "lint:fix": "biome check --error-on-warnings --write .",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
-    "typecheck": "bun --check"
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
+    "typecheck": "bun check --no-script"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
