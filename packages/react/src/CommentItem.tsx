@@ -328,6 +328,164 @@ function countReplyStates(nodes: ThreadNode[]) {
   return totals
 }
 
+// The header row: collapse control, author identity, status badges and the
+// secondary-action menu. Kept out of CommentItem so the item stays a layout
+// shell and each section can be read (and tested) on its own.
+type CommentHeaderProps = {
+  comment: Comment
+  collapsed: boolean
+  avatarUrl: string | undefined
+  canEdit: boolean
+  editing: boolean
+  isOwn: boolean
+  viewerRole?: ViewerRole
+  moderationPending: boolean
+  readOnly: boolean
+  hideVotes: boolean
+  pendingVote: boolean
+  onToggleCollapse: () => void
+  onEditStart: () => void
+  onDelete: () => void
+  onVote: (comment: Comment, value: VoteValue) => void
+  onClear: (comment: Comment) => void
+  onModerate?: (comment: Comment, action: ModerationAction) => void
+  onBlockUser?: (comment: Comment, blocked: boolean) => void
+}
+
+function CommentHeader({
+  comment,
+  collapsed,
+  avatarUrl,
+  canEdit,
+  editing,
+  isOwn,
+  viewerRole,
+  moderationPending,
+  readOnly,
+  hideVotes,
+  pendingVote,
+  onToggleCollapse,
+  onEditStart,
+  onDelete,
+  onVote,
+  onClear,
+  onModerate,
+  onBlockUser,
+}: CommentHeaderProps) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        className="lc-action lc-collapse"
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? 'Expand' : 'Collapse'} comment by ${comment.authorName}`}
+        onClick={onToggleCollapse}
+      >
+        {collapsed ? <Plus aria-hidden="true" /> : <Minus aria-hidden="true" />}
+      </Button>
+      <Avatar size="sm">
+        {avatarUrl && (
+          <AvatarImage
+            src={avatarUrl}
+            alt={comment.authorName}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+          />
+        )}
+        <AvatarFallback>{initials(comment.authorName)}</AvatarFallback>
+      </Avatar>
+      <span className={cn('min-w-0 truncate font-medium', comment.authorRole === 'admin' && 'text-primary')}>
+        {comment.authorName}
+      </span>
+      {comment.authorRole === 'admin' && (
+        <Badge variant="default" className="lc-admin-badge">
+          Admin
+        </Badge>
+      )}
+      {/* Moderation rows carry the block state; the public wire shape omits it. */}
+      {comment.userBlocked && (
+        <Badge variant="outline" className="lc-blocked-badge">
+          <Ban aria-hidden="true" />
+          blocked
+        </Badge>
+      )}
+      {/* Ages are computed at render, not on a timer: they refresh with the next render. */}
+      <time
+        dateTime={comment.createdAt}
+        title={new Date(comment.createdAt).toLocaleString()}
+        className="text-xs text-muted-foreground"
+      >
+        {formatRelativeTime(comment.createdAt)}
+      </time>
+      {comment.editedAt && (
+        <span className="text-xs text-muted-foreground" title={new Date(comment.editedAt).toLocaleString()}>
+          edited
+        </span>
+      )}
+      {comment.pinnedAt && <span className="text-xs text-muted-foreground">pinned</span>}
+      {comment.status === 'hidden' && <Badge variant="destructive">hidden</Badge>}
+      {comment.status === 'deleted' && <Badge variant="secondary">deleted</Badge>}
+      {!readOnly && (
+        <CommentActionsMenu
+          comment={comment}
+          canEdit={canEdit}
+          editing={editing}
+          isOwn={isOwn}
+          viewerRole={viewerRole}
+          moderationPending={moderationPending}
+          onEdit={onEditStart}
+          onDelete={onDelete}
+          onModerate={onModerate}
+          onBlockUser={onBlockUser}
+        />
+      )}
+      {!hideVotes && (
+        <span className="ml-auto">
+          {readOnly ? (
+            <span className="text-sm text-muted-foreground">{comment.score}</span>
+          ) : (
+            <VoteButtons comment={comment} pending={pendingVote} onVote={onVote} onClear={onClear} />
+          )}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// Collapsed rows still show who is inside the group, or an excerpt for a
+// thread-less comment, without re-rendering the body.
+function CollapsedComment({
+  nodes,
+  repliesLabel,
+  replyStateLabel,
+  excerpt,
+}: {
+  nodes: ThreadNode[]
+  repliesLabel: string
+  replyStateLabel: string
+  excerpt: string
+}) {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-lc-collapsed="">
+      {nodes.length > 0 ? (
+        <>
+          <ReplyAvatarStack nodes={nodes} />
+          <span className="truncate">{repliesLabel}</span>
+          {replyStateLabel && <span className="hidden truncate sm:inline">{replyStateLabel}</span>}
+        </>
+      ) : (
+        <>
+          <span>comment hidden</span>
+          <span className="truncate">{excerpt}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function CommentItem({
   node,
   depth,
@@ -448,108 +606,36 @@ export function CommentItem({
       data-comment-id={comment.id}
       data-comment-depth={depth}
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="lc-action lc-collapse"
-          aria-expanded={!collapsed}
-          aria-label={`${collapsed ? 'Expand' : 'Collapse'} comment by ${comment.authorName}`}
-          onClick={() => dispatch({ type: 'collapse/toggle', value: !collapsed })}
-        >
-          {collapsed ? <Plus aria-hidden="true" /> : <Minus aria-hidden="true" />}
-        </Button>
-        <Avatar size="sm">
-          {avatarUrl && (
-            <AvatarImage
-              src={avatarUrl}
-              alt={comment.authorName}
-              loading="lazy"
-              decoding="async"
-              referrerPolicy="no-referrer"
-            />
-          )}
-          <AvatarFallback>{initials(comment.authorName)}</AvatarFallback>
-        </Avatar>
-        <span className={cn('min-w-0 truncate font-medium', comment.authorRole === 'admin' && 'text-primary')}>
-          {comment.authorName}
-        </span>
-        {comment.authorRole === 'admin' && (
-          <Badge variant="default" className="lc-admin-badge">
-            Admin
-          </Badge>
-        )}
-        {/* Moderation rows carry the block state; the public wire shape omits it. */}
-        {comment.userBlocked && (
-          <Badge variant="outline" className="lc-blocked-badge">
-            <Ban aria-hidden="true" />
-            blocked
-          </Badge>
-        )}
-        {/* Ages are computed at render, not on a timer: they refresh with the next render. */}
-        <time
-          dateTime={comment.createdAt}
-          title={new Date(comment.createdAt).toLocaleString()}
-          className="text-xs text-muted-foreground"
-        >
-          {formatRelativeTime(comment.createdAt)}
-        </time>
-        {comment.editedAt && (
-          <span className="text-xs text-muted-foreground" title={new Date(comment.editedAt).toLocaleString()}>
-            edited
-          </span>
-        )}
-        {comment.pinnedAt && <span className="text-xs text-muted-foreground">pinned</span>}
-        {comment.status === 'hidden' && <Badge variant="destructive">hidden</Badge>}
-        {comment.status === 'deleted' && <Badge variant="secondary">deleted</Badge>}
-        {!readOnly && (
-          <CommentActionsMenu
-            comment={comment}
-            canEdit={canEdit}
-            editing={editing}
-            isOwn={isOwn}
-            viewerRole={viewerRole}
-            moderationPending={moderationPending}
-            onEdit={() => {
-              onCloseReply?.()
-              dispatch({ type: 'edit/open' })
-            }}
-            onDelete={() => onDelete(comment.id)}
-            onModerate={onModerate}
-            onBlockUser={onBlockUser}
-          />
-        )}
-        {!hideVotes && (
-          <span className="ml-auto">
-            {readOnly ? (
-              <span className="text-sm text-muted-foreground">{comment.score}</span>
-            ) : (
-              <VoteButtons
-                comment={comment}
-                pending={pendingVotes[comment.id] ?? false}
-                onVote={onVote}
-                onClear={onClear}
-              />
-            )}
-          </span>
-        )}
-      </div>
+      <CommentHeader
+        comment={comment}
+        collapsed={collapsed}
+        avatarUrl={avatarUrl}
+        canEdit={canEdit}
+        editing={editing}
+        isOwn={isOwn}
+        viewerRole={viewerRole}
+        moderationPending={moderationPending}
+        readOnly={readOnly}
+        hideVotes={hideVotes}
+        pendingVote={pendingVotes[comment.id] ?? false}
+        onToggleCollapse={() => dispatch({ type: 'collapse/toggle', value: !collapsed })}
+        onEditStart={() => {
+          onCloseReply?.()
+          dispatch({ type: 'edit/open' })
+        }}
+        onDelete={() => onDelete(comment.id)}
+        onVote={onVote}
+        onClear={onClear}
+        onModerate={onModerate}
+        onBlockUser={onBlockUser}
+      />
       {collapsed ? (
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-lc-collapsed="">
-          {node.children.length > 0 ? (
-            <>
-              <ReplyAvatarStack nodes={node.children} />
-              <span className="truncate">{repliesLabel}</span>
-              {replyStateLabel && <span className="hidden truncate sm:inline">{replyStateLabel}</span>}
-            </>
-          ) : (
-            <>
-              <span>comment hidden</span>
-              <span className="truncate">{excerpt}</span>
-            </>
-          )}
-        </div>
+        <CollapsedComment
+          nodes={node.children}
+          repliesLabel={repliesLabel}
+          replyStateLabel={replyStateLabel}
+          excerpt={excerpt}
+        />
       ) : (
         <>
           {depth > 0 && parentAuthorName && (
