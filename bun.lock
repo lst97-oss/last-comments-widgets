@@ -124,7 +124,7 @@
     },
     "packages/last-comments-widgets": {
       "name": "@lst97-oss/last-comments-widgets",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "dependencies": {
         "marked": "^18.1.1",
       },
