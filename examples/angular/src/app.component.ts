@@ -16,8 +16,8 @@ import {
     <main class="lc-theme demo">
       <h1>last-comments Angular demo</h1>
       <p>
-        The dev server proxies <code>/api</code> to <code>http://localhost:3000</code>, so the widgets use this
-        origin for cookies and moderation. Enter a Turnstile site key to exercise posting.
+        The dev server proxies <code>/api</code> to <code>http://localhost:3000</code>, so the widgets use this origin
+        for cookies and moderation. Enter a Turnstile site key to exercise posting.
       </p>
       <label>
         Widget theme
@@ -40,12 +40,7 @@ import {
         [bodyLimit]="bodyLimit"
       />
       <h2>Read-only viewer</h2>
-      <lc-comment-viewer
-        [site]="site"
-        [baseUrl]="baseUrl"
-        [pageUrl]="pageUrl || undefined"
-        [theme]="theme"
-      />
+      <lc-comment-viewer [site]="site" [baseUrl]="baseUrl" [pageUrl]="pageUrl || undefined" [theme]="theme" />
       <details>
         <summary>Advanced settings</summary>
         <label>Site key <input [(ngModel)]="site" /></label>

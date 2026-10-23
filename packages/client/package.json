@@ -29,9 +29,9 @@
     "build": "bunx tsup src/index.ts --format esm --clean --dts --target es2025 --out-dir dist",
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --error-on-warnings --write .",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
-    "typecheck": "bun --check"
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
+    "typecheck": "bun check --no-script"
   },
   "dependencies": {
     "marked": "^18.1.1"

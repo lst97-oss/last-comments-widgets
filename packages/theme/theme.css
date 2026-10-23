@@ -215,12 +215,12 @@
   /* Public component hooks deliberately follow utilities, so custom values win. */
   @layer lc-components {
     :where(
-        [data-slot="dropdown-menu-portal"],
-        [data-slot="dialog-portal"],
-        [data-slot="alert-dialog-portal"],
-        [data-slot="tooltip-portal"],
-        [data-slot="popover-portal"]
-      ) {
+      [data-slot="dropdown-menu-portal"],
+      [data-slot="dialog-portal"],
+      [data-slot="alert-dialog-portal"],
+      [data-slot="tooltip-portal"],
+      [data-slot="popover-portal"]
+    ) {
       display: contents;
     }
 

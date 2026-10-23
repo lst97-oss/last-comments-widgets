@@ -280,26 +280,27 @@ The rendered block carries `data-lc-error` and `data-error-code` (empty when the
 
 ```bash
 bun install
-bun run check         # All package lint, formatting, typechecks + React Doctor
-bun run typecheck     # Bun native typecheck; Vue uses vue-tsc
+bun run check         # bun fmt --check + all package lint/typechecks + React Doctor
+bun run typecheck     # bun check --no-script; Vue uses vue-tsc
 bun run lint          # Check lint without changing files
 bun run lint:fix      # Apply safe lint fixes
-bun run format        # Format source files
-bun run format:check  # Check formatting without changing files
+bun run format        # bun fmt
+bun run format:check  # bun fmt --check
+bun run fmt:staged    # bun fmt --staged (pre-commit hook)
 bun test
 bun run test:theme    # Build + browser theme regressions (Chrome installed)
 bun run build
 ```
 
-| Package                             | Linter                                                                            | Formatter                             |
-| ----------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------- |
-| `react`                             | Biome recommended React rules + React Doctor (`check`)                            | Biome                                 |
-| `vue`                               | ESLint + TypeScript ESLint + Vue recommended rules                                | Prettier (whole SFCs)                 |
-| `angular`                           | ESLint + TypeScript ESLint + Angular recommended and template accessibility rules | Prettier (including inline templates) |
-| `client`, `vanilla`, `theme`        | Biome recommended rules                                                           | Biome                                 |
-| `last-comments-widgets` (published) | — no source of its own; its `dist` is assembled from the others                   | —                                     |
+| Package                             | Linter                                                                            | Formatter |
+| ----------------------------------- | --------------------------------------------------------------------------------- | --------- |
+| `react`                             | Biome recommended React rules + React Doctor (`check`)                            | `bun fmt` |
+| `vue`                               | ESLint + TypeScript ESLint + Vue recommended rules                                | `bun fmt` |
+| `angular`                           | ESLint + TypeScript ESLint + Angular recommended and template accessibility rules | `bun fmt` |
+| `client`, `vanilla`, `theme`        | Biome recommended rules                                                           | `bun fmt` |
+| `last-comments-widgets` (published) | — no source of its own; its `dist` is assembled from the others                   | —         |
 
-Each package with source exposes `lint`, `lint:fix`, `format`, `format:check`, and `check` scripts — the published package has only `build`, since there is nothing in it to lint. TypeScript packages also expose `typecheck`. React, Angular, the client, and vanilla use `bun --check` (the direct form of `bun check`) so it always invokes the typechecker rather than the package's `check` script. Vue uses `vue-tsc` because Bun cannot resolve `.vue` imports or check SFC templates. Angular ESLint checks Angular templates; Angular template typechecking remains part of the Angular build. Biome excludes the Vue and Angular packages so the formatters do not overlap. Generated `dist` files are excluded from both toolchains.
+Each package with source exposes `lint`, `lint:fix`, `format`, `format:check`, and `check` scripts — the published package has only `build`, since there is nothing in it to lint. TypeScript packages also expose `typecheck`. Formatting is `bun fmt` (config in the root `bunfig.toml`; Bun 1.4.4+); Biome is lint + import-assist only and its formatter is disabled. React, Angular, the client, and vanilla typecheck with `bun check --no-script`; Vue uses `vue-tsc` because Bun cannot resolve `.vue` imports or check SFC templates. Angular ESLint checks Angular templates; Angular template typechecking remains part of the Angular build. Generated `dist` files are excluded from both toolchains.
 
 Agents and AI contributors: read [`AGENTS.md`](AGENTS.md) for the layout, conventions, and the verification traps this repo has (client `dist` resolution, the thread-paging model, Angular's compile-only verification).
 

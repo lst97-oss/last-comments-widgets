@@ -7,7 +7,7 @@ Comment widgets for the [last-comments](https://github.com/lst97-oss/last-commen
 - **Runtime contract**: the widget talks to a `last-comments` server (`site` key + `baseUrl`). The sibling repo lives at `../last-comments`; its routes (`src/routes/api.comments.ts`, `api.moderation.ts`, `api.auth.$.ts`) and zod schemas are the **source of truth**. These packages ship **no validation schema** — the server is the trust boundary, and every error code the widgets render comes from it.
 - **One published package**: consumers install `@lst97-oss/last-comments-widgets` and import a subpath (`/react`, `/vue`, `/angular`, `/vanilla`, or `/client` for hosts rendering their own UI). The six directories under `packages/` are private workspace sources; `packages/last-comments-widgets` is the only manifest that is not `private` and the only one that ever lands on npm.
 - **No build step for consumers**: each subpath ships built ESM plus its own compiled stylesheet (`/theme.css`, `/react/styles.css`, …), so hosts import the component and the stylesheet and nothing else is required.
-- **Bun-first**: the repo is a Bun workspace (`bun@1.4.3` pinned in `.bun-version` + `packageManager`). Use `bun`, never npm/yarn/pnpm, and never add another lockfile.
+- **Bun-first**: the repo is a Bun workspace (`bun@1.4.4` pinned in `.bun-version` + `packageManager`). Use `bun`, never npm/yarn/pnpm, and never add another lockfile. Formatting is Bun-native (`bun fmt`); Biome is lint/import-assist only.
 
 ## Key Directories
 
@@ -22,22 +22,25 @@ Comment widgets for the [last-comments](https://github.com/lst97-oss/last-commen
 | `examples/angular`                                | runnable Angular CLI demo (`bun run dev`, :5175) with `angular.json`/`index.html`/`tsconfig*.json`; its dev server proxies `/api/*` to `http://localhost:3000` and it consumes the published package by subpath like the other demos                                                                                                                                                                                                                                |
 | `scripts/*.ts`                                    | Bun-run repo tooling: `check-all`, `lint-all`, `build-all`, `assemble-package` (assembles the published package), `check-versions` (one-published-package guard), `check-pack` (tarball guard), `check-theme` (browser theme regression), `isolate-styles`, `copy-fonts`                                                                                                                                                                                            |
 | `.changeset/`                                     | release config + pending changesets (see Release)                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `biome.json`, `eslint.config.js`, `tsconfig.json` | tooling config — one root **Biome** and **ESLint** config (no nested ones); each package has its own `tsconfig.json` scoped to `include: ["src"]` (Angular's does not extend the root, it uses Angular's compiler options)                                                                                                                                                                                                                                          |
+| `bunfig.toml`, `biome.json`, `eslint.config.js`, `tsconfig.json` | tooling config — one root **`[fmt]`** (Bun formatter), **Biome** (lint + import assist, formatter disabled) and **ESLint** config (no nested ones); each package has its own `tsconfig.json` scoped to `include: ["src"]` (Angular's does not extend the root, it uses Angular's compiler options)                                                                                                                                                                      |
 
 ## Development Commands
 
 ```bash
 bun install                 # workspace install
-bun run check               # every package: typecheck + lint + format check (+ React Doctor)
-bun run typecheck           # bun --check; Vue uses vue-tsc
+bun run check               # root bun fmt --check + every package: typecheck + lint + format check (+ React Doctor)
+bun run typecheck           # per-package bun check --no-script; Vue uses vue-tsc
 bun run lint | lint:fix     # Biome at the root, then each package's own linter
-bun run format | format:check
+bun run format | format:check  # bun fmt / bun fmt --check (Bun 1.4.4+)
+bun run fmt:staged          # bun fmt --staged for a pre-commit hook
 bun test                    # bun:test across the workspace
 bun run test:theme          # build + headless-Chrome theme/isolation regressions (needs Chrome)
 bun run build               # each workspace package's build (tsup / vite / ng-packagr), Tailwind CSS, isolate-styles, fonts, then assemble-package
 bun run versions:check      # exactly one published package, internals linked with workspace:*
 cd packages/react && bun test          # single package
 ```
+
+Bare `bun check` runs the root aggregate `check` script; use `bun check --no-script` (or `bun run typecheck`) when you want only the typechecker.
 
 ## Architecture & Data Flow
 
@@ -53,13 +56,13 @@ cd packages/react && bun test          # single package
 - **Bun-native** — no `node:` imports in our code (verified zero). Use `Bun.file`/`Bun.write`/`Bun.Glob`/`Bun.spawn`/`Bun.argv`/`Bun.env`/`Bun.resolveSync`/`bun:test`. `process.exit` is fine (`Bun.exit` does not exist) and `process.env.NODE_ENV` appears only as a `Bun.build` `define` key.
 - **Four-way parity**: touch React, Vue, Angular and vanilla in the same change, and `packages/theme` when styles move. Match the surrounding markup/classing style; all four must render the same DOM contract (`data-lc-error`, `data-error-code`, `nav[aria-label="Comments pagination"]`, `.lc-*` hooks). The one in-flight exception is the React-first Shiki code-block upgrade: the composer block/inline actions and highlighted fences exist in React only until the other ports are migrated.
 - TypeScript: `strict`, `noUnusedLocals/Parameters`, `verbatimModuleSyntax`. Target **ES2025** for authoring (`lib: ["ES2025", "ESNext.Disposable", "DOM", "DOM.Iterable"]`; the Disposable lib is required by `bun-types`) and emit ES2025 from every bundle (`tsup --target es2025`, Vite `build.target: 'es2025'`, Angular tsconfig target). No one-line wrapper functions, no inline `as` casts to reach members (declare a named type), no `ReturnType<typeof …>` (name the type). Small static string-keyed tables are `Record`, not `Map`/`Set` (reserve `Set` for dynamic membership).
-- Never hand-edit the published version — `bun run versions:check` (run by `version` and `release`) fails unless exactly one package is published, every internal `@last-comments-widgets/*` dependency is `workspace:*`, and the published manifest depends on none of them. Angular DI imports must stay value imports (`inject(ElementRef)`); a formatter may try to make them `type` only and break injection.
+- Never hand-edit the published version — `bun run versions:check` (run by `version` and `release`) fails unless exactly one package is published, every internal `@last-comments-widgets/*` dependency is `workspace:*`, and the published manifest depends on none of them. Angular DI imports must stay value imports (`inject(ElementRef)`); a formatter may try to make them `type` only and break injection. `bun fmt` does not sort imports — Biome's `organizeImports` assist owns that — and `sortImports` stays off in `[fmt]` for exactly this reason.
 - Generated/ignored: `packages/*/dist`, `node_modules`, `.tmp/`. Never commit `dist`; `bun.lock` and `.bun-version` are committed and authoritative.
 
 ## Testing & QA
 
 - Existing suites are `bun:test` files (`packages/client/src/index.test.ts`, `packages/vanilla/src/index.test.ts`, `packages/react/src/editGate.test.ts`, `packages/react/src/lib/turnstile.test.ts`, `packages/react/src/lib/codeBlock.test.ts`, `packages/vue/src/lib/turnstile.test.ts`, `packages/{vue,angular}/src/types.test.ts`, `scripts/isolate-styles.test.ts`). There is no DOM/component harness: UI behaviour is proven in a real browser, not by mounting components in tests.
-- Required before claiming done: `bun run check` in the touched package **and** a real run (`bun test`), plus a headless-Chromium probe for anything visual or interactive (identity switch, pager, skeletons, error surfaces, 360px layout). Delete throwaway probes and stop the servers you started.
+- Required before claiming done: `bun run check` in the touched package **and** a real run (`bun test`), plus a headless-Chromium probe for anything visual or interactive (identity switch, pager, skeletons, error surfaces, 360px layout). `bun run check` includes `bun fmt --check`; run `bun run format` if it reports files. Delete throwaway probes and stop the servers you started.
 - Theme or token changes: `bun run test:theme`.
 - **Angular is browser-tested too**: `cd examples/angular && bun run build` (AOT compile) and `bun run dev` (:5175, proxies `/api` to :3000) then probe the Angular widget; also run `bunx ngc -p tsconfig.app.json --noEmit`. `theme.fixture.ts` is excluded from the app tsconfig because `check-theme` builds it directly.
 - **Client `dist` trap**: the widgets resolve the client from its built `dist` (the assembled package rewrites those specifiers to relative paths, but the workspace sources still import the client package). After editing `packages/client/src`, run `bun run build` there before typechecking, testing or probing the widgets — otherwise you get misleading `TS2305: has no exported member` / undefined-export failures. The root `bun run check` rebuilds the client itself; a per-package `bun run check` does not.
