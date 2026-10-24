@@ -19,12 +19,13 @@ import {
   saveEditKey,
   signOutViewerSession,
   sortCommentRoots,
+  takeSignInFailure,
   themeVarsToStyle,
   type ThreadSort,
   type ViewerSession,
   type VoteValue,
 } from '@last-comments-widgets/client'
-import { computed, ref, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 import CommentError from './CommentError.vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'
@@ -44,6 +45,9 @@ const props = withDefaults(defineProps<CommentsProps>(), {
   limit: 20,
   theme: 'system',
   lazy: false,
+  math: false,
+  mermaid: false,
+  codeHighlight: true,
   actionMode: 'icon-text',
   bodyLimit: DEFAULT_BODY_LIMIT,
 })
@@ -423,6 +427,15 @@ async function startSignIn() {
   }
 }
 
+// A sign-in the provider rejected returns here with a failure marker. Explain it
+// once in the identity control, then drop the marker so a reload does not repeat it.
+onMounted(() => {
+  const failure = takeSignInFailure(window.location.href)
+  if (!failure) return
+  identityError.value = { info: failure.info, retry: startSignIn }
+  window.history.replaceState(window.history.state, '', failure.cleanHref)
+})
+
 function chooseIdentity(value: 'account' | 'anonymous') {
   commentAs.value = value
   identityOpen.value = false
@@ -514,6 +527,9 @@ defineExpose({ refresh })
       :parent-id="null"
       :error="formError"
       :body-limit="props.bodyLimit"
+      :math="props.math"
+      :mermaid="props.mermaid"
+      :code-highlight="props.codeHighlight"
       :on-submit="submit"
       :sign-in-href="signInUrl"
       :on-sign-in="startSignIn"
@@ -611,6 +627,9 @@ defineExpose({ refresh })
           :has-edit-keys="guestEditKeys"
           :action-mode="props.actionMode"
           :body-limit="props.bodyLimit"
+          :math="props.math"
+          :mermaid="props.mermaid"
+          :code-highlight="props.codeHighlight"
           :reply-to="replyTo"
           :dark="dark"
           :sign-in-href="signInUrl"

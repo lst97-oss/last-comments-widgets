@@ -37,6 +37,7 @@ import {
   saveEditKey,
   signOutViewerSession,
   sortCommentRoots,
+  takeSignInFailure,
   type ThreadNode,
   type ThreadSort,
   themeVarsToStyle,
@@ -146,6 +147,9 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
         [sessionPending]="sessionLoading()"
         [error]="formError()"
         [bodyLimit]="bodyLimit()"
+        [math]="math()"
+        [mermaid]="mermaid()"
+        [codeHighlight]="codeHighlight()"
         (submitted)="onTopLevelSubmit($event)"
         (signIn)="signInFromError()"
       >
@@ -289,6 +293,9 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
           [anonWindowMinutes]="anonEditWindowMinutes()"
           [actionMode]="actionMode()"
           [bodyLimit]="bodyLimit()"
+          [math]="math()"
+          [mermaid]="mermaid()"
+          [codeHighlight]="codeHighlight()"
           [replyTo]="replyTo()"
           [editComment]="submitEdit"
           [replyComment]="submitReply"
@@ -363,6 +370,12 @@ export class LcCommentsComponent {
   bodyLimit = input(DEFAULT_BODY_LIMIT)
   fetchImpl = input<typeof fetch | undefined>(undefined)
   lazy = input(false)
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math = input(false)
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid = input(false)
+  // Syntax highlighting for fenced code (lazy; on by default; React only today).
+  codeHighlight = input(true)
   signIn = output<void>()
   // Fires after a successful moderation action, lock change or moderator post,
   // so a dashboard can refresh its own thread list (counts, lock badge).
@@ -494,6 +507,14 @@ export class LcCommentsComponent {
     effect((onCleanup) => {
       if (this.theme() !== 'system') return
       onCleanup(subscribeSystemTheme())
+    })
+    // A sign-in the provider rejected returns here with a failure marker. Explain it
+    // once in the identity control, then drop the marker so a reload does not repeat it.
+    afterNextRender(() => {
+      const failure = takeSignInFailure(window.location.href)
+      if (!failure) return
+      this.signInError.set(failure.info)
+      window.history.replaceState(window.history.state, '', failure.cleanHref)
     })
     // Below-the-fold embeds defer the first request until the root is near the
     // viewport; no IntersectionObserver (SSR/test) loads immediately.

@@ -3,6 +3,7 @@ import { CdkTrapFocus } from '@angular/cdk/a11y'
 import { CdkConnectedOverlay, type ConnectedPosition } from '@angular/cdk/overlay'
 import { Component, computed, input, output, signal } from '@angular/core'
 import {
+  accountBadge,
   type Comment,
   collectThreadParticipants,
   DEFAULT_ANON_EDIT_WINDOW_MINUTES,
@@ -36,6 +37,7 @@ import {
 import { buttonClass } from './button-classes'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
 import { ITEM_INITIAL, type ItemAction, type ItemState, itemReducer } from './item-state'
+import { LcMarkdownEnhanceDirective } from './markdown-enhance.directive'
 import { LcThreadGuidesComponent } from './thread-guides.component'
 import { canEditComment, type TurnstileOptions } from './types'
 import { LcVoteButtonsComponent, type VoteEvent } from './vote-buttons.component'
@@ -77,6 +79,7 @@ function initials(name: string): string {
     CdkConnectedOverlay,
     CdkTrapFocus,
     LcCommentFormComponent,
+    LcMarkdownEnhanceDirective,
     LcVoteButtonsComponent,
     LucideBan,
     LucideChevronDown,
@@ -164,11 +167,14 @@ function initials(name: string): string {
             }
             <span [class]="avatarFallbackClass">{{ initialsLabel() }}</span>
           </span>
-          <span class="min-w-0 truncate font-medium" [class.text-primary]="c.authorRole === 'admin'">{{
+          <span class="min-w-0 truncate font-medium" [class.lc-author-admin]="accountBadge(c) === 'admin'">{{
             c.authorName
           }}</span>
-          @if (c.authorRole === 'admin') {
+          @if (accountBadge(c) === 'admin') {
             <span [class]="adminBadgeClass">Admin</span>
+          }
+          @if (accountBadge(c) === 'member') {
+            <span [class]="memberBadgeClass">Member</span>
           }
           <!-- Moderation rows carry the block state; the public wire shape omits it. -->
           @if (c.userBlocked) {
@@ -360,6 +366,9 @@ function initials(name: string): string {
                 [error]="state.editError"
                 [showCancel]="true"
                 [bodyLimit]="bodyLimit()"
+                [math]="math()"
+                [mermaid]="mermaid()"
+                [codeHighlight]="codeHighlight()"
                 (submitted)="submitEdit($event)"
                 (signIn)="signIn.emit()"
                 (cancelReply)="dispatch({ type: 'edit/close' })"
@@ -376,13 +385,23 @@ function initials(name: string): string {
                 [submitting]="state.replying"
                 [error]="state.replyError"
                 [bodyLimit]="bodyLimit()"
+                [math]="math()"
+                [mermaid]="mermaid()"
+                [codeHighlight]="codeHighlight()"
                 (submitted)="submitReply($event)"
                 (signIn)="signIn.emit()"
                 (cancelReply)="cancelReply()"
               />
             </div>
           } @else {
-            <div class="lc-markdown my-3 font-sans text-sm" [innerHTML]="bodyHtml()"></div>
+            <div
+              class="lc-markdown my-3 font-sans text-sm"
+              [innerHTML]="bodyHtml()"
+              [lcMarkdownEnhance]="bodyHtml()"
+              [math]="math()"
+              [mermaid]="mermaid()"
+              [codeHighlight]="codeHighlight()"
+            ></div>
           }
           @if (!readOnly()) {
             <div class="flex flex-wrap items-center gap-1 text-sm">
@@ -466,6 +485,9 @@ function initials(name: string): string {
                         [anonWindowMinutes]="anonWindowMinutes()"
                         [actionMode]="actionMode()"
                         [bodyLimit]="bodyLimit()"
+                        [math]="math()"
+                        [mermaid]="mermaid()"
+                        [codeHighlight]="codeHighlight()"
                         [readOnly]="readOnly()"
                         [replyTo]="replyTo()"
                         [parentAuthorName]="c.authorName"
@@ -504,6 +526,9 @@ export class LcCommentItemComponent {
   readonly anonWindowMinutes = input(DEFAULT_ANON_EDIT_WINDOW_MINUTES)
   readonly actionMode = input<'icon' | 'icon-text' | 'text'>('icon-text')
   readonly bodyLimit = input(DEFAULT_BODY_LIMIT)
+  readonly math = input(false)
+  readonly mermaid = input(false)
+  readonly codeHighlight = input(true)
   readonly readOnly = input(false)
   readonly replyTo = input<string | null>(null)
   readonly parentAuthorName = input<string | undefined>(undefined)
@@ -521,7 +546,9 @@ export class LcCommentItemComponent {
   protected readonly avatarClass = AVATAR_CLASS
   protected readonly avatarFallbackClass = AVATAR_FALLBACK_CLASS
   protected readonly stackAvatarClass = STACK_AVATAR_CLASS
+  protected readonly accountBadge = accountBadge
   protected readonly adminBadgeClass = `${BADGE_CLASS} lc-admin-badge bg-primary text-primary-foreground`
+  protected readonly memberBadgeClass = `${BADGE_CLASS} lc-member-badge bg-secondary text-secondary-foreground`
   protected readonly blockedBadgeClass = `${BADGE_CLASS} lc-blocked-badge border-border text-foreground`
   protected readonly hiddenBadgeClass = `${BADGE_CLASS} bg-destructive/10 text-destructive dark:bg-destructive/20`
   protected readonly deletedBadgeClass = `${BADGE_CLASS} bg-secondary text-secondary-foreground`
@@ -543,7 +570,9 @@ export class LcCommentItemComponent {
   protected readonly collapsed = computed(() => this.itemState().collapsedOverride ?? this.comment().comment.score < 0)
 
   // Sanitization happened in the shared renderer; no bypass call needed.
-  protected readonly bodyHtml = computed(() => renderMarkdown(this.comment().comment.bodyMarkdown))
+  protected readonly bodyHtml = computed(() =>
+    renderMarkdown(this.comment().comment.bodyMarkdown, { math: this.math() }),
+  )
   protected readonly initialsLabel = computed(() => initials(this.comment().comment.authorName))
   protected readonly avatarUrl = computed(() => safeUrl(this.comment().comment.avatarUrl))
   protected readonly dateLabel = computed(() => new Date(this.comment().comment.createdAt).toLocaleString())
@@ -683,6 +712,9 @@ export class LcCommentItemComponent {
           [anonWindowMinutes]="anonWindowMinutes()"
           [actionMode]="actionMode()"
           [bodyLimit]="bodyLimit()"
+          [math]="math()"
+          [mermaid]="mermaid()"
+          [codeHighlight]="codeHighlight()"
           [readOnly]="readOnly()"
           [replyTo]="replyTo()"
           [editComment]="editComment()"
@@ -712,6 +744,9 @@ export class LcCommentListComponent {
   readonly anonWindowMinutes = input(DEFAULT_ANON_EDIT_WINDOW_MINUTES)
   readonly actionMode = input<'icon' | 'icon-text' | 'text'>('icon-text')
   readonly bodyLimit = input(DEFAULT_BODY_LIMIT)
+  readonly math = input(false)
+  readonly mermaid = input(false)
+  readonly codeHighlight = input(true)
   readonly readOnly = input(false)
   readonly replyTo = input<string | null>(null)
   readonly editComment = input.required<CommentSubmitHandler>()

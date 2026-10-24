@@ -1,6 +1,6 @@
 {
   "name": "@lst97-oss/last-comments-widgets",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "type": "module",
   "description": "Drop-in comment widgets for last-comments — React, Vue, Angular and plain HTML on one API client and one Tailwind v4 + shadcn base-nova theme.",
   "license": "MIT",
@@ -79,7 +79,9 @@
     "@lucide/vue": "^1.60.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "katex": "^0.19.1",
     "lucide-react": "^1.59.0",
+    "mermaid": "^12.2.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "reka-ui": "^2.11.0",
@@ -115,7 +117,13 @@
     "clsx": {
       "optional": true
     },
+    "katex": {
+      "optional": true
+    },
     "lucide-react": {
+      "optional": true
+    },
+    "mermaid": {
       "optional": true
     },
     "react": {

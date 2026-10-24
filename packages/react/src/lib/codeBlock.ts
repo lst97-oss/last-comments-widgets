@@ -79,7 +79,10 @@ function clearPending(pre: HTMLPreElement) {
 // Returns a cleanup so React 19's ref callback can cancel an in-flight upgrade
 // when the rendered HTML changes or the component unmounts.
 export function enhanceCodeBlocks(root: ParentNode): () => void {
-  const blocks = Array.from(root.querySelectorAll<HTMLElement>('pre:not(.shiki) > code'))
+  const blocks = Array.from(root.querySelectorAll<HTMLElement>('pre:not(.shiki) > code')).filter(
+    // A mermaid fence is a diagram (or its source), never highlighted code.
+    (code) => !/(?:^|\s)language-mermaid(?:\s|$)/.test(code.className),
+  )
   const pres = new Set<HTMLPreElement>()
   for (const code of blocks) {
     const pre = code.parentElement

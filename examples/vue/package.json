@@ -10,6 +10,8 @@
     "@lst97-oss/last-comments-widgets": "workspace:*",
     "@lucide/vue": "^1.60.0",
     "clsx": "^2.1.1",
+    "katex": "^0.19.1",
+    "mermaid": "^12.2.0",
     "reka-ui": "^2.11.0",
     "tailwind-merge": "^3.7.0",
     "vue": "~3.5.44"

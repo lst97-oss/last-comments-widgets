@@ -293,10 +293,18 @@
       color: var(--lc-action-hover-color, var(--foreground));
       background: var(--lc-action-hover-background, transparent);
     }
-    /* Admin flair hook: the Badge default variant already paints with
-       --primary/--primary-foreground; target .lc-admin-badge to restyle. */
-    /* biome-ignore lint/suspicious/noEmptyBlock: public styling hook, no defaults of its own. */
+    /* Account badges. `lc-components` is the last layer, so these beat the Badge
+       variant utilities (bg-primary, bg-secondary) without !important. */
+    .lc-author-admin {
+      color: var(--lc-admin-name-color, var(--destructive));
+    }
     .lc-admin-badge {
+      background: var(--lc-admin-badge-background, color-mix(in oklab, var(--destructive) 15%, transparent));
+      color: var(--lc-admin-badge-foreground, var(--destructive));
+    }
+    .lc-member-badge {
+      background: var(--lc-member-badge-background, var(--secondary));
+      color: var(--lc-member-badge-foreground, var(--secondary-foreground));
     }
     /* Blocked-author indicator (moderation rows only). */
     .lc-blocked-badge {
@@ -345,8 +353,11 @@
     :where(button, input, textarea, select) {
       border-radius: var(--lc-control-radius, var(--radius));
     }
+    /* A flat popover: a solid frame and no offset shadow. A host that wants a
+       shadow on the ⋮ menu sets --lc-actions-shadow. */
     .lc-actions-menu {
-      box-shadow: var(--lc-dropdown-shadow, 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1));
+      border: var(--lc-border-width, 1px) solid var(--border);
+      box-shadow: var(--lc-actions-shadow, none);
     }
     .lc-identity-menu {
       background: var(--popover);
@@ -533,6 +544,74 @@
     }
     @media (prefers-reduced-motion: reduce) {
       .lc-markdown pre[data-shiki="pending"]::after {
+        animation: none;
+      }
+    }
+
+    /* Math placeholders: KaTeX (loaded lazily) fills the span in place. A
+       missing KaTeX leaves the literal tex, styled like inline code so an
+       unstyled formula never looks like a broken image. */
+    .lc-math:not(:has(.katex)) {
+      border-radius: calc(var(--radius) * 0.4);
+      @apply bg-muted px-1 font-mono text-[0.85em];
+    }
+    .lc-math-block {
+      display: block;
+      margin: 0.75rem 0;
+      overflow-x: auto;
+      text-align: center;
+    }
+    .lc-math .katex-display {
+      margin: 0;
+    }
+
+    /* Diagram frame around a lazily rendered mermaid svg. The source <pre> is
+       kept hidden so a theme flip can re-render from it. */
+    .lc-mermaid {
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 1rem;
+    }
+    .lc-mermaid > svg {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin-inline: auto;
+    }
+    .lc-mermaid-source {
+      display: none;
+    }
+
+    /* Attribute-only shimmer while the lazy math/diagram import is in flight. */
+    .lc-math[data-math="pending"],
+    .lc-markdown pre[data-mermaid="pending"] {
+      position: relative;
+      overflow: hidden;
+    }
+    .lc-math[data-math="pending"] > *,
+    .lc-markdown pre[data-mermaid="pending"] > code {
+      opacity: 0.55;
+    }
+    .lc-math[data-math="pending"]::after,
+    .lc-markdown pre[data-mermaid="pending"]::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        100deg,
+        transparent 20%,
+        color-mix(in oklab, var(--muted-foreground) 12%, transparent) 50%,
+        transparent 80%
+      );
+      animation: shiki-shimmer 1.4s ease-in-out infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lc-math[data-math="pending"]::after,
+      .lc-markdown pre[data-mermaid="pending"]::after {
         animation: none;
       }
     }

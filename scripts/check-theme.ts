@@ -209,6 +209,8 @@ try {
     expect(await style(actions, 'font-family')).toContain('Georgia')
     expect(await style(actions, 'background-color')).toBe('rgb(51, 34, 17)')
     expect(await style(actions, 'box-shadow')).toBe('none')
+    expect(await style(actions, 'border-top-style')).toBe('solid')
+    expect(await style(actions, 'border-top-width')).toBe('3px')
     await page.keyboard.press('Escape')
     await page.emulateMedia({ colorScheme: 'light' })
     await page.waitForFunction(

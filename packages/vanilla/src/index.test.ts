@@ -10,6 +10,7 @@ import {
   ITEM_INITIAL,
   insertPrefix,
   insertWrap,
+  isSafeSvg,
   observeInView,
   pagerMarkup,
   parseThemeAttrs,
@@ -668,10 +669,15 @@ describe('row contract', () => {
 
 describe('resolveTurnstileConfig', () => {
   test('follows the widget light/dark mode unless the host overrides the theme', () => {
-    expect(resolveTurnstileConfig(true)).toEqual({ theme: 'dark' })
-    expect(resolveTurnstileConfig(false)).toEqual({ theme: 'light' })
-    expect(resolveTurnstileConfig(true, { theme: 'light' })).toEqual({ theme: 'light' })
-    expect(resolveTurnstileConfig(false, { theme: 'auto' })).toEqual({ theme: 'auto' })
+    expect(resolveTurnstileConfig(true)).toEqual({ theme: 'dark', appearance: 'interaction-only' })
+    expect(resolveTurnstileConfig(false)).toEqual({ theme: 'light', appearance: 'interaction-only' })
+    expect(resolveTurnstileConfig(true, { theme: 'light' })).toEqual({ theme: 'light', appearance: 'interaction-only' })
+    expect(resolveTurnstileConfig(false, { theme: 'auto' })).toEqual({ theme: 'auto', appearance: 'interaction-only' })
+  })
+
+  test('shows the challenge only when needed by default, and a host can opt into the always-visible box', () => {
+    expect(resolveTurnstileConfig(false).appearance).toBe('interaction-only')
+    expect(resolveTurnstileConfig(false, { appearance: 'always' }).appearance).toBe('always')
   })
 
   test('forwards the Cloudflare design knobs and omits unset ones', () => {
@@ -681,6 +687,40 @@ describe('resolveTurnstileConfig', () => {
       appearance: 'interaction-only',
       language: 'de',
     })
-    expect(resolveTurnstileConfig(true, { size: 'flexible' })).toEqual({ theme: 'dark', size: 'flexible' })
+    expect(resolveTurnstileConfig(true, { size: 'flexible' })).toEqual({
+      theme: 'dark',
+      appearance: 'interaction-only',
+      size: 'flexible',
+    })
+  })
+})
+
+describe('isSafeSvg', () => {
+  test('accepts the markup mermaid emits for a diagram', () => {
+    const svg =
+      '<svg id="lc-vanilla-mermaid-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g class="node"><text>A</text></g></svg>'
+    expect(isSafeSvg(svg)).toBe(true)
+  })
+
+  test('rejects script elements', () => {
+    expect(isSafeSvg('<svg><script>alert(1)</script></svg>')).toBe(false)
+    expect(isSafeSvg('<svg>\n<script\nsrc="x"></script></svg>')).toBe(false)
+  })
+
+  test('rejects inline event handlers', () => {
+    expect(isSafeSvg('<svg><g onclick="alert(1)"></g></svg>')).toBe(false)
+    expect(isSafeSvg('<svg onload = "alert(1)"></svg>')).toBe(false)
+  })
+
+  test('rejects javascript urls', () => {
+    expect(isSafeSvg('<svg><a href="JavaScript:alert(1)"></a></svg>')).toBe(false)
+  })
+})
+
+describe('math placeholders', () => {
+  test('rows render the math variant only when the flag is on', () => {
+    const tree = buildCommentTree([comment('p', null, 'a $x$ b')])
+    expect(renderCommentNode(tree[0], 0, { math: true })).toContain('data-tex="x"')
+    expect(renderCommentNode(tree[0], 0, {})).toContain('a $x$ b')
   })
 })

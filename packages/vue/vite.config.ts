@@ -15,7 +15,18 @@ export default defineConfig({
     // Ship the latest ratified ECMAScript standard (see the repo tsconfig).
     target: 'es2025',
     rollupOptions: {
-      external: ['vue', '@lucide/vue', 'reka-ui', '@last-comments-widgets/client', 'clsx', 'tailwind-merge'],
+      external: [
+        'vue',
+        '@lucide/vue',
+        'reka-ui',
+        '@last-comments-widgets/client',
+        'clsx',
+        'tailwind-merge',
+        // Package and subpaths: KaTeX's stylesheet must stay a runtime import,
+        // never inlined into the widget's own stylesheet.
+        /^katex(\/|$)/,
+        /^mermaid(\/|$)/,
+      ],
     },
   },
 })

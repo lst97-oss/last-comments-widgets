@@ -16,6 +16,10 @@ const actionMode = ref<ActionMode>('icon-text')
 const bodyLimit = ref(Number(new URLSearchParams(window.location.search).get('bodyLimit')) || 10_000)
 // mount-time only: ?lazy makes the demo probe the deferred fetch path
 const lazy = ref(new URLSearchParams(window.location.search).has('lazy'))
+// mount-time only: ?math / ?mermaid / ?noHighlight exercise the render flags
+const math = ref(new URLSearchParams(window.location.search).has('math'))
+const mermaid = ref(new URLSearchParams(window.location.search).has('mermaid'))
+const codeHighlight = ref(!new URLSearchParams(window.location.search).has('noHighlight'))
 // Template expressions cannot reach window globals on their own.
 const tall = new URLSearchParams(window.location.search).has('tall')
 const preset = ref('Default')
@@ -49,9 +53,21 @@ const themeVars = computed(() => presets[preset.value])
       :action-mode="actionMode"
       :body-limit="bodyLimit"
       :lazy="lazy"
+      :math="math"
+      :mermaid="mermaid"
+      :code-highlight="codeHighlight"
     />
     <h2 class="mt-6 text-lg font-semibold">Read-only viewer</h2>
-    <CommentViewer :site="site" :base-url="baseUrl" :page-url="pageUrl" :theme-vars="themeVars" :lazy="lazy" />
+    <CommentViewer
+      :site="site"
+      :base-url="baseUrl"
+      :page-url="pageUrl"
+      :theme-vars="themeVars"
+      :lazy="lazy"
+      :math="math"
+      :mermaid="mermaid"
+      :code-highlight="codeHighlight"
+    />
     <details class="text-sm">
       <summary class="cursor-pointer font-medium">Advanced settings</summary>
       <div class="mt-2 grid gap-2">

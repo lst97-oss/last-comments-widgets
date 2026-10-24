@@ -47,7 +47,9 @@
   "dependencies": {
     "@angular/cdk": "22.2.3",
     "@last-comments-widgets/client": "workspace:*",
-    "@lucide/angular": "1.59.0"
+    "@lucide/angular": "1.59.0",
+    "katex": "^0.19.1",
+    "mermaid": "^12.2.0"
   },
   "peerDependencies": {
     "@angular/core": "^22.0.0",

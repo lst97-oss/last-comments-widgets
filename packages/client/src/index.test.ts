@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   ApiError,
+  accountBadge,
   beginOAuthSignIn,
   buildCommentTree,
   buildThreadGuidePath,
@@ -28,8 +29,10 @@ import {
   resolveEditWindow,
   safeUrl,
   saveEditKey,
+  signInFailureUrl,
   signOutViewerSession,
   sortCommentRoots,
+  takeSignInFailure,
   themeVarsToStyle,
 } from './index'
 
@@ -139,6 +142,7 @@ describe('beginOAuthSignIn', () => {
     expect(JSON.parse(String(seen?.init.body))).toEqual({
       provider: 'google',
       callbackURL: 'https://demo.test/p',
+      errorCallbackURL: 'https://demo.test/p?lc_sign_in=failed',
     })
   })
 
@@ -154,7 +158,11 @@ describe('beginOAuthSignIn', () => {
       provider: 'github',
       fetchImpl,
     })
-    expect(body).toEqual({ provider: 'github', callbackURL: 'https://demo.test/p' })
+    expect(body).toEqual({
+      provider: 'github',
+      callbackURL: 'https://demo.test/p',
+      errorCallbackURL: 'https://demo.test/p?lc_sign_in=failed',
+    })
   })
 
   test('throws SIGN_IN_UNAVAILABLE when the server returns no url', async () => {
@@ -168,6 +176,59 @@ describe('beginOAuthSignIn', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).code).toBe('SIGN_IN_UNAVAILABLE')
     expect((err as ApiError).message).toBe('provider not configured')
+  })
+})
+
+describe('accountBadge', () => {
+  test('marks the site admin', () => {
+    expect(accountBadge({ userId: 'u1', authorRole: 'admin' })).toBe('admin')
+  })
+
+  test('marks a signed-in account without a site role as a member', () => {
+    expect(accountBadge({ userId: 'u2', authorRole: null })).toBe('member')
+  })
+
+  test('gives guests and moderators no account badge', () => {
+    expect(accountBadge({ userId: null, authorRole: null })).toBeNull()
+    expect(accountBadge({ userId: 'u3', authorRole: 'moderator' })).toBeNull()
+  })
+})
+
+describe('signInFailureUrl', () => {
+  test('adds the failure marker and keeps the page query', () => {
+    expect(signInFailureUrl('https://demo.test/p?ref=x')).toBe('https://demo.test/p?ref=x&lc_sign_in=failed')
+  })
+
+  test('keeps a relative page path relative', () => {
+    expect(signInFailureUrl('/blog/post?ref=x')).toBe('/blog/post?ref=x&lc_sign_in=failed')
+  })
+})
+
+describe('takeSignInFailure', () => {
+  test('returns null when the page was not returned from a failed sign-in', () => {
+    expect(takeSignInFailure('https://demo.test/p?ref=x')).toBeNull()
+  })
+
+  test('explains the provider error and strips the marker, keeping other params', () => {
+    const failure = takeSignInFailure(
+      'https://demo.test/p?ref=x&lc_sign_in=failed&error=account_not_linked&error_description=Account%20not%20linked',
+    )
+    expect(failure?.info).toMatchObject({ code: 'account_not_linked', action: 'none' })
+    expect(failure?.info.title).toBe("Couldn't link your account")
+    expect(failure?.cleanHref).toBe('https://demo.test/p?ref=x')
+  })
+
+  test('falls back to the generic copy for an unknown provider error', () => {
+    const failure = takeSignInFailure('https://demo.test/p?lc_sign_in=failed&error=something_new')
+    expect(failure?.info).toMatchObject({ code: 'something_new', title: "Sign-in didn't finish" })
+  })
+
+  test('treats a missing error code as unknown', () => {
+    expect(takeSignInFailure('https://demo.test/p?lc_sign_in=failed')?.info.code).toBe('unknown')
+  })
+
+  test('ignores an unparseable page URL', () => {
+    expect(takeSignInFailure('not a url')).toBeNull()
   })
 })
 
@@ -346,6 +407,66 @@ describe('renderMarkdown', () => {
       expect(html).not.toContain('<img')
       expect(html).toContain('a')
     }
+  })
+})
+
+describe('renderMarkdown math', () => {
+  const math = (source: string) => renderMarkdown(source, { math: true })
+
+  test('is off unless asked, so dollar text stays literal', () => {
+    expect(renderMarkdown('a $x$ b')).not.toContain('lc-math')
+    expect(renderMarkdown('a $x$ b', { math: false })).not.toContain('lc-math')
+  })
+
+  test('renders inline math as an escaped placeholder carrying its tex', () => {
+    expect(math('a $x^2$ b')).toBe('<p>a <span class="lc-math" data-tex="x^2">x^2</span> b</p>\n')
+  })
+
+  test('renders display math as a block placeholder with trimmed tex', () => {
+    expect(math('$$\\int_0^1 x\\,dx$$')).toBe(
+      '<p><span class="lc-math lc-math-block" data-tex="\\int_0^1 x\\,dx">\\int_0^1 x\\,dx</span></p>\n',
+    )
+    expect(math('$$\na+b\n$$')).toContain('data-tex="a+b"')
+    expect(math('$$\na+b\n$$')).toContain('lc-math-block')
+  })
+
+  test('keeps currency and bare dollar runs literal', () => {
+    for (const source of ['$5 and $6', 'I owe $$5', '$$$$', '$$$', '$$ a$$', '$$a $$', 'cost $5']) {
+      const html = math(source)
+      expect(html).not.toContain('lc-math')
+      expect(html).toContain('$')
+    }
+  })
+
+  test('never tokenizes dollars inside code spans or fences', () => {
+    expect(math('`$x$`')).toBe('<p><code>$x$</code></p>\n')
+    expect(math('```\n$x$\n```')).toContain('<pre><code>$x$')
+    expect(math('```\n$x$\n```')).not.toContain('lc-math')
+  })
+
+  test('leaves escaped dollars as text', () => {
+    expect(math('\\$x\\$')).toBe('<p>$x$</p>\n')
+  })
+
+  test('works inside emphasis, links and quoted or listed blocks', () => {
+    expect(math('**$x$**')).toBe('<p><strong><span class="lc-math" data-tex="x">x</span></strong></p>\n')
+    expect(math('[$x$](https://a.b)')).toContain('<a href="https://a.b"><span class="lc-math"')
+    expect(math('> quote $x$')).toContain('<blockquote>')
+    expect(math('- item $x$')).toContain('<li>item <span class="lc-math"')
+  })
+
+  test('escapes tex so a body can never inject markup or break the attribute', () => {
+    const html = math('$<b>&"c$')
+    expect(html).not.toContain('<b>')
+    expect(html).toContain('data-tex="&lt;b&gt;&amp;&quot;c"')
+    expect(html).toContain('&lt;b&gt;&amp;&quot;c</span>')
+  })
+
+  test('keeps the shared sanitizing renderers on both pipelines', () => {
+    expect(math('**b** <script>x</script> [e](javascript:alert(1))')).toContain('<strong>b</strong>')
+    expect(math('<script>x</script> $y$')).not.toContain('<script>')
+    expect(math('[e](javascript:alert(1))')).not.toContain('javascript:')
+    expect(math('![a](javascript:alert(1))')).not.toContain('<img')
   })
 })
 

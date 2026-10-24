@@ -7,6 +7,7 @@ import Turnstile from './Turnstile.vue'
 import { buttonClass } from './lib/button'
 import { cn } from './lib/cn'
 import type { TurnstileOptions } from './lib/turnstile'
+import { useMarkdownEnhance } from './lib/useMarkdownEnhance'
 
 const props = defineProps<{
   siteKey?: string
@@ -23,6 +24,10 @@ const props = defineProps<{
   onSignIn?: () => void
   // Max body characters, counted before trimming to match the server routes.
   bodyLimit?: number
+  // Render flags for the preview: `$…$` math, ```mermaid diagrams, code highlighting.
+  math?: boolean
+  mermaid?: boolean
+  codeHighlight?: boolean
   // Held by the owner while the request is in flight.
   pending?: boolean
   // Error owned by the owner (the reply slot keeps its draft on failure).
@@ -117,8 +122,15 @@ const tools = [
 ]
 
 const previewHtml = computed(
-  () => renderMarkdown(body.value) || '<p class="text-muted-foreground">Nothing to preview.</p>',
+  () =>
+    renderMarkdown(body.value, { math: props.math ?? false }) ||
+    '<p class="text-muted-foreground">Nothing to preview.</p>',
 )
+const previewEl = useTemplateRef<HTMLElement>('previewEl')
+useMarkdownEnhance(previewEl, previewHtml, {
+  math: () => props.math ?? false,
+  mermaid: () => props.mermaid ?? false,
+})
 
 async function submit() {
   if (pending.value) return
@@ -198,6 +210,7 @@ async function submit() {
     <!-- eslint-disable vue/no-v-html -- renderMarkdown strips raw HTML and restricts link protocols. -->
     <div
       v-if="preview"
+      ref="previewEl"
       class="lc-markdown min-h-24 px-1 py-2 font-sans text-sm [overflow-wrap:anywhere]"
       v-html="previewHtml"
     />

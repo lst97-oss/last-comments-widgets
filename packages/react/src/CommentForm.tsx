@@ -22,6 +22,10 @@ type CommentFormProps = {
   error: ErrorInfo | null
   // Max body characters, counted before trimming to match the server routes.
   bodyLimit?: number
+  // Render flags for the preview: `$…$` math, ```mermaid diagrams, code highlighting.
+  math?: boolean
+  mermaid?: boolean
+  codeHighlight?: boolean
   // Sign-in route for errors whose action is `sign-in` (post/reply only).
   onSignIn?: () => void
   signInHref?: string
@@ -110,6 +114,9 @@ export function CommentForm({
   pending,
   error,
   bodyLimit = DEFAULT_BODY_LIMIT,
+  math = false,
+  mermaid = false,
+  codeHighlight = true,
   onSignIn,
   signInHref,
   initialBody = '',
@@ -241,6 +248,9 @@ export function CommentForm({
           source={body}
           className="lc-markdown min-h-24 px-1 py-2 font-sans text-sm"
           empty={<p className="text-muted-foreground">Nothing to preview.</p>}
+          math={math}
+          mermaid={mermaid}
+          codeHighlight={codeHighlight}
         />
       ) : (
         <Textarea

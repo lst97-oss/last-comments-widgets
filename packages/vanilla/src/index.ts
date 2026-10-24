@@ -17,6 +17,7 @@ import type {
 } from '@last-comments-widgets/client'
 import {
   ApiError,
+  accountBadge,
   beginOAuthSignIn,
   buildCommentTree,
   buildThreadGuidePath,
@@ -44,8 +45,11 @@ import {
   sortCommentRoots,
   THEME_CSS_VARIABLES,
   THEME_VAR_VALUES,
+  takeSignInFailure,
   themeVarsToStyle,
 } from '@last-comments-widgets/client'
+import type Katex from 'katex'
+import type Mermaid from 'mermaid'
 
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -85,10 +89,15 @@ export type TurnstileRenderParams = TurnstileRenderConfig & {
 // Follow the widget's own light/dark mode by default so the challenge box
 // matches the theme it is embedded in instead of the OS preference; an explicit
 // host `theme` wins. Nothing else about the box is styleable.
+// The challenge stays out of the way by default: `interaction-only` shows the box
+// only when Cloudflare needs a human check, and the token still arrives silently
+// otherwise. A host opts back into the always-visible box with `appearance: 'always'`.
 export function resolveTurnstileConfig(dark: boolean, options?: TurnstileOptions): TurnstileRenderConfig {
-  const config: TurnstileRenderConfig = { theme: options?.theme ?? (dark ? 'dark' : 'light') }
+  const config: TurnstileRenderConfig = {
+    theme: options?.theme ?? (dark ? 'dark' : 'light'),
+    appearance: options?.appearance ?? 'interaction-only',
+  }
   if (options?.size !== undefined) config.size = options.size
-  if (options?.appearance !== undefined) config.appearance = options.appearance
   if (options?.language !== undefined) config.language = options.language
   return config
 }
@@ -121,6 +130,12 @@ export type MountOptions = {
   bodyLimit?: number
   /** Embed below the fold: fetch only once the widget scrolls into view. */
   lazy?: boolean
+  /** Render `$…$` / `$$…$$` with KaTeX (lazy; off by default). */
+  math?: boolean
+  /** Render ```mermaid fences as diagrams (lazy; off by default). */
+  mermaid?: boolean
+  /** Syntax highlighting for fenced code (on by default; the React bundle is the only one that highlights today). */
+  codeHighlight?: boolean
   fetchImpl?: typeof fetch
   /** Fires after a successful moderation action, lock change or moderator post. */
   onModerated?: () => void
@@ -302,18 +317,25 @@ function voteButton(comment: Comment, value: VoteValue, label: string, glyph: st
 
 type RowParts = { body: string; initials: string; avatar: string | null }
 // Markdown and avatars only change when the row object changes: a vote patch or
-// a reload creates new objects, so a WeakMap keeps repaints cheap.
-const rowPartsCache = new WeakMap<Comment, RowParts>()
+// a reload creates new objects, so a WeakMap keeps repaints cheap. First paint
+// decides the mode, so both markdown variants are cached per comment.
+const rowPartsCache = new WeakMap<Comment, { plain?: RowParts; math?: RowParts }>()
 
-function commentParts(comment: Comment): RowParts {
-  let parts = rowPartsCache.get(comment)
+function commentParts(comment: Comment, math: boolean): RowParts {
+  let cached = rowPartsCache.get(comment)
+  if (!cached) {
+    cached = {}
+    rowPartsCache.set(comment, cached)
+  }
+  const key = math ? 'math' : 'plain'
+  let parts = cached[key]
   if (!parts) {
     parts = {
-      body: renderMarkdown(comment.bodyMarkdown),
+      body: renderMarkdown(comment.bodyMarkdown, { math }),
       initials: initials(comment.authorName),
       avatar: safeUrl(comment.avatarUrl) ?? null,
     }
-    rowPartsCache.set(comment, parts)
+    cached[key] = parts
   }
   return parts
 }
@@ -398,6 +420,8 @@ export type CommentNodeOptions = {
   anonWindowMinutes?: number
   actionMode?: ActionMode
   bodyLimit?: number
+  // Render `$…$` / `$$…$$` placeholders; the caller runs the KaTeX upgrade.
+  math?: boolean
   readOnly?: boolean
   pendingModeration?: Record<string, boolean>
   submitDisabled?: boolean
@@ -595,7 +619,7 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   const hideVotes = Boolean(options.hideVotes) || (Boolean(viewerRole) && comment.status !== 'visible')
   // Negative net score collapses in every sort mode; 0 stays expanded.
   const collapsed = collapsedOverride ?? comment.score < 0
-  const parts = commentParts(comment)
+  const parts = commentParts(comment, options.math ?? false)
   const score = readOnly
     ? `<span class="text-sm text-muted-foreground">${escapeHtml(String(comment.score))}</span>`
     : `${voteButton(comment, 1, 'Upvote', 'arrow-up')}
@@ -672,8 +696,9 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
     <button type="button" data-action="collapse" data-comment-id="${id}" aria-expanded="${!collapsed}" aria-label="${collapsed ? 'Expand' : 'Collapse'} comment by ${escapeHtml(comment.authorName)}" class="lc-action lc-collapse ${BTN} ${BTN_GHOST} ${BTN_ICON_XS}">${icon(collapsed ? 'plus' : 'minus', 'size-3')}</button>
     ${avatarMarkup(comment.authorName, parts.avatar)}
-    <span class="min-w-0 truncate font-medium${comment.authorRole === 'admin' ? ' text-primary' : ''}">${escapeHtml(comment.authorName)}</span>
-    ${comment.authorRole === 'admin' ? badge('default', 'lc-admin-badge', 'Admin') : ''}
+    <span class="min-w-0 truncate font-medium${accountBadge(comment) === 'admin' ? ' lc-author-admin' : ''}">${escapeHtml(comment.authorName)}</span>
+    ${accountBadge(comment) === 'admin' ? badge('default', 'lc-admin-badge', 'Admin') : ''}
+    ${accountBadge(comment) === 'member' ? badge('default', 'lc-member-badge', 'Member') : ''}
     ${comment.userBlocked ? badge('outline', 'lc-blocked-badge', `${icon('ban')}blocked`) : ''}
     <time dateTime="${escapeHtml(comment.createdAt)}" title="${escapeHtml(new Date(comment.createdAt).toLocaleString())}" class="text-xs text-muted-foreground">${escapeHtml(formatRelativeTime(comment.createdAt))}</time>
     ${flags}
@@ -1270,6 +1295,231 @@ function setupTheme(el: HTMLElement, theme: Theme, options: Pick<MountOptions, '
   }
 }
 
+// --- Post-paint markdown upgrades (shared by every widget instance) ---------
+// marked emits safe placeholders: `.lc-math` spans carrying their tex and
+// `<pre><code class="language-mermaid">` blocks. Each upgrade lazily imports
+// its library, replaces the placeholder, and degrades to the plain fallback.
+
+type MarkdownEnhanceFlags = { math?: boolean; mermaid?: boolean }
+
+let katexPromise: Promise<typeof Katex> | null = null
+let katexCssRequested = false
+
+// The stylesheet is best effort: bundlers inline it, and a host that ships the
+// CSS itself simply gets a failed dynamic import that is ignored.
+function loadKatex(): Promise<typeof Katex> {
+  katexPromise ??= import('katex').then((module) => module.default)
+  if (!katexCssRequested) {
+    katexCssRequested = true
+    void Promise.resolve(import('katex/dist/katex.min.css')).catch(() => {})
+  }
+  return katexPromise
+}
+
+let mermaidPromise: Promise<typeof Mermaid> | null = null
+let mermaidCounter = 0
+
+function loadMermaid(): Promise<typeof Mermaid> {
+  mermaidPromise ??= import('mermaid').then((module) => module.default)
+  return mermaidPromise
+}
+
+// Mermaid sanitizes under `securityLevel: 'strict'`; this is the second lock:
+// an svg that still carries script, event handlers or a javascript: url is
+// discarded and the source block stays.
+export function isSafeSvg(svg: string): boolean {
+  return !/<script[\s>]/i.test(svg) && !/\son[a-z]+\s*=/i.test(svg) && !/javascript:/i.test(svg)
+}
+
+function parseSvg(svg: string): SVGSVGElement | null {
+  const template = document.createElement('template')
+  template.innerHTML = svg.trim()
+  const rendered = template.content.firstElementChild
+  return rendered instanceof SVGSVGElement ? rendered : null
+}
+
+function isDarkRoot(root: ParentNode): boolean {
+  const host =
+    root instanceof Element
+      ? (root.closest('.lc-comments, .lc-theme') ?? document.documentElement)
+      : document.documentElement
+  return host.classList.contains('dark')
+}
+
+export function enhanceMath(root: ParentNode): () => void {
+  const nodes = Array.from(root.querySelectorAll<HTMLElement>('.lc-math:not([data-math])'))
+  for (const node of nodes) {
+    node.setAttribute('data-math', 'pending')
+    node.setAttribute('aria-busy', 'true')
+  }
+  if (nodes.length === 0) return () => {}
+
+  let cancelled = false
+  const clear = (node: HTMLElement) => {
+    if (node.getAttribute('data-math') === 'pending') node.removeAttribute('data-math')
+    node.removeAttribute('aria-busy')
+  }
+  const clearAll = () => {
+    for (const node of nodes) if (node.isConnected) clear(node)
+  }
+
+  void (async () => {
+    const katex = await loadKatex()
+    for (const node of nodes) {
+      if (cancelled) return
+      // Angular's [innerHTML] sanitizer drops `data-tex`; the escaped tex is
+      // also the span's text, so either source works.
+      const tex = node.getAttribute('data-tex') ?? node.textContent ?? ''
+      if (!tex.trim()) {
+        clear(node)
+        continue
+      }
+      try {
+        const html = katex.renderToString(tex, {
+          displayMode: node.classList.contains('lc-math-block'),
+          throwOnError: false,
+          strict: false,
+        })
+        if (cancelled) return
+        const template = document.createElement('template')
+        template.innerHTML = html.trim()
+        const rendered = template.content.firstElementChild
+        if (!rendered) {
+          clear(node)
+          continue
+        }
+        node.replaceChildren(rendered)
+        node.setAttribute('data-math', 'done')
+        node.removeAttribute('aria-busy')
+      } catch {
+        // KaTeX rejected the tex: keep the literal formula.
+        clear(node)
+      }
+    }
+  })().catch(() => {
+    clearAll()
+  })
+
+  return () => {
+    cancelled = true
+    clearAll()
+  }
+}
+
+export function enhanceMermaid(root: ParentNode): () => void {
+  const codes = Array.from(root.querySelectorAll<HTMLElement>('pre:not(.shiki):not([data-mermaid]) > code'))
+  const pres = new Set<HTMLPreElement>()
+  for (const code of codes) {
+    if (!/(?:^|\s)language-mermaid(?:\s|$)/.test(code.className)) continue
+    const pre = code.parentElement
+    if (!(pre instanceof HTMLPreElement)) continue
+    pres.add(pre)
+    pre.setAttribute('data-mermaid', 'pending')
+    pre.setAttribute('aria-busy', 'true')
+  }
+  if (pres.size === 0) return () => {}
+
+  let cancelled = false
+  let observer: MutationObserver | null = null
+  let dark = isDarkRoot(root)
+  const figures: { figure: HTMLElement; source: string }[] = []
+  const clear = (pre: HTMLPreElement) => {
+    if (pre.getAttribute('data-mermaid') === 'pending') pre.removeAttribute('data-mermaid')
+    pre.removeAttribute('aria-busy')
+  }
+  const clearAll = () => {
+    for (const pre of pres) if (pre.isConnected) clear(pre)
+  }
+
+  void (async () => {
+    const mermaid = await loadMermaid()
+    for (const pre of pres) {
+      if (cancelled) return
+      const source = pre.textContent ?? ''
+      if (!source.trim()) {
+        clear(pre)
+        continue
+      }
+      try {
+        mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' })
+        const { svg } = await mermaid.render(`lc-vanilla-mermaid-${++mermaidCounter}`, source)
+        if (cancelled) return
+        const rendered = isSafeSvg(svg) ? parseSvg(svg) : null
+        if (!rendered) {
+          clear(pre)
+          continue
+        }
+        const figure = document.createElement('div')
+        figure.className = 'lc-mermaid'
+        figure.setAttribute('data-mermaid', 'done')
+        // Attach first, then move the source inside: appending the pre to the
+        // detached figure would otherwise orphan it from the document.
+        pre.replaceWith(figure)
+        pre.className = 'lc-mermaid-source'
+        pre.removeAttribute('aria-busy')
+        figure.append(rendered, pre)
+        pres.delete(pre)
+        figures.push({ figure, source })
+      } catch {
+        // Parse/diagram failure: keep the source block visible.
+        clear(pre)
+      }
+    }
+    if (cancelled) return
+    observeTheme()
+  })().catch(() => {
+    clearAll()
+  })
+
+  // A mermaid svg bakes its colours, so a light/dark flip re-renders from source.
+  function observeTheme() {
+    if (figures.length === 0 || typeof MutationObserver === 'undefined') return
+    const host =
+      root instanceof Element
+        ? (root.closest('.lc-comments, .lc-theme') ?? document.documentElement)
+        : document.documentElement
+    observer = new MutationObserver(() => {
+      const next = isDarkRoot(root)
+      if (next === dark) return
+      dark = next
+      void rerender()
+    })
+    observer.observe(host, { attributes: true, attributeFilter: ['class'] })
+  }
+
+  async function rerender() {
+    const mermaid = await loadMermaid()
+    if (cancelled) return
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' })
+    for (const item of figures) {
+      if (cancelled) return
+      if (!item.figure.isConnected) continue
+      try {
+        const { svg } = await mermaid.render(`lc-vanilla-mermaid-${++mermaidCounter}`, item.source)
+        if (cancelled) return
+        const rendered = isSafeSvg(svg) ? parseSvg(svg) : null
+        if (rendered) item.figure.firstElementChild?.replaceWith(rendered)
+      } catch {
+        // Keep the previous svg rather than flashing the raw source.
+      }
+    }
+  }
+
+  return () => {
+    cancelled = true
+    observer?.disconnect()
+    clearAll()
+  }
+}
+
+// Runs the enabled upgrades over freshly painted markup and returns one cleanup.
+export function runMarkdownEnhancers(root: ParentNode, flags: MarkdownEnhanceFlags): () => void {
+  const cleanups = [...(flags.mermaid ? [enhanceMermaid(root)] : []), ...(flags.math ? [enhanceMath(root)] : [])]
+  return () => {
+    for (const dispose of cleanups) dispose()
+  }
+}
+
 export function mountComments(el: HTMLElement, options: MountOptions): WidgetHandle {
   const limit = options.limit ?? 20
   const theme = options.theme ?? 'system'
@@ -1301,6 +1551,22 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   let guides: GuidesSession | null = null
   const bodyLimit = options.bodyLimit ?? DEFAULT_BODY_LIMIT
   const actionMode = options.actionMode ?? 'icon-text'
+  const math = options.math ?? false
+  const mermaid = options.mermaid ?? false
+  // `codeHighlight` is API parity only: Shiki lives in the React bundle today.
+  let listCleanup: (() => void) | null = null
+  const previewCleanups = new Map<Element, () => void>()
+  function runEnhancers(root: ParentNode) {
+    if (!math && !mermaid) return
+    listCleanup?.()
+    listCleanup = runMarkdownEnhancers(root, { math, mermaid })
+  }
+  function clearEnhancers() {
+    listCleanup?.()
+    listCleanup = null
+    for (const dispose of previewCleanups.values()) dispose()
+    previewCleanups.clear()
+  }
   let pageLock: { pageId: string; locked: boolean } | null = null
   let session: ViewerSession | null = null
   let sessionStatus: 'loading' | 'ready' = 'loading'
@@ -1657,6 +1923,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       anonWindowMinutes: options.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES,
       actionMode,
       bodyLimit,
+      math,
       pendingModeration: ui.pendingModeration,
       submitDisabled: sessionStatus === 'loading',
       hideVotes: Boolean(viewerRole) && Boolean(pageLock?.locked),
@@ -1715,6 +1982,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     list.innerHTML = listBody()
     restoreDrafts(list, drafts)
     wrapMarkdownTables(list)
+    runEnhancers(list)
     hydrateTurnstile()
     attachGuides()
   }
@@ -1726,6 +1994,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     clearTurnstileWidgets(el)
     el.innerHTML = `<section aria-label="Comments" class="space-y-4"><div data-lc-composer>${composerHtml()}</div><div data-lc-list class="flex flex-col gap-4">${listBody()}</div></section>`
     wrapMarkdownTables(el)
+    runEnhancers(el)
     hydrateTurnstile()
     attachGuides()
   }
@@ -2128,14 +2397,20 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const form = button.closest('form')
     const area = form?.querySelector<HTMLTextAreaElement>('textarea[name="bodyMarkdown"]')
     if (!form || !area) return
-    form.querySelector('[data-lc-preview]')?.remove()
+    const previous = form.querySelector('[data-lc-preview]')
+    if (previous) {
+      previewCleanups.get(previous)?.()
+      previewCleanups.delete(previous)
+      previous.remove()
+    }
     if (show) {
-      const html = renderMarkdown(area.value) || '<p class="text-muted-foreground">Nothing to preview.</p>'
+      const html = renderMarkdown(area.value, { math }) || '<p class="text-muted-foreground">Nothing to preview.</p>'
       const div = document.createElement('div')
       div.setAttribute('data-lc-preview', '')
       div.className = 'lc-markdown min-h-24 px-1 py-2 font-sans text-sm'
       div.innerHTML = html
       wrapMarkdownTables(div)
+      if (math || mermaid) previewCleanups.set(div, runMarkdownEnhancers(div, { math, mermaid }))
       area.insertAdjacentElement('beforebegin', div)
       area.classList.add('hidden')
     } else {
@@ -2466,6 +2741,13 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     })
     void initialLoad()
   }
+  // A sign-in the provider rejected returns here with a failure marker. Explain it
+  // once in the identity control, then drop the marker so a reload does not repeat it.
+  const failure = typeof window !== 'undefined' ? takeSignInFailure(window.location.href) : null
+  if (failure) {
+    ui = transition(ui, { type: 'identity/error', value: { info: failure.info, retry: 'signin' } })
+    window.history.replaceState(window.history.state, '', failure.cleanHref)
+  }
   // Paint the placeholder so a zero-height root still has an intersection to
   // report, then fetch on the first hit only.
   if (options.lazy && typeof IntersectionObserver !== 'undefined') render()
@@ -2482,6 +2764,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       stopObserver?.()
       mediaQuery?.removeEventListener('change', handleSystemThemeChange)
       cleanupTheme()
+      clearEnhancers()
       guides?.destroy()
       guides = null
       el.removeEventListener('click', onClick)
@@ -2526,6 +2809,9 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
 
   const { apply: applyTheme, cleanup: cleanupTheme } = setupTheme(el, theme, options)
   applyTheme()
+  const viewerMath = options.math ?? false
+  const viewerMermaid = options.mermaid ?? false
+  let viewerCleanup: (() => void) | null = null
 
   function currentTree(): ThreadNode[] {
     if (!treeKey || treeKey.rows !== rows || treeKey.sort !== sort) {
@@ -2553,11 +2839,16 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     const sortBar = status !== 'error' && roots.length > 0 ? sortToggleMarkup(sort) : ''
     const list =
       pageRoots.length > 0
-        ? `<section aria-label="Comments" data-lc-thread-list class="lc-thread-guides relative grid gap-4">${renderCommentTree(pageRoots, { readOnly: true })}</section>`
+        ? `<section aria-label="Comments" data-lc-thread-list class="lc-thread-guides relative grid gap-4">${renderCommentTree(pageRoots, { readOnly: true, math: viewerMath })}</section>`
         : ''
     const pager = pagerMarkup(page, limit, roots.length, hasMore, loadingPage)
     const pending = loadingPage && status === 'ready' ? `<div>${skeletonBlock(2, true)}</div>` : ''
+    viewerCleanup?.()
+    viewerCleanup = null
     el.innerHTML = `<section aria-label="Comments" class="grid gap-4">${body}${sortBar}${list}${pending}${pager}${attributionMarkup()}</section>`
+    if (viewerMath || viewerMermaid) {
+      viewerCleanup = runMarkdownEnhancers(el, { math: viewerMath, mermaid: viewerMermaid })
+    }
     const threadList = el.querySelector<HTMLElement>('[data-lc-thread-list]')
     if (threadList) guides = renderGuides(threadList)
   }
@@ -2653,6 +2944,8 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     destroy() {
       destroyed = true
       stopObserver?.()
+      viewerCleanup?.()
+      viewerCleanup = null
       guides?.destroy()
       guides = null
       mediaQuery?.removeEventListener('change', applyTheme)
@@ -2755,6 +3048,9 @@ function autoMount() {
       actionMode: readActionMode(node),
       bodyLimit: readNumber(node, 'data-lc-body-limit', Number.parseInt),
       lazy: node.hasAttribute('data-lc-lazy'),
+      math: node.hasAttribute('data-lc-math'),
+      mermaid: node.hasAttribute('data-lc-mermaid'),
+      codeHighlight: !node.hasAttribute('data-lc-no-code-highlight'),
       themeVars: parseThemeAttrs(Array.from(node.attributes, (a) => [a.name, a.value] as [string, string])),
     })
   }
@@ -2773,6 +3069,9 @@ function autoMount() {
       limit: limitRaw ? Number(limitRaw) : undefined,
       theme: (node.getAttribute('data-lc-theme') as Theme | null) ?? undefined,
       lazy: node.hasAttribute('data-lc-lazy'),
+      math: node.hasAttribute('data-lc-math'),
+      mermaid: node.hasAttribute('data-lc-mermaid'),
+      codeHighlight: !node.hasAttribute('data-lc-no-code-highlight'),
       themeVars: parseThemeAttrs(Array.from(node.attributes, (a) => [a.name, a.value] as [string, string])),
     })
   }

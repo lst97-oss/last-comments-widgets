@@ -21,6 +21,7 @@ import {
   sortCommentRoots,
   type ThreadNode,
   type ThreadSort,
+  takeSignInFailure,
   themeVarsToStyle,
   type ViewerSession,
   type VoteValue,
@@ -155,6 +156,9 @@ export function Comments({
   actionMode = 'icon-text',
   bodyLimit = DEFAULT_BODY_LIMIT,
   lazy = false,
+  math = false,
+  mermaid = false,
+  codeHighlight = true,
   fetchImpl,
 }: CommentsProps) {
   const dark = useTheme(theme)
@@ -287,6 +291,15 @@ export function Comments({
       ignored = true
     }
   }, [baseUrl, fetchImpl, inView])
+
+  // A sign-in the provider rejected returns here with a failure marker. Explain it
+  // once in the identity control, then drop the marker so a reload does not repeat it.
+  useEffect(() => {
+    const failure = takeSignInFailure(window.location.href)
+    if (!failure) return
+    uiDispatch({ type: 'sign-in-error/set', error: failure.info })
+    window.history.replaceState(window.history.state, '', failure.cleanHref)
+  }, [])
 
   // Votes live beside the fetched rows. A reload fetches authoritative scores,
   // so its epoch bump drops stale patches; posts and edits keep them.
@@ -756,6 +769,9 @@ export function Comments({
             identityPending={sessionStatus === 'loading'}
             identity={identity}
             bodyLimit={bodyLimit}
+            math={math}
+            mermaid={mermaid}
+            codeHighlight={codeHighlight}
             onSubmit={handleSubmit}
           />
           {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
@@ -788,6 +804,9 @@ export function Comments({
                   hasEditKey={guestEditKeys[node.comment.id] ?? false}
                   actionMode={actionMode}
                   bodyLimit={bodyLimit}
+                  math={math}
+                  mermaid={mermaid}
+                  codeHighlight={codeHighlight}
                   onVote={itemActions.onVote}
                   onClear={itemActions.onClear}
                   onReply={setReplyTo}

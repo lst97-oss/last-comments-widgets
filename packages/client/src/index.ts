@@ -2,7 +2,7 @@
 // Contracts mirror last-comments src/routes/api.comments.ts +
 // src/routes/api.comments.vote.ts + src/routes/api.comments.$commentId.ts +
 // src/routes/api.moderation.ts exactly.
-import { Marked } from 'marked'
+import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked'
 
 export type CommentStatus = 'visible' | 'hidden' | 'deleted'
 export type VoteValue = -1 | 1
@@ -33,6 +33,15 @@ export type Comment = {
 export type VoteSummary = { score: number; viewerVote: VoteValue | null }
 
 export type ThreadNode = { comment: Comment; children: ThreadNode[] }
+
+// Account badge for a comment's author: `admin` for the site admin, `member` for
+// a signed-in account without a site role. Guests and moderators get none.
+export type AccountBadge = 'admin' | 'member'
+export function accountBadge(comment: Pick<Comment, 'userId' | 'authorRole'>): AccountBadge | null {
+  if (comment.authorRole === 'admin') return 'admin'
+  if (comment.userId !== null && comment.authorRole === null) return 'member'
+  return null
+}
 
 // Viewer role for the site, mirroring the server's site_role enum. The
 // server authorizes every moderation call; the value only gates UI.
@@ -210,13 +219,76 @@ export async function beginOAuthSignIn(options: WidgetSignInOptions): Promise<st
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ provider: options.provider ?? 'google', callbackURL: options.pageUrl }),
+    body: JSON.stringify({
+      provider: options.provider ?? 'google',
+      callbackURL: options.pageUrl,
+      errorCallbackURL: signInFailureUrl(options.pageUrl),
+    }),
   })
   const json = (await res.json().catch(() => ({}))) as { url?: string; message?: string }
   if (!res.ok || !json.url) {
     throw new ApiError('SIGN_IN_UNAVAILABLE', json.message ?? `sign-in is unavailable (${res.status})`, res.status)
   }
   return json.url
+}
+
+// A failed sign-in returns the reader to the page with this marker and the
+// provider's error code, so the widget can say what went wrong instead of
+// quietly showing the anonymous identity.
+export const SIGN_IN_FAILED_PARAM = 'lc_sign_in'
+const RELATIVE_BASE = 'https://relative.invalid'
+
+export function signInFailureUrl(pageUrl: string): string {
+  const url = new URL(pageUrl, RELATIVE_BASE)
+  url.searchParams.set(SIGN_IN_FAILED_PARAM, 'failed')
+  return /^https?:\/\//i.test(pageUrl) ? url.toString() : `${url.pathname}${url.search}${url.hash}`
+}
+
+// Better Auth error codes that reach the callback, as their user-facing copy.
+// Anything else falls back to the generic line.
+const SIGN_IN_FAILURE_COPY: Record<string, { title: string; message: string }> = {
+  account_not_linked: {
+    title: "Couldn't link your account",
+    message: 'An account with this email already exists and cannot be linked to Google. Contact the site admin.',
+  },
+  unable_to_create_user: {
+    title: "Couldn't create your account",
+    message: 'New accounts are closed on this site right now. Contact the site admin.',
+  },
+  email_not_found: {
+    title: 'Google did not share an email address',
+    message: 'Allow email access for this sign-in, then try again.',
+  },
+  unable_to_get_user_info: {
+    title: "Couldn't read your Google profile",
+    message: 'Start sign-in again to comment as yourself.',
+  },
+  access_denied: { title: 'Sign-in was cancelled', message: 'Start sign-in again to comment as yourself.' },
+  state_mismatch: { title: 'Sign-in expired', message: 'Start sign-in again to comment as yourself.' },
+  state_not_found: { title: 'Sign-in expired', message: 'Start sign-in again to comment as yourself.' },
+}
+const SIGN_IN_FAILURE_FALLBACK = {
+  title: "Sign-in didn't finish",
+  message: 'Start sign-in again to comment as yourself.',
+}
+
+export type SignInFailure = { info: ErrorInfo; cleanHref: string }
+
+// Reads and clears a failed sign-in from the page URL. Returns the copy to show
+// and the URL without the marker (for history.replaceState), or null when the
+// page was not returned from a failed sign-in.
+export function takeSignInFailure(href: string): SignInFailure | null {
+  let url: URL
+  try {
+    url = new URL(href)
+  } catch {
+    return null
+  }
+  if (url.searchParams.get(SIGN_IN_FAILED_PARAM) !== 'failed') return null
+  const code = url.searchParams.get('error') ?? 'unknown'
+  for (const key of [SIGN_IN_FAILED_PARAM, 'error', 'error_description']) url.searchParams.delete(key)
+  const copy = SIGN_IN_FAILURE_COPY[code] ?? SIGN_IN_FAILURE_FALLBACK
+  return { info: { code, title: copy.title, message: copy.message, action: 'none' }, cleanHref: url.toString() }
 }
 
 export type ViewerSession = { userId: string; name: string; image: string | null }
@@ -500,35 +572,74 @@ function isHttpHref(href: string): boolean {
 // to itself so clicking opens the full size.
 let insideLink = false
 
-const markdown = new Marked({ breaks: true, gfm: true })
-markdown.use({
-  renderer: {
-    html: () => '',
-    link({ href, title, tokens }) {
-      const previous = insideLink
-      insideLink = true
-      let text: string
-      try {
-        text = this.parser.parseInline(tokens)
-      } finally {
-        insideLink = previous
-      }
-      const safe = safeHref(href)
-      if (!safe) return text
-      return `<a href="${safe}"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`
-    },
-    image({ href, title, text }) {
-      if (!isHttpHref(href)) return escapeAttr(text)
-      const safe = escapeAttr(href)
-      const img = `<img src="${safe}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
-      if (insideLink) return img
-      return `<a href="${safe}">${img}</a>`
-    },
+// Shared by both Marked instances below so a body sanitizes identically
+// whether or not math tokenizing is on.
+const markdownRenderers: RendererObject = {
+  html: () => '',
+  link({ href, title, tokens }) {
+    const previous = insideLink
+    insideLink = true
+    let text: string
+    try {
+      text = this.parser.parseInline(tokens)
+    } finally {
+      insideLink = previous
+    }
+    const safe = safeHref(href)
+    if (!safe) return text
+    return `<a href="${safe}"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`
   },
-})
+  image({ href, title, text }) {
+    if (!isHttpHref(href)) return escapeAttr(text)
+    const safe = escapeAttr(href)
+    const img = `<img src="${safe}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
+    if (insideLink) return img
+    return `<a href="${safe}">${img}</a>`
+  },
+}
 
-export function renderMarkdown(source: string): string {
-  return markdown.parse(source) as string
+// Inline tokenizer for `$…$` and `$$…$$`. Delimiter guards keep currency
+// (`$5 and $6`, `$$5`) and lone runs literal; code spans and fenced blocks are
+// tokenized before extensions and never reach it, and `\$` escapes stay text.
+// The tex travels as `data-tex` so the lazy KaTeX upgrade can re-render it.
+const mathExtension: TokenizerAndRendererExtension = {
+  name: 'math',
+  level: 'inline',
+  start: (src) => src.indexOf('$'),
+  tokenizer(src) {
+    const display = /^\$\$([^$]+?)\$\$/.exec(src)
+    if (display) {
+      const tex = display[1].trim()
+      // Space adjacent to a delimiter is prose (`$$ a$$`), not display math.
+      if (tex && !/^[ \t]/.test(display[1]) && !/[ \t]$/.test(display[1]))
+        return { type: 'math', raw: display[0], tex, displayMode: true }
+    }
+    const inline = /^\$([^\s$](?:[^$\n]*[^\s$])?)\$/.exec(src)
+    if (inline) return { type: 'math', raw: inline[0], tex: inline[1], displayMode: false }
+    return undefined
+  },
+  renderer(token) {
+    const tex = escapeAttr(String(token.tex ?? ''))
+    const block = token.displayMode === true ? ' lc-math-block' : ''
+    return `<span class="lc-math${block}" data-tex="${tex}">${tex}</span>`
+  },
+}
+
+const markdown = new Marked({ breaks: true, gfm: true })
+markdown.use({ renderer: markdownRenderers })
+
+// Only bodies rendered with `{ math: true }` reach the tokenizer.
+const markdownMath = new Marked({ breaks: true, gfm: true })
+markdownMath.use({ renderer: markdownRenderers, extensions: [mathExtension] })
+
+export type MarkdownOptions = {
+  // Render `$…$` / `$$…$$` as placeholders the ports upgrade with KaTeX.
+  math?: boolean
+}
+
+export function renderMarkdown(source: string, options?: MarkdownOptions): string {
+  const instance = options?.math ? markdownMath : markdown
+  return instance.parse(source) as string
 }
 
 export const DEFAULT_EDIT_WINDOW_MINUTES = 5
@@ -722,6 +833,11 @@ export const THEME_CSS_VARIABLES = {
   actionColor: '--lc-action-color',
   actionHoverColor: '--lc-action-hover-color',
   actionHoverBackground: '--lc-action-hover-background',
+  adminNameColor: '--lc-admin-name-color',
+  adminBadgeBackground: '--lc-admin-badge-background',
+  adminBadgeForeground: '--lc-admin-badge-foreground',
+  memberBadgeBackground: '--lc-member-badge-background',
+  memberBadgeForeground: '--lc-member-badge-foreground',
 } as const
 
 // Theme values that are not free-form CSS: a closed set, so a typo is a
@@ -1030,6 +1146,12 @@ export type ViewerOptions = {
   limit?: number
   // Defer the first fetch until the widget scrolls into view.
   lazy?: boolean
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math?: boolean
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid?: boolean
+  // Syntax-highlight fenced code (lazy; on by default; React is the only port that highlights today).
+  codeHighlight?: boolean
   theme?: 'light' | 'dark' | 'system'
   themeVars?: WidgetTheme
   fetchImpl?: typeof fetch

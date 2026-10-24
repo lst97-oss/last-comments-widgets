@@ -1,4 +1,5 @@
 import {
+  accountBadge,
   type Comment,
   collectThreadParticipants,
   DEFAULT_BODY_LIMIT,
@@ -108,6 +109,12 @@ type CommentItemProps = {
   readOnly?: boolean
   actionMode?: ActionMode
   bodyLimit?: number
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math?: boolean
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid?: boolean
+  // Syntax-highlight fenced code (lazy; on by default).
+  codeHighlight?: boolean
   parentAuthorName?: string
   onVote: (comment: Comment, value: VoteValue) => void
   onClear: (comment: Comment) => void
@@ -372,6 +379,7 @@ function CommentHeader({
   onModerate,
   onBlockUser,
 }: CommentHeaderProps) {
+  const badge = accountBadge(comment)
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <Button
@@ -397,12 +405,17 @@ function CommentHeader({
         )}
         <AvatarFallback>{initials(comment.authorName)}</AvatarFallback>
       </Avatar>
-      <span className={cn('min-w-0 truncate font-medium', comment.authorRole === 'admin' && 'text-primary')}>
+      <span className={cn('min-w-0 truncate font-medium', badge === 'admin' && 'lc-author-admin')}>
         {comment.authorName}
       </span>
-      {comment.authorRole === 'admin' && (
+      {badge === 'admin' && (
         <Badge variant="default" className="lc-admin-badge">
           Admin
+        </Badge>
+      )}
+      {badge === 'member' && (
+        <Badge variant="default" className="lc-member-badge">
+          Member
         </Badge>
       )}
       {/* Moderation rows carry the block state; the public wire shape omits it. */}
@@ -500,6 +513,9 @@ export function CommentItem({
   readOnly = false,
   actionMode = 'icon-text',
   bodyLimit = DEFAULT_BODY_LIMIT,
+  math = false,
+  mermaid = false,
+  codeHighlight = true,
   parentAuthorName,
   onVote,
   onClear,
@@ -654,6 +670,9 @@ export function CommentItem({
                 initialBody={comment.bodyMarkdown}
                 submitLabel="Save"
                 bodyLimit={bodyLimit}
+                math={math}
+                mermaid={mermaid}
+                codeHighlight={codeHighlight}
                 onSubmit={async (input) => {
                   // The in-flight lock: a second click must not save the same edit twice.
                   if (savingRef.current) return false
@@ -681,6 +700,9 @@ export function CommentItem({
                 error={replyError}
                 identity={replyIdentity}
                 bodyLimit={bodyLimit}
+                math={math}
+                mermaid={mermaid}
+                codeHighlight={codeHighlight}
                 onSubmit={async (input) => {
                   // The in-flight lock: a second click must not post the reply twice.
                   if (replyingRef.current) return false
@@ -702,7 +724,13 @@ export function CommentItem({
               />
             </div>
           ) : (
-            <Markdown source={comment.bodyMarkdown} className="lc-markdown my-3 font-sans text-sm" />
+            <Markdown
+              source={comment.bodyMarkdown}
+              className="lc-markdown my-3 font-sans text-sm"
+              math={math}
+              mermaid={mermaid}
+              codeHighlight={codeHighlight}
+            />
           )}
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-1 text-sm">
