@@ -353,8 +353,11 @@
     :where(button, input, textarea, select) {
       border-radius: var(--lc-control-radius, var(--radius));
     }
+    /* A flat popover: a solid frame and no offset shadow. A host that wants a
+       shadow on the ⋮ menu sets --lc-actions-shadow. */
     .lc-actions-menu {
-      box-shadow: var(--lc-dropdown-shadow, 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1));
+      border: var(--lc-border-width, 1px) solid var(--border);
+      box-shadow: var(--lc-actions-shadow, none);
     }
     .lc-identity-menu {
       background: var(--popover);
