@@ -274,6 +274,24 @@ With `mermaid` on, <code>```mermaid</code> fences render as diagrams through [Me
 - Every widget request is sent with `credentials: 'include'`. The API answers only origins a site has registered, with `Access-Control-Allow-Origin` set to that exact origin and `Access-Control-Allow-Credentials: true`, so a page on the same registrable domain as the API can list, post, vote and sign in directly. That needs a last-comments server release that sends credentialed CORS and trusts registered origins (newer than v0.2.0). A different registrable domain still needs a same-origin proxy (e.g. rewrite `/api/comments` and `/api/moderation` → `baseUrl`, as the examples do), because the session cookie is not sent cross-site. A reverse proxy in front of the API must rewrite `Origin` for `/api/moderation`, whose POST is origin-checked against the server's own origin.
 - Published bundles target **ES2025** (the latest ratified standard supported by the TypeScript 6 toolchain) and ship no polyfills: use a current evergreen browser, and Node 22+ when running the client outside the browser.
 
+## Host proxy
+
+To keep a comments-service key off the browser, point `baseUrl` at a path on your own host and proxy it. The widget needs no code change: every call is built as `${baseUrl}/api/…` with the same suffixes, so `baseUrl="/api/site/comments"` works when the host forwards those paths.
+
+- Forward `GET|POST /api/comments` and `PATCH|DELETE /api/comments/:id`. Attach the server-side key as `x-api-key`, overwrite `site` with the site's key, and send `x-lc-client` with a stable per-visitor value so each visitor gets their own rate-limit budget.
+- Answer `GET /api/auth/get-session` with `null`, so the widget treats the visitor as a guest. The identity menu can still offer "Sign in…"; that entry only works if you pass `signInUrl`, so set it to a page on your host or leave the entry unused. Other `/api/auth/*`, vote, and moderation paths can return 404 unless you run them.
+- Do not forward the visitor's `cookie`, `authorization`, or `origin` headers to the comments service, and drop any `set-cookie` it returns.
+
+The key needs `comments:read` and `comments:write` on that one site. Set `gatewayOnly` on the site so direct calls with a registered Origin are refused.
+
+## Hosts without a server
+
+A static page has nowhere to keep a key, so use the default direct widget: `baseUrl` points at the comments service, nothing is proxied, and nothing changes. The protection is then Turnstile (verified against the site's registered origins) and the rate limit, not the Origin header.
+
+Sign-in-gated sites (`login`, `private`) rely on the comments service's own session cookie. That cookie is sent only to the API's registrable domain, so those settings work only when the API sits on a sibling subdomain of the page (for example `comments.example.com` for `www.example.com`).
+
+A function or edge runtime can run the proxy above as a small function, which keeps the key on the server without a full application.
+
 ## Errors
 
 Every failure renders one block — alert icon, a title that names the situation, the API's own message when it is human-readable, and an action only when one helps (`Try again` for retryable failures, `Sign in` when an account is required). It appears for: list and viewer load failures (including the viewer's retry), composer post/reply failures, edit/delete/vote failures, moderation actions, and sign-in/sign-out failures. Busy/blocked/locked pages keep their dedicated states.
