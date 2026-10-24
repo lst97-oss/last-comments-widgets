@@ -5,6 +5,7 @@ export { type CommentSubmitHandler, LcCommentItemComponent, LcCommentListCompone
 export { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 export { LcCommentViewerComponent } from './comment-viewer.component'
 export { LcCommentsComponent } from './comments.component'
+export { LcMarkdownEnhanceDirective } from './markdown-enhance.directive'
 export { LcThreadGuidesComponent } from './thread-guides.component'
 export { LcThreadSortToggleComponent } from './thread-sort-toggle.component'
 export { threadSignature } from './thread-guides'

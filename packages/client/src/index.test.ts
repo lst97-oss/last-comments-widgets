@@ -410,6 +410,66 @@ describe('renderMarkdown', () => {
   })
 })
 
+describe('renderMarkdown math', () => {
+  const math = (source: string) => renderMarkdown(source, { math: true })
+
+  test('is off unless asked, so dollar text stays literal', () => {
+    expect(renderMarkdown('a $x$ b')).not.toContain('lc-math')
+    expect(renderMarkdown('a $x$ b', { math: false })).not.toContain('lc-math')
+  })
+
+  test('renders inline math as an escaped placeholder carrying its tex', () => {
+    expect(math('a $x^2$ b')).toBe('<p>a <span class="lc-math" data-tex="x^2">x^2</span> b</p>\n')
+  })
+
+  test('renders display math as a block placeholder with trimmed tex', () => {
+    expect(math('$$\\int_0^1 x\\,dx$$')).toBe(
+      '<p><span class="lc-math lc-math-block" data-tex="\\int_0^1 x\\,dx">\\int_0^1 x\\,dx</span></p>\n',
+    )
+    expect(math('$$\na+b\n$$')).toContain('data-tex="a+b"')
+    expect(math('$$\na+b\n$$')).toContain('lc-math-block')
+  })
+
+  test('keeps currency and bare dollar runs literal', () => {
+    for (const source of ['$5 and $6', 'I owe $$5', '$$$$', '$$$', '$$ a$$', '$$a $$', 'cost $5']) {
+      const html = math(source)
+      expect(html).not.toContain('lc-math')
+      expect(html).toContain('$')
+    }
+  })
+
+  test('never tokenizes dollars inside code spans or fences', () => {
+    expect(math('`$x$`')).toBe('<p><code>$x$</code></p>\n')
+    expect(math('```\n$x$\n```')).toContain('<pre><code>$x$')
+    expect(math('```\n$x$\n```')).not.toContain('lc-math')
+  })
+
+  test('leaves escaped dollars as text', () => {
+    expect(math('\\$x\\$')).toBe('<p>$x$</p>\n')
+  })
+
+  test('works inside emphasis, links and quoted or listed blocks', () => {
+    expect(math('**$x$**')).toBe('<p><strong><span class="lc-math" data-tex="x">x</span></strong></p>\n')
+    expect(math('[$x$](https://a.b)')).toContain('<a href="https://a.b"><span class="lc-math"')
+    expect(math('> quote $x$')).toContain('<blockquote>')
+    expect(math('- item $x$')).toContain('<li>item <span class="lc-math"')
+  })
+
+  test('escapes tex so a body can never inject markup or break the attribute', () => {
+    const html = math('$<b>&"c$')
+    expect(html).not.toContain('<b>')
+    expect(html).toContain('data-tex="&lt;b&gt;&amp;&quot;c"')
+    expect(html).toContain('&lt;b&gt;&amp;&quot;c</span>')
+  })
+
+  test('keeps the shared sanitizing renderers on both pipelines', () => {
+    expect(math('**b** <script>x</script> [e](javascript:alert(1))')).toContain('<strong>b</strong>')
+    expect(math('<script>x</script> $y$')).not.toContain('<script>')
+    expect(math('[e](javascript:alert(1))')).not.toContain('javascript:')
+    expect(math('![a](javascript:alert(1))')).not.toContain('<img')
+  })
+})
+
 describe('editOwnComment/deleteOwnComment', () => {
   test('hits /api/comments/:id and unwraps comment envelope', async () => {
     const seen: string[] = []

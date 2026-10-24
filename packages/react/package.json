@@ -28,7 +28,7 @@
   "scripts": {
     "check": "bun run typecheck && bun run lint && bun run format:check && react-doctor .",
     "lint": "biome check --error-on-warnings .",
-    "build": "bunx tsup src/index.tsx --format esm --clean --dts --target es2025 --out-dir dist --external react --external react-dom --external shiki && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
+    "build": "bunx tsup src/index.tsx --format esm --clean --dts --target es2025 --out-dir dist --external react --external react-dom --external shiki --external katex --external mermaid && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",
     "lint:fix": "biome check --error-on-warnings --write .",
     "format": "bun fmt",
@@ -40,7 +40,9 @@
     "@last-comments-widgets/client": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.0",
+    "katex": "^0.19.1",
     "lucide-react": "^1.55.0",
+    "mermaid": "^12.2.0",
     "shiki": "^4.5.0",
     "tailwind-merge": "^3.0.0"
   },

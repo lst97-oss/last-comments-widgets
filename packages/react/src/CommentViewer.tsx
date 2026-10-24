@@ -39,6 +39,9 @@ export function CommentViewer({
   theme = 'system',
   themeVars,
   lazy = false,
+  math = false,
+  mermaid = false,
+  codeHighlight = true,
   fetchImpl,
 }: CommentViewerProps) {
   const dark = useTheme(theme)
@@ -147,6 +150,9 @@ export function CommentViewer({
                 pendingVotes={{}}
                 replyTo={null}
                 readOnly
+                math={math}
+                mermaid={mermaid}
+                codeHighlight={codeHighlight}
                 onVote={noop}
                 onClear={noop}
                 onReply={noop}

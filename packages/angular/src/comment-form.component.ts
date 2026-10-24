@@ -3,6 +3,7 @@ import { Component, computed, input, type OnInit, output, signal, viewChild } fr
 import { DEFAULT_BODY_LIMIT, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
 import { buttonClass } from './button-classes'
 import { LcCommentErrorComponent } from './comment-error.component'
+import { LcMarkdownEnhanceDirective } from './markdown-enhance.directive'
 import { LcTurnstileDirective } from './turnstile.directive'
 import type { TurnstileOptions } from './types'
 
@@ -18,7 +19,7 @@ let formSeq = 0
 @Component({
   selector: 'lc-comment-form',
   standalone: true,
-  imports: [LcTurnstileDirective, LcCommentErrorComponent],
+  imports: [LcTurnstileDirective, LcCommentErrorComponent, LcMarkdownEnhanceDirective],
   template: `
     <form (submit)="onSubmit($event)" class="lc-composer rounded-xl border border-border p-3">
       @if (parentId()) {
@@ -253,7 +254,14 @@ let formSeq = 0
         </div>
       </div>
       @if (preview()) {
-        <div class="lc-markdown min-h-24 px-1 py-2 font-sans text-sm" [innerHTML]="previewHtml()"></div>
+        <div
+          class="lc-markdown min-h-24 px-1 py-2 font-sans text-sm"
+          [innerHTML]="previewHtml()"
+          [lcMarkdownEnhance]="previewHtml()"
+          [math]="math()"
+          [mermaid]="mermaid()"
+          [codeHighlight]="codeHighlight()"
+        ></div>
       } @else {
         <textarea
           #bodyEl
@@ -338,6 +346,10 @@ export class LcCommentFormComponent implements OnInit {
   showCancel = input(false)
   // Max body characters, counted before trimming to match the server routes.
   bodyLimit = input(DEFAULT_BODY_LIMIT)
+  // Render flags for the preview: `$…$` math, ```mermaid diagrams, code highlighting.
+  math = input(false)
+  mermaid = input(false)
+  codeHighlight = input(true)
   submitted = output<CommentSubmit>()
   signIn = output<void>()
   cancelReply = output<void>()
@@ -365,7 +377,8 @@ export class LcCommentFormComponent implements OnInit {
   )
   // Sanitization happened in the shared renderer; Angular [innerHTML] sanitizes again.
   readonly previewHtml = computed(
-    () => renderMarkdown(this.body()) || '<p class="text-muted-foreground">Nothing to preview.</p>',
+    () =>
+      renderMarkdown(this.body(), { math: this.math() }) || '<p class="text-muted-foreground">Nothing to preview.</p>',
   )
 
   ngOnInit(): void {

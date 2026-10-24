@@ -39,5 +39,11 @@ export type CommentsProps = {
   bodyLimit?: number
   // Embed below the fold: hold the first fetch until the widget nears the viewport.
   lazy?: boolean
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math?: boolean
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid?: boolean
+  // Syntax-highlight fenced code (lazy; on by default).
+  codeHighlight?: boolean
   fetchImpl?: typeof fetch
 }

@@ -13,7 +13,7 @@ import {
 } from '@last-comments-widgets/client'
 import { AccordionContent, AccordionHeader, AccordionItem, AccordionRoot, AccordionTrigger } from 'reka-ui'
 import { Ban, ChevronDown, ChevronUp, Minus, Plus, Reply } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, ref, useTemplateRef } from 'vue'
 import LcAvatar from './Avatar.vue'
 import CommentActionsMenu from './CommentActionsMenu.vue'
 import CommentForm from './CommentForm.vue'
@@ -24,6 +24,7 @@ import { badgeClass } from './lib/badge'
 import { buttonClass } from './lib/button'
 import { ITEM_INITIAL, type ItemAction, type ItemState, itemReducer } from './lib/itemState'
 import type { TurnstileOptions } from './lib/turnstile'
+import { useMarkdownEnhance } from './lib/useMarkdownEnhance'
 import { type ActionMode, canEditComment } from './types'
 
 export type CommentFormInput = {
@@ -48,6 +49,9 @@ const props = defineProps<{
   readOnly?: boolean
   actionMode?: ActionMode
   bodyLimit?: number
+  math?: boolean
+  mermaid?: boolean
+  codeHighlight?: boolean
   parentAuthorName?: string
   replyTo?: string | null
   dark?: boolean
@@ -72,12 +76,17 @@ const comment = computed(() => props.node.comment)
 const state = ref<ItemState>({ ...ITEM_INITIAL })
 const actionMode = computed(() => props.actionMode ?? 'icon-text')
 const bodyLimit = computed(() => props.bodyLimit ?? DEFAULT_BODY_LIMIT)
+const math = computed(() => props.math ?? false)
+const mermaid = computed(() => props.mermaid ?? false)
+const codeHighlight = computed(() => props.codeHighlight ?? true)
 
 function dispatch(action: ItemAction) {
   state.value = itemReducer(state.value, action)
 }
 
-const rendered = computed(() => renderMarkdown(comment.value.bodyMarkdown))
+const rendered = computed(() => renderMarkdown(comment.value.bodyMarkdown, { math: math.value }))
+const bodyEl = useTemplateRef<HTMLElement>('bodyEl')
+useMarkdownEnhance(bodyEl, rendered, { math: () => math.value, mermaid: () => mermaid.value })
 const moderationPending = computed(() => props.pendingModeration?.[comment.value.id] ?? false)
 const canReplyHere = computed(() => !(props.viewerRole && comment.value.status !== 'visible'))
 const isOwn = computed(
@@ -271,6 +280,9 @@ function toggleReply() {
             submit-label="Save"
             error-title="Your edit wasn't saved"
             :body-limit="bodyLimit"
+            :math="math"
+            :mermaid="mermaid"
+            :code-highlight="codeHighlight"
             :on-submit="submitEdit"
             :on-cancel-reply="cancelEdit"
             :sign-in-href="props.signInHref"
@@ -287,6 +299,9 @@ function toggleReply() {
             :pending="state.replying"
             :error="state.replyError"
             :body-limit="bodyLimit"
+            :math="math"
+            :mermaid="mermaid"
+            :code-highlight="codeHighlight"
             :on-submit="submitReply"
             :on-cancel-reply="cancelReply"
             :sign-in-href="props.signInHref"
@@ -297,8 +312,14 @@ function toggleReply() {
             </template>
           </CommentForm>
         </div>
-        <!-- eslint-disable-next-line vue/no-v-html -- renderMarkdown strips raw HTML and restricts link protocols. -->
-        <div v-else class="lc-markdown my-3 font-sans text-sm [overflow-wrap:anywhere]" v-html="rendered" />
+        <!-- eslint-disable vue/no-v-html -- renderMarkdown strips raw HTML and restricts link protocols. -->
+        <div
+          v-else
+          ref="bodyEl"
+          class="lc-markdown my-3 font-sans text-sm [overflow-wrap:anywhere]"
+          v-html="rendered"
+        />
+        <!-- eslint-enable vue/no-v-html -->
         <div v-if="!props.readOnly" class="flex flex-wrap items-center gap-1 text-sm">
           <button
             v-if="canReplyHere"
@@ -360,6 +381,9 @@ function toggleReply() {
               :read-only="props.readOnly"
               :action-mode="actionMode"
               :body-limit="bodyLimit"
+              :math="math"
+              :mermaid="mermaid"
+              :code-highlight="codeHighlight"
               :parent-author-name="comment.authorName"
               :reply-to="props.replyTo"
               :dark="props.dark"

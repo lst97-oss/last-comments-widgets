@@ -24,6 +24,10 @@ function Demo() {
   )
   // mount-time only: ?lazy makes the demo probe the deferred fetch path
   const [lazy, setLazy] = useState(() => new URLSearchParams(window.location.search).has('lazy'))
+  // mount-time only: ?math / ?mermaid / ?noHighlight exercise the render flags
+  const [math] = useState(() => new URLSearchParams(window.location.search).has('math'))
+  const [mermaid] = useState(() => new URLSearchParams(window.location.search).has('mermaid'))
+  const [codeHighlight] = useState(() => !new URLSearchParams(window.location.search).has('noHighlight'))
   const [preset, setPreset] = useState('Default')
   return (
     <main className="mx-auto grid max-w-2xl gap-4 p-6">
@@ -58,9 +62,21 @@ function Demo() {
         viewerRole={viewerRole === 'admin' || viewerRole === 'moderator' ? viewerRole : undefined}
         themeVars={THEME_PRESETS[preset]}
         lazy={lazy}
+        math={math}
+        mermaid={mermaid}
+        codeHighlight={codeHighlight}
       />
       <h2 className="mt-6 text-lg font-semibold">Read-only viewer</h2>
-      <CommentViewer site={site} baseUrl={baseUrl} pageUrl={pageUrl} themeVars={THEME_PRESETS[preset]} lazy={lazy} />
+      <CommentViewer
+        site={site}
+        baseUrl={baseUrl}
+        pageUrl={pageUrl}
+        themeVars={THEME_PRESETS[preset]}
+        lazy={lazy}
+        math={math}
+        mermaid={mermaid}
+        codeHighlight={codeHighlight}
+      />
       <details className="text-sm">
         <summary className="cursor-pointer font-medium">Advanced settings</summary>
         <div className="mt-2 grid gap-2">

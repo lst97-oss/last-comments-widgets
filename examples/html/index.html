@@ -7,10 +7,15 @@
     <!-- Hosted bundle of the published package; for a local build swap these two URLs for
          ../../packages/last-comments-widgets/dist/vanilla/styles.css and .../index.js -->
     <link rel="stylesheet" href="https://unpkg.com/@lst97-oss/last-comments-widgets/dist/vanilla/styles.css" />
+    <!-- KaTeX's stylesheet is auto-injected by bundler hosts; the CDN path has no bundler. -->
+    <link rel="stylesheet" href="https://unpkg.com/katex@0.19.1/dist/katex.min.css" />
     <script type="importmap">
       {
         "imports": {
-          "marked": "https://unpkg.com/marked/lib/marked.esm.js"
+          "marked": "https://unpkg.com/marked/lib/marked.esm.js",
+          "katex": "https://unpkg.com/katex@0.19.1/dist/katex.mjs",
+          "katex/": "https://unpkg.com/katex@0.19.1/",
+          "mermaid": "https://unpkg.com/mermaid@12.2.0/dist/mermaid.esm.min.mjs"
         }
       }
     </script>
@@ -21,7 +26,9 @@
       <!-- Inline moderation: add data-lc-viewer-user-id and data-lc-viewer-role="admin|moderator".
            It only works when the comments API is served from this page's own origin.
            Ports-visible options: data-lc-anon-edit-window-minutes="10", data-lc-body-limit="10000",
-           and data-lc-action-mode="icon" | "icon-text" (default) | "text" for the Reply action. -->
+           data-lc-action-mode="icon" | "icon-text" (default) | "text" for the Reply action,
+           data-lc-math / data-lc-mermaid (off unless present) and data-lc-no-code-highlight
+           (highlighting is on by default). -->
       <div
         data-lc-comments
         data-lc-site="demo"
@@ -29,6 +36,8 @@
         data-lc-body-limit="10000"
         data-lc-anon-edit-window-minutes="10"
         data-lc-action-mode="icon-text"
+        data-lc-math
+        data-lc-mermaid
       ></div>
       <h2>Read-only viewer</h2>
       <div data-lc-viewer data-lc-site="demo" data-lc-base-url="http://localhost:3000"></div>

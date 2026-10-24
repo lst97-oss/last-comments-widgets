@@ -26,6 +26,9 @@ defineProps<{
   readOnly?: boolean
   actionMode?: ActionMode
   bodyLimit?: number
+  math?: boolean
+  mermaid?: boolean
+  codeHighlight?: boolean
   parentAuthorName?: string
   replyTo?: string | null
   dark?: boolean
@@ -64,6 +67,9 @@ defineOptions({ name: 'CommentList' })
       :read-only="readOnly"
       :action-mode="actionMode"
       :body-limit="bodyLimit"
+      :math="math"
+      :mermaid="mermaid"
+      :code-highlight="codeHighlight"
       :parent-author-name="parentAuthorName"
       :reply-to="replyTo"
       :dark="dark"

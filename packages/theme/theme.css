@@ -544,5 +544,73 @@
         animation: none;
       }
     }
+
+    /* Math placeholders: KaTeX (loaded lazily) fills the span in place. A
+       missing KaTeX leaves the literal tex, styled like inline code so an
+       unstyled formula never looks like a broken image. */
+    .lc-math:not(:has(.katex)) {
+      border-radius: calc(var(--radius) * 0.4);
+      @apply bg-muted px-1 font-mono text-[0.85em];
+    }
+    .lc-math-block {
+      display: block;
+      margin: 0.75rem 0;
+      overflow-x: auto;
+      text-align: center;
+    }
+    .lc-math .katex-display {
+      margin: 0;
+    }
+
+    /* Diagram frame around a lazily rendered mermaid svg. The source <pre> is
+       kept hidden so a theme flip can re-render from it. */
+    .lc-mermaid {
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--card);
+      padding: 1rem;
+    }
+    .lc-mermaid > svg {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin-inline: auto;
+    }
+    .lc-mermaid-source {
+      display: none;
+    }
+
+    /* Attribute-only shimmer while the lazy math/diagram import is in flight. */
+    .lc-math[data-math="pending"],
+    .lc-markdown pre[data-mermaid="pending"] {
+      position: relative;
+      overflow: hidden;
+    }
+    .lc-math[data-math="pending"] > *,
+    .lc-markdown pre[data-mermaid="pending"] > code {
+      opacity: 0.55;
+    }
+    .lc-math[data-math="pending"]::after,
+    .lc-markdown pre[data-mermaid="pending"]::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(
+        100deg,
+        transparent 20%,
+        color-mix(in oklab, var(--muted-foreground) 12%, transparent) 50%,
+        transparent 80%
+      );
+      animation: shiki-shimmer 1.4s ease-in-out infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lc-math[data-math="pending"]::after,
+      .lc-markdown pre[data-mermaid="pending"]::after {
+        animation: none;
+      }
+    }
   }
 }

@@ -17,9 +17,13 @@ Then add the runtime libraries your framework's widget imports — every other f
 bun add @base-ui/react lucide-react class-variance-authority clsx tailwind-merge
 # …plus shiki, only if comment code fences should be syntax-highlighted
 bun add shiki
+# …and katex / mermaid, only if comments may carry `$…$` math or mermaid diagrams
+bun add katex mermaid
 
 # Vue
 bun add @lucide/vue reka-ui clsx tailwind-merge
+# …plus katex / mermaid for the same optional renderers
+bun add katex mermaid
 
 # Angular
 bun add @angular/cdk @lucide/angular
@@ -92,7 +96,7 @@ Plain HTML, no build step:
 - Every post carries a Cloudflare Turnstile token: guests add a name, signed-in viewers post with their session and get votes and Edit/Delete. The composer is disabled while the session probe is in flight so a comment can never post with a guessed identity.
 - `theme="light | dark | system"` plus per-instance `themeVars`, scoped with native CSS `@scope` so importing the widget CSS does not touch your page's fonts, colors or margins.
 - Every failure renders one alert block with copy from `describeError()`, carrying `data-lc-error` / `data-error-code`.
-- Markdown (GitHub-flavored) with raw HTML stripped and `http(s)`/`mailto` links only.
+- Markdown (GitHub-flavored) with raw HTML stripped and `http(s)`/`mailto` links only. Optional `math` (`$…$` / `$$…$$` via KaTeX) and `mermaid` (```mermaid fences as diagrams) renderers are off by default and load their library from a lazy import only when a body needs one; `codeHighlight` (default on) controls the React Shiki upgrade.
 - `viewerRole` adds inline, server-authorized moderation; `CommentViewer` renders a read-only list.
 
 Full documentation — props, theming, pagination, moderation, error codes and the client API — lives in the [repository README](https://github.com/lst97-oss/last-comments-widgets#readme).

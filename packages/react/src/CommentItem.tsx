@@ -109,6 +109,12 @@ type CommentItemProps = {
   readOnly?: boolean
   actionMode?: ActionMode
   bodyLimit?: number
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math?: boolean
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid?: boolean
+  // Syntax-highlight fenced code (lazy; on by default).
+  codeHighlight?: boolean
   parentAuthorName?: string
   onVote: (comment: Comment, value: VoteValue) => void
   onClear: (comment: Comment) => void
@@ -507,6 +513,9 @@ export function CommentItem({
   readOnly = false,
   actionMode = 'icon-text',
   bodyLimit = DEFAULT_BODY_LIMIT,
+  math = false,
+  mermaid = false,
+  codeHighlight = true,
   parentAuthorName,
   onVote,
   onClear,
@@ -661,6 +670,9 @@ export function CommentItem({
                 initialBody={comment.bodyMarkdown}
                 submitLabel="Save"
                 bodyLimit={bodyLimit}
+                math={math}
+                mermaid={mermaid}
+                codeHighlight={codeHighlight}
                 onSubmit={async (input) => {
                   // The in-flight lock: a second click must not save the same edit twice.
                   if (savingRef.current) return false
@@ -688,6 +700,9 @@ export function CommentItem({
                 error={replyError}
                 identity={replyIdentity}
                 bodyLimit={bodyLimit}
+                math={math}
+                mermaid={mermaid}
+                codeHighlight={codeHighlight}
                 onSubmit={async (input) => {
                   // The in-flight lock: a second click must not post the reply twice.
                   if (replyingRef.current) return false
@@ -709,7 +724,13 @@ export function CommentItem({
               />
             </div>
           ) : (
-            <Markdown source={comment.bodyMarkdown} className="lc-markdown my-3 font-sans text-sm" />
+            <Markdown
+              source={comment.bodyMarkdown}
+              className="lc-markdown my-3 font-sans text-sm"
+              math={math}
+              mermaid={mermaid}
+              codeHighlight={codeHighlight}
+            />
           )}
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-1 text-sm">

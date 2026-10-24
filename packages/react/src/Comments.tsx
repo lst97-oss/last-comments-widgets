@@ -156,6 +156,9 @@ export function Comments({
   actionMode = 'icon-text',
   bodyLimit = DEFAULT_BODY_LIMIT,
   lazy = false,
+  math = false,
+  mermaid = false,
+  codeHighlight = true,
   fetchImpl,
 }: CommentsProps) {
   const dark = useTheme(theme)
@@ -766,6 +769,9 @@ export function Comments({
             identityPending={sessionStatus === 'loading'}
             identity={identity}
             bodyLimit={bodyLimit}
+            math={math}
+            mermaid={mermaid}
+            codeHighlight={codeHighlight}
             onSubmit={handleSubmit}
           />
           {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
@@ -798,6 +804,9 @@ export function Comments({
                   hasEditKey={guestEditKeys[node.comment.id] ?? false}
                   actionMode={actionMode}
                   bodyLimit={bodyLimit}
+                  math={math}
+                  mermaid={mermaid}
+                  codeHighlight={codeHighlight}
                   onVote={itemActions.onVote}
                   onClear={itemActions.onClear}
                   onReply={setReplyTo}

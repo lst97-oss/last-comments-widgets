@@ -83,6 +83,12 @@ export type CommentsOptions = {
   actionMode?: ActionMode
   // Max body characters, counted before trimming to match the server routes.
   bodyLimit?: number
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math?: boolean
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid?: boolean
+  // Syntax-highlight fenced code (lazy; on by default; React only until the ports are migrated).
+  codeHighlight?: boolean
   themeVars?: WidgetTheme
   fetchImpl?: typeof fetch
 }

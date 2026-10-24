@@ -39,6 +39,9 @@ Every programmatic option also has an attribute, mapped to the same prop:
 | `data-lc-turnstile-size`           | `turnstileOptions.size` (`normal` \| `compact` \| `flexible`)  | `normal`               |
 | `data-lc-turnstile-appearance`     | `turnstileOptions.appearance` (`always` \| `interaction-only`) | `always`               |
 | `data-lc-turnstile-language`       | `turnstileOptions.language`                                    | browser language       |
+| `data-lc-math`                     | `math` (presence-only)                                         | off                    |
+| `data-lc-mermaid`                  | `mermaid` (presence-only)                                      | off                    |
+| `data-lc-no-code-highlight`        | `codeHighlight` (presence-only; the flag defaults to on)        | highlighting on        |
 
 The Turnstile rows only apply when `data-lc-turnstile` (the site key) is set. Cloudflare owns the challenge iframe, so `theme`, `size`, `appearance` and `language` are the only knobs; style the `.lc-turnstile` container instead.
 

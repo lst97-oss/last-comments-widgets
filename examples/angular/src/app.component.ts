@@ -38,9 +38,20 @@ import {
         [viewerRole]="viewerRole || undefined"
         [actionMode]="actionMode"
         [bodyLimit]="bodyLimit"
+        [math]="math"
+        [mermaid]="mermaid"
+        [codeHighlight]="codeHighlight"
       />
       <h2>Read-only viewer</h2>
-      <lc-comment-viewer [site]="site" [baseUrl]="baseUrl" [pageUrl]="pageUrl || undefined" [theme]="theme" />
+      <lc-comment-viewer
+        [site]="site"
+        [baseUrl]="baseUrl"
+        [pageUrl]="pageUrl || undefined"
+        [theme]="theme"
+        [math]="math"
+        [mermaid]="mermaid"
+        [codeHighlight]="codeHighlight"
+      />
       <details>
         <summary>Advanced settings</summary>
         <label>Site key <input [(ngModel)]="site" /></label>
@@ -92,6 +103,10 @@ export class AppComponent {
   actionMode: ActionMode = 'icon-text'
   theme: Theme = 'system'
   bodyLimit = 10_000
+  // mount-time only: ?math / ?mermaid / ?noHighlight exercise the render flags
+  math = new URLSearchParams(window.location.search).has('math')
+  mermaid = new URLSearchParams(window.location.search).has('mermaid')
+  codeHighlight = !new URLSearchParams(window.location.search).has('noHighlight')
 
   onTurnstileThemeChange(value: string): void {
     this.turnstileTheme = value === 'auto' || value === 'light' || value === 'dark' ? value : ''

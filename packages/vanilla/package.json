@@ -27,7 +27,7 @@
   "scripts": {
     "check": "bun run typecheck && bun run lint && bun run format:check",
     "lint": "biome check --error-on-warnings .",
-    "build": "bunx tsup src/index.ts --format esm --clean --dts --target es2025 --out-dir dist && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
+    "build": "bunx tsup src/index.ts --format esm --clean --dts --target es2025 --out-dir dist --external katex --external mermaid && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",
     "lint:fix": "biome check --error-on-warnings --write .",
     "format": "bun fmt",
@@ -35,7 +35,9 @@
     "typecheck": "bun check --no-script"
   },
   "dependencies": {
-    "@last-comments-widgets/client": "workspace:*"
+    "@last-comments-widgets/client": "workspace:*",
+    "katex": "^0.19.1",
+    "mermaid": "^12.2.0"
   },
   "devDependencies": {
     "@last-comments-widgets/theme": "workspace:*",

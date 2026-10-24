@@ -70,6 +70,9 @@ const noopAsync: CommentSubmitHandler = async () => null
         <lc-comment-list
           [nodes]="pageRoots()"
           [readOnly]="true"
+          [math]="math()"
+          [mermaid]="mermaid()"
+          [codeHighlight]="codeHighlight()"
           [editComment]="noop"
           [replyComment]="noop"
           [measureKey]="measureKey()"
@@ -124,6 +127,12 @@ export class LcCommentViewerComponent {
   themeVars = input<WidgetTheme | undefined>(undefined)
   fetchImpl = input<typeof fetch | undefined>(undefined)
   lazy = input(false)
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math = input(false)
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid = input(false)
+  // Syntax highlighting for fenced code (lazy; on by default; React only today).
+  codeHighlight = input(true)
 
   readonly noop = noopAsync
   readonly systemDark = prefersDark()

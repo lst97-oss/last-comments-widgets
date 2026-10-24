@@ -32,8 +32,10 @@ export default {
       {
         // Fenced blocks are highlighted sequentially: each codeToHtml call may
         // load a language grammar, and a comment with several fences should not
-        // fire every grammar request at once.
-        files: ['src/lib/codeBlock.ts', 'lib/codeBlock.ts'],
+        // fire every grammar request at once. Math and diagram upgrades await a
+        // lazy import and then render each placeholder in order for the same
+        // reason.
+        files: ['src/lib/codeBlock.ts', 'lib/codeBlock.ts', 'src/lib/math.ts', 'src/lib/mermaid.ts'],
         rules: ['react-doctor/async-await-in-loop'],
       },
       {

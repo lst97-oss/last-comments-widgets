@@ -45,6 +45,9 @@ const props = withDefaults(defineProps<CommentsProps>(), {
   limit: 20,
   theme: 'system',
   lazy: false,
+  math: false,
+  mermaid: false,
+  codeHighlight: true,
   actionMode: 'icon-text',
   bodyLimit: DEFAULT_BODY_LIMIT,
 })
@@ -524,6 +527,9 @@ defineExpose({ refresh })
       :parent-id="null"
       :error="formError"
       :body-limit="props.bodyLimit"
+      :math="props.math"
+      :mermaid="props.mermaid"
+      :code-highlight="props.codeHighlight"
       :on-submit="submit"
       :sign-in-href="signInUrl"
       :on-sign-in="startSignIn"
@@ -621,6 +627,9 @@ defineExpose({ refresh })
           :has-edit-keys="guestEditKeys"
           :action-mode="props.actionMode"
           :body-limit="props.bodyLimit"
+          :math="props.math"
+          :mermaid="props.mermaid"
+          :code-highlight="props.codeHighlight"
           :reply-to="replyTo"
           :dark="dark"
           :sign-in-href="signInUrl"

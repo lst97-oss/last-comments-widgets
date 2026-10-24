@@ -2,7 +2,7 @@
 // Contracts mirror last-comments src/routes/api.comments.ts +
 // src/routes/api.comments.vote.ts + src/routes/api.comments.$commentId.ts +
 // src/routes/api.moderation.ts exactly.
-import { Marked } from 'marked'
+import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked'
 
 export type CommentStatus = 'visible' | 'hidden' | 'deleted'
 export type VoteValue = -1 | 1
@@ -572,35 +572,74 @@ function isHttpHref(href: string): boolean {
 // to itself so clicking opens the full size.
 let insideLink = false
 
-const markdown = new Marked({ breaks: true, gfm: true })
-markdown.use({
-  renderer: {
-    html: () => '',
-    link({ href, title, tokens }) {
-      const previous = insideLink
-      insideLink = true
-      let text: string
-      try {
-        text = this.parser.parseInline(tokens)
-      } finally {
-        insideLink = previous
-      }
-      const safe = safeHref(href)
-      if (!safe) return text
-      return `<a href="${safe}"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`
-    },
-    image({ href, title, text }) {
-      if (!isHttpHref(href)) return escapeAttr(text)
-      const safe = escapeAttr(href)
-      const img = `<img src="${safe}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
-      if (insideLink) return img
-      return `<a href="${safe}">${img}</a>`
-    },
+// Shared by both Marked instances below so a body sanitizes identically
+// whether or not math tokenizing is on.
+const markdownRenderers: RendererObject = {
+  html: () => '',
+  link({ href, title, tokens }) {
+    const previous = insideLink
+    insideLink = true
+    let text: string
+    try {
+      text = this.parser.parseInline(tokens)
+    } finally {
+      insideLink = previous
+    }
+    const safe = safeHref(href)
+    if (!safe) return text
+    return `<a href="${safe}"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`
   },
-})
+  image({ href, title, text }) {
+    if (!isHttpHref(href)) return escapeAttr(text)
+    const safe = escapeAttr(href)
+    const img = `<img src="${safe}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
+    if (insideLink) return img
+    return `<a href="${safe}">${img}</a>`
+  },
+}
 
-export function renderMarkdown(source: string): string {
-  return markdown.parse(source) as string
+// Inline tokenizer for `$…$` and `$$…$$`. Delimiter guards keep currency
+// (`$5 and $6`, `$$5`) and lone runs literal; code spans and fenced blocks are
+// tokenized before extensions and never reach it, and `\$` escapes stay text.
+// The tex travels as `data-tex` so the lazy KaTeX upgrade can re-render it.
+const mathExtension: TokenizerAndRendererExtension = {
+  name: 'math',
+  level: 'inline',
+  start: (src) => src.indexOf('$'),
+  tokenizer(src) {
+    const display = /^\$\$([^$]+?)\$\$/.exec(src)
+    if (display) {
+      const tex = display[1].trim()
+      // Space adjacent to a delimiter is prose (`$$ a$$`), not display math.
+      if (tex && !/^[ \t]/.test(display[1]) && !/[ \t]$/.test(display[1]))
+        return { type: 'math', raw: display[0], tex, displayMode: true }
+    }
+    const inline = /^\$([^\s$](?:[^$\n]*[^\s$])?)\$/.exec(src)
+    if (inline) return { type: 'math', raw: inline[0], tex: inline[1], displayMode: false }
+    return undefined
+  },
+  renderer(token) {
+    const tex = escapeAttr(String(token.tex ?? ''))
+    const block = token.displayMode === true ? ' lc-math-block' : ''
+    return `<span class="lc-math${block}" data-tex="${tex}">${tex}</span>`
+  },
+}
+
+const markdown = new Marked({ breaks: true, gfm: true })
+markdown.use({ renderer: markdownRenderers })
+
+// Only bodies rendered with `{ math: true }` reach the tokenizer.
+const markdownMath = new Marked({ breaks: true, gfm: true })
+markdownMath.use({ renderer: markdownRenderers, extensions: [mathExtension] })
+
+export type MarkdownOptions = {
+  // Render `$…$` / `$$…$$` as placeholders the ports upgrade with KaTeX.
+  math?: boolean
+}
+
+export function renderMarkdown(source: string, options?: MarkdownOptions): string {
+  const instance = options?.math ? markdownMath : markdown
+  return instance.parse(source) as string
 }
 
 export const DEFAULT_EDIT_WINDOW_MINUTES = 5
@@ -1107,6 +1146,12 @@ export type ViewerOptions = {
   limit?: number
   // Defer the first fetch until the widget scrolls into view.
   lazy?: boolean
+  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  math?: boolean
+  // Render ```mermaid fences as diagrams (lazy; off by default).
+  mermaid?: boolean
+  // Syntax-highlight fenced code (lazy; on by default; React is the only port that highlights today).
+  codeHighlight?: boolean
   theme?: 'light' | 'dark' | 'system'
   themeVars?: WidgetTheme
   fetchImpl?: typeof fetch

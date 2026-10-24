@@ -5,7 +5,9 @@
     "@angular/cdk",
     "@last-comments-widgets/client",
     "@last-comments-widgets/theme",
-    "@lucide/angular"
+    "@lucide/angular",
+    "katex",
+    "mermaid"
   ],
   "lib": { "entryFile": "src/public-api.ts" }
 }
