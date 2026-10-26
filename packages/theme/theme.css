@@ -306,6 +306,32 @@
       background: var(--lc-member-badge-background, var(--secondary));
       color: var(--lc-member-badge-foreground, var(--secondary-foreground));
     }
+    /* Sign-in prompt (login and private sites). A neutral card, not the error block: asking a visitor
+       to sign in is not a failure. Every colour falls back to the theme, so a host retheme reaches it. */
+    .lc-signin {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+      border: 1px solid var(--lc-signin-border, var(--border));
+      border-radius: var(--radius-lg, 0.5rem);
+      background: var(--lc-signin-background, var(--card));
+      color: var(--lc-signin-foreground, var(--foreground));
+      padding: 0.625rem 0.75rem;
+      font-size: 0.875rem;
+      text-align: left;
+    }
+    .lc-signin-button {
+      display: inline-flex;
+      align-items: center;
+      border-radius: var(--radius-md, 0.375rem);
+      padding: 0.25rem 0.625rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      text-decoration: none;
+      background: var(--lc-signin-button-background, var(--primary));
+      color: var(--lc-signin-button-foreground, var(--primary-foreground));
+    }
     /* Blocked-author indicator (moderation rows only). */
     .lc-blocked-badge {
       border-color: var(--border);
@@ -372,6 +398,27 @@
   }
 
   @layer components {
+    /* Images fit the comment column and keep their proportions. A tall image is
+       capped so it cannot push the rest of the thread off screen; the link around
+       it still opens the full file. */
+    .lc-markdown img {
+      display: inline-block;
+      max-width: 100%;
+      height: auto;
+      max-height: min(70vh, 28rem);
+      object-fit: contain;
+      border-radius: var(--radius);
+      vertical-align: middle;
+    }
+    /* A missing or refused image, labelled in place of the broken-image box. */
+    .lc-markdown .lc-image-unavailable {
+      display: inline-block;
+      padding: 0.125rem 0.5rem;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      color: var(--muted-foreground);
+      font-size: 0.875em;
+    }
     .lc-markdown {
       @apply space-y-2 break-words;
     }

@@ -42,6 +42,7 @@ defineProps<{
   replySiteKey?: string
   turnstileOptions?: TurnstileOptions
   replyGuest?: boolean
+  writeAllowed?: boolean
   onCloseReply?: () => void
   onModerate?: (commentId: string, action: ModerationAction) => void
   onBlockUser?: (commentId: string, blocked: boolean) => void
@@ -83,6 +84,7 @@ defineOptions({ name: 'CommentList' })
       :reply-site-key="replySiteKey"
       :turnstile-options="turnstileOptions"
       :reply-guest="replyGuest"
+      :write-allowed="writeAllowed"
       :on-close-reply="onCloseReply"
       :on-moderate="onModerate"
       :on-block-user="onBlockUser"

@@ -6,6 +6,7 @@ import {
   buildCommentTree,
   buildThreadGuidePath,
   type Comment,
+  canDeleteComment,
   canModerate,
   collectThreadParticipants,
   createClient,
@@ -30,6 +31,8 @@ import {
   safeUrl,
   saveEditKey,
   signInFailureUrl,
+  signInRequired,
+  signInRequiredError,
   signOutViewerSession,
   sortCommentRoots,
   takeSignInFailure,
@@ -95,6 +98,14 @@ describe('buildCommentTree', () => {
     const orphan = comment({ id: 'o', parentId: 'missing' })
     const tree = buildCommentTree([parent, reply, orphan])
     expect(tree.map((n) => n.comment.id)).toEqual(['p', 'o'])
+    expect(tree[0]?.children.map((n) => n.comment.id)).toEqual(['r'])
+  })
+
+  test('a redacted (deleted) parent stays the root of its replies, so the thread keeps its shape', () => {
+    const parent = comment({ id: 'p', status: 'deleted', bodyMarkdown: '', authorName: '', userId: null })
+    const reply = comment({ id: 'r', parentId: 'p' })
+    const tree = buildCommentTree([parent, reply])
+    expect(tree.map((n) => n.comment.id)).toEqual(['p'])
     expect(tree[0]?.children.map((n) => n.comment.id)).toEqual(['r'])
   })
 })
@@ -181,16 +192,15 @@ describe('beginOAuthSignIn', () => {
 
 describe('accountBadge', () => {
   test('marks the site admin', () => {
-    expect(accountBadge({ userId: 'u1', authorRole: 'admin' })).toBe('admin')
+    expect(accountBadge({ authorRole: 'admin' })).toBe('admin')
   })
 
-  test('marks a signed-in account without a site role as a member', () => {
-    expect(accountBadge({ userId: 'u2', authorRole: null })).toBe('member')
+  test('marks a member by the server role, not by a signed-in account', () => {
+    expect(accountBadge({ authorRole: 'member' })).toBe('member')
   })
 
-  test('gives guests and moderators no account badge', () => {
-    expect(accountBadge({ userId: null, authorRole: null })).toBeNull()
-    expect(accountBadge({ userId: 'u3', authorRole: 'moderator' })).toBeNull()
+  test('gives guests and signed-in accounts with no role no badge', () => {
+    expect(accountBadge({ authorRole: null })).toBeNull()
   })
 })
 
@@ -390,7 +400,7 @@ describe('renderMarkdown', () => {
   test('renders markdown images lazily, without a referrer, linked to full size', () => {
     const html = renderMarkdown('![a](https://x.test/y.jpg "t")')
     expect(html).toContain(
-      '<a href="https://x.test/y.jpg"><img src="https://x.test/y.jpg" alt="a" title="t" loading="lazy" decoding="async" referrerpolicy="no-referrer" />',
+      '<a href="https://x.test/y.jpg"><img src="https://x.test/y.jpg" alt="a" title="t" loading="lazy" decoding="async" fetchpriority="low" referrerpolicy="no-referrer" />',
     )
   })
 
@@ -490,6 +500,18 @@ describe('editOwnComment/deleteOwnComment', () => {
       'PATCH https://api.test/api/comments/c1',
       'DELETE https://api.test/api/comments/c1?site=demo',
     ])
+  })
+
+  test('a guest sends the edit key in a header, never in the URL', async () => {
+    const calls: { url: string; headers: unknown }[] = []
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), headers: init?.headers })
+      return Response.json({ data: { comment: comment({ id: 'c1', status: 'deleted' }) } })
+    }) as typeof fetch
+    const client = createClient({ baseUrl: 'https://api.test', site: 'demo', fetchImpl })
+    await client.deleteOwnComment('c1', 'key-1')
+    expect(calls[0]?.headers).toEqual({ 'x-lc-edit-key': 'key-1' })
+    expect(calls[0]?.url).not.toContain('key-1')
   })
 
   test('throws ApiError codes on 404/401', async () => {
@@ -1262,9 +1284,9 @@ describe('moderation client', () => {
 })
 
 describe('canModerate', () => {
-  test('accepts admin and moderator, rejects absent role', () => {
+  test('accepts the site admin only, rejects a member and an absent role', () => {
     expect(canModerate('admin')).toBe(true)
-    expect(canModerate('moderator')).toBe(true)
+    expect(canModerate('member' as never)).toBe(false)
     expect(canModerate(undefined)).toBe(false)
     expect(canModerate(null)).toBe(false)
   })
@@ -1306,5 +1328,42 @@ describe('moderationCommentToComment', () => {
       authorRole: 'admin',
       userBlocked: true,
     })
+  })
+})
+
+describe('canDeleteComment', () => {
+  test('a signed-in author deletes their own comment, and a guest deletes one they hold the key for', () => {
+    expect(canDeleteComment({ userId: 'u1' }, 'u1', false)).toBe(true)
+    expect(canDeleteComment({ userId: 'u2' }, 'u1', false)).toBe(false)
+    expect(canDeleteComment({ userId: null }, undefined, true)).toBe(true)
+    expect(canDeleteComment({ userId: null }, undefined, false)).toBe(false)
+  })
+
+  test('a key never reaches a signed-in author’s comment, and a signed-in viewer is not a guest owner', () => {
+    expect(canDeleteComment({ userId: 'u1' }, undefined, true)).toBe(false)
+    expect(canDeleteComment({ userId: null }, 'u1', false)).toBe(false)
+  })
+})
+
+describe('signInRequiredError', () => {
+  test('a vote asks for sign-in in its own words', () => {
+    expect(signInRequiredError('vote').message).toBe('Sign in to vote.')
+    expect(signInRequiredError('vote').status).toBe(401)
+  })
+})
+
+describe('signInRequired', () => {
+  // The UNAUTHENTICATED copy is generic; each refused action must keep its own line.
+  test('every refused action keeps its own sign-in line and a sign-in action', () => {
+    expect(signInRequired('read')).toEqual({
+      code: 'UNAUTHENTICATED',
+      title: 'Please sign in',
+      message: 'Sign in to read these comments.',
+      action: 'sign-in',
+    })
+    expect(signInRequired('write').message).toBe('Sign in to comment on this site.')
+    expect(signInRequired('reply').message).toBe('Sign in to reply to this comment.')
+    expect(signInRequired('vote').message).toBe('Sign in to vote.')
+    expect(signInRequired('reply').action).toBe('sign-in')
   })
 })

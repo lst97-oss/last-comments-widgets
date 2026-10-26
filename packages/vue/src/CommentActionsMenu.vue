@@ -10,7 +10,7 @@ const props = defineProps<{
   comment: Comment
   canEdit: boolean
   editing: boolean
-  isOwn: boolean
+  canDelete: boolean
   viewerRole?: string
   moderationPending: boolean
   onEdit: () => void
@@ -24,7 +24,7 @@ defineOptions({ name: 'CommentActionsMenu' })
 // Delete is soft (status 'deleted', restorable by a moderator), so the menu
 // entry acts immediately instead of asking for confirmation.
 const showEdit = computed(() => props.canEdit && !props.editing)
-const showOwnDelete = computed(() => props.isOwn && !props.viewerRole && !props.editing)
+const showOwnDelete = computed(() => props.canDelete && !props.viewerRole && !props.editing)
 const showModeration = computed(() => Boolean(props.viewerRole))
 
 const MENU_ITEM_CLASS =

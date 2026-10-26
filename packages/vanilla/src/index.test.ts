@@ -18,6 +18,7 @@ import {
   renderCommentNode,
   renderCommentTree,
   resolveTurnstileConfig,
+  signInPromptMarkup,
   sortToggleMarkup,
   transition,
   UI_INITIAL,
@@ -258,21 +259,21 @@ describe('vanilla renderer', () => {
     const ownPanel = actionsMenuMarkup(tree[0]?.comment as Comment, {
       canEdit: true,
       editing: false,
-      isOwn: true,
+      canDelete: true,
       pending: false,
     })
     expect(ownPanel).toContain('data-action="menu-edit" data-comment-id="own"')
     const otherPanel = actionsMenuMarkup(tree[1]?.comment as Comment, {
       canEdit: false,
       editing: false,
-      isOwn: false,
+      canDelete: false,
       pending: false,
     })
     expect(otherPanel).not.toContain('data-action="menu-edit"')
     const guestPanel = actionsMenuMarkup(tree[0]?.comment as Comment, {
       canEdit: false,
       editing: false,
-      isOwn: false,
+      canDelete: false,
       pending: false,
     })
     expect(guestPanel).not.toContain('data-action="menu-edit"')
@@ -401,7 +402,7 @@ describe('vanilla renderer', () => {
     const adminPanel = actionsMenuMarkup(visible[0]?.comment as Comment, {
       canEdit: true,
       editing: false,
-      isOwn: true,
+      canDelete: true,
       viewerRole: 'admin',
       pending: false,
     })
@@ -418,12 +419,12 @@ describe('vanilla renderer', () => {
     // Hidden, deleted and locked-page rows never offer a vote: the endpoint
     // rejects those clicks.
     const hidden = buildCommentTree([comment('h', null, 'hi', { status: 'hidden' })])
-    const hiddenHtml = renderCommentTree(hidden, { viewerRole: 'moderator' })
+    const hiddenHtml = renderCommentTree(hidden, { viewerRole: 'admin' })
     const hiddenPanel = actionsMenuMarkup(hidden[0]?.comment as Comment, {
       canEdit: false,
       editing: false,
-      isOwn: false,
-      viewerRole: 'moderator',
+      canDelete: false,
+      viewerRole: 'admin',
       pending: false,
     })
     expect(hiddenPanel).toContain('data-moderation-action="restore"')
@@ -432,12 +433,12 @@ describe('vanilla renderer', () => {
     expect(hiddenHtml).not.toContain('data-action="vote"')
 
     const deleted = buildCommentTree([comment('d', null, 'hi', { status: 'deleted' })])
-    const deletedHtml = renderCommentTree(deleted, { viewerRole: 'moderator' })
+    const deletedHtml = renderCommentTree(deleted, { viewerRole: 'admin' })
     const deletedPanel = actionsMenuMarkup(deleted[0]?.comment as Comment, {
       canEdit: false,
       editing: false,
-      isOwn: false,
-      viewerRole: 'moderator',
+      canDelete: false,
+      viewerRole: 'admin',
       pending: false,
     })
     expect(deletedPanel).toContain('data-moderation-action="restore"')
@@ -455,7 +456,7 @@ describe('vanilla renderer', () => {
     const panel = actionsMenuMarkup(tree[0]?.comment as Comment, {
       canEdit: false,
       editing: false,
-      isOwn: false,
+      canDelete: false,
       viewerRole: 'admin',
       pending: true,
     })
@@ -500,6 +501,25 @@ describe('vanilla renderer', () => {
         { signInUrl: 'https://host.test/sign-in' },
       ),
     ).toContain('href="https://host.test/sign-in"')
+  })
+
+  test('signInPromptMarkup is the neutral card, not an error, and links or starts sign-in by context', () => {
+    const info = {
+      code: 'UNAUTHENTICATED',
+      title: 'Please sign in',
+      message: 'Sign in to vote.',
+      action: 'sign-in',
+    } as const
+    const inPlace = signInPromptMarkup(info, 'vote')
+    expect(inPlace).toContain('class="lc-signin"')
+    expect(inPlace).toContain('data-signin-context="vote"')
+    expect(inPlace).toContain('role="status"')
+    expect(inPlace).not.toContain('role="alert"')
+    expect(inPlace).toContain('data-action="error-sign-in"')
+    const linked = signInPromptMarkup(info, 'read', { signInUrl: 'https://host.test/sign-in' })
+    expect(linked).toContain('href="https://host.test/sign-in"')
+    expect(linked).not.toContain('data-action="error-sign-in"')
+    expect(signInPromptMarkup(info, 'write', { signInUrl: 'javascript:alert(1)' })).not.toContain('javascript:')
   })
 })
 
@@ -615,6 +635,23 @@ describe('row contract', () => {
     expect(both).toContain('<span class="">Reply</span>')
   })
 
+  test('a signed-out Reply stays visible and opens the sign-in prompt where the form would be', () => {
+    const tree = buildCommentTree([comment('p', null, 'hi')])
+    const signInUrl = 'https://host.test/sign-in'
+    const idle = renderCommentNode(tree[0], 0, { writeAllowed: false, signInUrl })
+    expect(idle).toContain('data-action="reply"')
+    expect(idle).not.toContain('data-lc-signin')
+    const opened = renderCommentNode(tree[0], 0, { writeAllowed: false, replyTo: 'p', signInUrl })
+    expect(opened).toContain('data-signin-context="reply"')
+    expect(opened).toContain('Sign in to reply to this comment.')
+    expect(opened).toContain(`href="${signInUrl}"`)
+    expect(opened).not.toContain('data-lc-form')
+    // Signed in: the same open reply renders the form, not the prompt.
+    const signedIn = renderCommentNode(tree[0], 0, { replyTo: 'p' })
+    expect(signedIn).toContain('data-lc-form')
+    expect(signedIn).not.toContain('data-signin-context')
+  })
+
   test('a negative score folds the row into a summary', () => {
     const tree = buildCommentTree([comment('p', null, 'hi there   friend', { score: -2 })])
     const html = renderCommentTree(tree)
@@ -637,7 +674,7 @@ describe('row contract', () => {
       comment('r2', 'r1', 'b', { userId: 'u3', pinnedAt: new Date().toISOString() }),
       comment('r3', 'p', 'c', { status: 'hidden' }),
     ])
-    const html = renderCommentTree(tree, { viewerRole: 'moderator' })
+    const html = renderCommentTree(tree, { viewerRole: 'admin' })
     expect(html).toContain('lc-reply-stack')
     expect(html).toContain('3 replies')
     expect(html).toContain('1 pinned · 1 hidden')
@@ -654,7 +691,7 @@ describe('row contract', () => {
     const panel = actionsMenuMarkup(own[0]?.comment as Comment, {
       canEdit: true,
       editing: false,
-      isOwn: true,
+      canDelete: true,
       pending: false,
     })
     expect(panel).toContain('>Edit</button>')
@@ -722,5 +759,25 @@ describe('math placeholders', () => {
     const tree = buildCommentTree([comment('p', null, 'a $x$ b')])
     expect(renderCommentNode(tree[0], 0, { math: true })).toContain('data-tex="x"')
     expect(renderCommentNode(tree[0], 0, {})).toContain('a $x$ b')
+  })
+})
+
+describe('deleted comments', () => {
+  test('a deleted comment reads as the placeholder and keeps its replies nested under it', () => {
+    const tree = buildCommentTree([
+      comment('p', null, '', { status: 'deleted', authorName: '', userId: null, avatarUrl: null }),
+      comment('r', 'p', 'still here', { authorName: 'Ben' }),
+    ])
+    const html = renderCommentTree(tree, {})
+    expect(html).toContain('[This comment was deleted]')
+    expect(html).toContain('data-lc-placeholder="deleted"')
+    expect(html.indexOf('still here')).toBeGreaterThan(html.indexOf('[This comment was deleted]'))
+  })
+
+  test('a guest who holds the edit key is offered Delete, and a guest without it is not', () => {
+    const row = comment('c', null, 'mine', { userId: null })
+    const entry = { canEdit: false, editing: false, viewerRole: undefined, pending: false }
+    expect(actionsMenuMarkup(row, { ...entry, canDelete: true })).toContain('data-action="delete"')
+    expect(actionsMenuMarkup(row, { ...entry, canDelete: false })).not.toContain('data-action="delete"')
   })
 })

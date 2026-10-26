@@ -1,3 +1,11 @@
+/**
+ * Angular subpath of `@lst97-oss/last-comments-widgets`.
+ *
+ * Exports `LcCommentsComponent` (`<lc-comments>`), `LcCommentViewerComponent`,
+ * the standalone pieces a host can compose, and the edit/moderation helpers.
+ * Import `@lst97-oss/last-comments-widgets/angular/styles.css` once, and proxy
+ * `/api/*` same-origin (the API sends no `Access-Control-Allow-Credentials`).
+ */
 export type { ThreadSort, ThemeVars, WidgetTheme } from '@last-comments-widgets/client'
 export { LcCommentErrorComponent } from './comment-error.component'
 export { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'

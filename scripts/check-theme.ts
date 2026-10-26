@@ -121,6 +121,17 @@ try {
     const style = (locator: typeof root, property: string) =>
       locator.evaluate((element, name) => getComputedStyle(element).getPropertyValue(name), property)
     // The scope is transparent: the host page owns the surface.
+    // The sign-in card takes the host's --lc-signin-* tokens, so a host retheme reaches the prompt.
+    await page.evaluate(() => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div id="signin" class="lc-comments" style="--lc-signin-background: rgb(1, 2, 3); --lc-signin-foreground: rgb(4, 5, 6); --lc-signin-border: rgb(7, 8, 9); --lc-signin-button-background: rgb(10, 11, 12)"><div class="lc-signin" role="status"><p>Please sign in</p><button type="button" class="lc-signin-button">Sign in</button></div></div>',
+      )
+    })
+    expect(await style(page.locator('#signin .lc-signin'), 'background-color')).toBe('rgb(1, 2, 3)')
+    expect(await style(page.locator('#signin .lc-signin'), 'color')).toBe('rgb(4, 5, 6)')
+    expect(await style(page.locator('#signin .lc-signin'), 'border-top-color')).toBe('rgb(7, 8, 9)')
+    expect(await style(page.locator('#signin .lc-signin-button'), 'background-color')).toBe('rgb(10, 11, 12)')
     expect(await style(root, 'background-color')).toBe('rgba(0, 0, 0, 0)')
     expect(await style(root, 'color')).toBe('rgb(17, 34, 51)')
     expect(await style(root, 'font-family')).toContain('Georgia')

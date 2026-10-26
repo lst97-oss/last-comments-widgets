@@ -11,10 +11,12 @@ import {
   type ErrorInfo,
   foldReplySummary,
   formatRelativeTime,
+  canDeleteComment,
   getEditKey,
   type ModerationAction,
   renderMarkdown,
   safeUrl,
+  signInRequired,
   type ThreadNode,
   type ViewerRole,
 } from '@last-comments-widgets/client'
@@ -38,6 +40,7 @@ import { buttonClass } from './button-classes'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
 import { ITEM_INITIAL, type ItemAction, type ItemState, itemReducer } from './item-state'
 import { LcMarkdownEnhanceDirective } from './markdown-enhance.directive'
+import { LcSignInPromptComponent } from './sign-in-prompt.component'
 import { LcThreadGuidesComponent } from './thread-guides.component'
 import { canEditComment, type TurnstileOptions } from './types'
 import { LcVoteButtonsComponent, type VoteEvent } from './vote-buttons.component'
@@ -95,6 +98,7 @@ function initials(name: string): string {
     LucidePlus,
     LucideReply,
     LucideTrash2,
+    LcSignInPromptComponent,
   ],
   template: `
     @let c = comment().comment;
@@ -109,9 +113,7 @@ function initials(name: string): string {
     >
       @if (placeholder()) {
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-          @if (c.status === 'deleted') {
-            <span class="text-sm text-muted-foreground">[deleted]</span>
-          } @else {
+          @if (c.status !== 'deleted') {
             <span [class]="avatarClass" data-slot="avatar" data-size="sm">
               @if (avatarUrl(); as avatarSrc) {
                 <img
@@ -137,7 +139,7 @@ function initials(name: string): string {
           </p>
         }
         <p class="my-3 text-sm text-muted-foreground">
-          {{ c.status === 'deleted' ? '[deleted]' : 'This comment is under review.' }}
+          {{ c.status === 'deleted' ? '[This comment was deleted]' : 'This comment is under review.' }}
         </p>
       } @else {
         <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -226,7 +228,7 @@ function initials(name: string): string {
                     Edit
                   </button>
                 }
-                @if (own() && !viewerRole() && !state.editing) {
+                @if (canDelete() && !viewerRole() && !state.editing) {
                   <button
                     type="button"
                     [class]="menuDestructiveClass"
@@ -374,7 +376,24 @@ function initials(name: string): string {
                 (cancelReply)="dispatch({ type: 'edit/close' })"
               />
             </div>
-          } @else if (!readOnly() && replyTo() === c.id) {
+          } @else {
+            <div
+              class="lc-markdown my-3 font-sans text-sm"
+              [innerHTML]="bodyHtml()"
+              [lcMarkdownEnhance]="bodyHtml()"
+              [math]="math()"
+              [mermaid]="mermaid()"
+              [codeHighlight]="codeHighlight()"
+            ></div>
+          }
+          <!-- A signed-out reply on a login site: the sign-in prompt replaces the composer, below the message. -->
+          @if (!readOnly() && !writeAllowed() && replyPrompt()) {
+            <div class="my-3">
+              <lc-sign-in-prompt [info]="replySignInInfo" context="reply" (signIn)="signIn.emit()" />
+            </div>
+          }
+          <!-- The reply composer sits below the message it answers, so that message stays visible. -->
+          @if (!readOnly() && !state.editing && writeAllowed() && replyTo() === c.id) {
             <div class="my-3">
               <lc-comment-form
                 [guest]="guest()"
@@ -393,15 +412,6 @@ function initials(name: string): string {
                 (cancelReply)="cancelReply()"
               />
             </div>
-          } @else {
-            <div
-              class="lc-markdown my-3 font-sans text-sm"
-              [innerHTML]="bodyHtml()"
-              [lcMarkdownEnhance]="bodyHtml()"
-              [math]="math()"
-              [mermaid]="mermaid()"
-              [codeHighlight]="codeHighlight()"
-            ></div>
           }
           @if (!readOnly()) {
             <div class="flex flex-wrap items-center gap-1 text-sm">
@@ -409,7 +419,7 @@ function initials(name: string): string {
                 <button
                   type="button"
                   [class]="replyActionClass()"
-                  [attr.aria-expanded]="replyTo() === c.id"
+                  [attr.aria-expanded]="writeAllowed() ? replyTo() === c.id : replyPrompt()"
                   [attr.aria-label]="actionMode() === 'icon' ? 'Reply' : null"
                   (click)="toggleReply()"
                 >
@@ -473,6 +483,7 @@ function initials(name: string): string {
                     @for (child of comment().children; track child.comment.id) {
                       <lc-comment-item
                         [comment]="child"
+                        [writeAllowed]="writeAllowed()"
                         [depth]="depth() + 1"
                         [guest]="guest()"
                         [turnstileSiteKey]="turnstileSiteKey()"
@@ -516,6 +527,7 @@ export class LcCommentItemComponent {
   readonly comment = input.required<ThreadNode>()
   readonly depth = input(0)
   readonly guest = input(false)
+  readonly writeAllowed = input(true)
   readonly turnstileSiteKey = input<string | undefined>(undefined)
   readonly dark = input(false)
   readonly turnstileOptions = input<TurnstileOptions | undefined>(undefined)
@@ -582,20 +594,22 @@ export class LcCommentItemComponent {
   })
   protected readonly relativeTime = computed(() => formatRelativeTime(this.comment().comment.createdAt))
   protected readonly excerpt = computed(() => this.comment().comment.bodyMarkdown.replace(/\s+/g, ' ').trim())
-  protected readonly own = computed(() => {
-    const comment = this.comment().comment
-    const viewer = this.viewerUserId()
-    return Boolean(viewer && comment.userId && viewer === comment.userId)
-  })
   // Guest edit keys live in this browser; every row owns only its own key.
   protected readonly hasEditKey = computed(() => getEditKey(this.comment().comment.id) !== null)
-  protected readonly canEdit = computed(() =>
-    canEditComment(this.comment().comment, this.viewerUserId(), {
-      anonWindowMinutes: this.anonWindowMinutes(),
-      hasEditKey: this.hasEditKey(),
-    }),
+  protected readonly canDelete = computed(
+    () => this.writeAllowed() && canDeleteComment(this.comment().comment, this.viewerUserId(), this.hasEditKey()),
+  )
+  protected readonly canEdit = computed(
+    () =>
+      this.writeAllowed() &&
+      canEditComment(this.comment().comment, this.viewerUserId(), {
+        anonWindowMinutes: this.anonWindowMinutes(),
+        hasEditKey: this.hasEditKey(),
+      }),
   )
   protected readonly moderationPending = computed(() => this.pendingModeration()[this.comment().comment.id] ?? false)
+  // Reply is offered on every visible comment. A signed-out visitor on a login site gets the sign-in prompt
+  // in place of the composer, so the gate sits behind the click.
   protected readonly canReplyHere = computed(() => !(this.viewerRole() && this.comment().comment.status !== 'visible'))
   // Removed comments read as placeholders in the normal view; moderators keep
   // the body so they can still judge a restore.
@@ -611,7 +625,7 @@ export class LcCommentItemComponent {
     const viewerRole = this.viewerRole()
     return (
       !this.readOnly() &&
-      ((this.canEdit() && !state.editing) || (this.own() && !viewerRole && !state.editing) || Boolean(viewerRole))
+      ((this.canEdit() && !state.editing) || (this.canDelete() && !viewerRole && !state.editing) || Boolean(viewerRole))
     )
   })
 
@@ -657,8 +671,15 @@ export class LcCommentItemComponent {
     this.dispatch({ type: 'edit/open' })
   }
 
+  protected readonly replyPrompt = signal(false)
+  protected readonly replySignInInfo = signInRequired('reply')
+
   protected toggleReply(): void {
     this.dispatch({ type: 'edit/close' })
+    if (!this.writeAllowed()) {
+      this.replyPrompt.update((open) => !open)
+      return
+    }
     if (this.replyTo() === this.comment().comment.id) this.closeReply.emit()
     else this.openReply.emit(this.comment().comment.id)
   }
@@ -700,6 +721,7 @@ export class LcCommentItemComponent {
       @for (node of nodes(); track node.comment.id) {
         <lc-comment-item
           [comment]="node"
+          [writeAllowed]="writeAllowed()"
           [depth]="0"
           [guest]="guest()"
           [turnstileSiteKey]="turnstileSiteKey()"
@@ -734,6 +756,7 @@ export class LcCommentItemComponent {
 export class LcCommentListComponent {
   readonly nodes = input.required<ThreadNode[]>()
   readonly guest = input(false)
+  readonly writeAllowed = input(true)
   readonly turnstileSiteKey = input<string | undefined>(undefined)
   readonly dark = input(false)
   readonly turnstileOptions = input<TurnstileOptions | undefined>(undefined)

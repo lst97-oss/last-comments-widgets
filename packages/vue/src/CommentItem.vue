@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import {
   accountBadge,
+  canDeleteComment,
   DEFAULT_BODY_LIMIT,
   type ErrorInfo,
   foldReplySummary,
   formatRelativeTime,
   type ModerationAction,
   renderMarkdown,
+  signInRequired,
   type ThreadNode,
   type ViewerRole,
   type VoteValue,
@@ -19,6 +21,7 @@ import CommentActionsMenu from './CommentActionsMenu.vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'
 import ReplyAvatarStack from './ReplyAvatarStack.vue'
+import SignInPrompt from './SignInPrompt.vue'
 import VoteButtons from './VoteButtons.vue'
 import { badgeClass } from './lib/badge'
 import { buttonClass } from './lib/button'
@@ -65,6 +68,8 @@ const props = defineProps<{
   replySiteKey?: string
   turnstileOptions?: TurnstileOptions
   replyGuest?: boolean
+  // False when the site asks a visitor to sign in before writing.
+  writeAllowed?: boolean
   onCloseReply?: () => void
   onModerate?: (commentId: string, action: ModerationAction) => void
   onBlockUser?: (commentId: string, blocked: boolean) => void
@@ -88,15 +93,20 @@ const rendered = computed(() => renderMarkdown(comment.value.bodyMarkdown, { mat
 const bodyEl = useTemplateRef<HTMLElement>('bodyEl')
 useMarkdownEnhance(bodyEl, rendered, { math: () => math.value, mermaid: () => mermaid.value })
 const moderationPending = computed(() => props.pendingModeration?.[comment.value.id] ?? false)
+// Reply is offered on every visible comment. A signed-out visitor on a login site gets the sign-in prompt
+// in place of the composer, so the gate sits behind the click.
 const canReplyHere = computed(() => !(props.viewerRole && comment.value.status !== 'visible'))
-const isOwn = computed(
-  () => props.viewerUserId != null && comment.value.userId != null && props.viewerUserId === comment.value.userId,
+const replyPrompt = ref(false)
+const canDelete = computed(
+  () => props.writeAllowed !== false && canDeleteComment(comment.value, props.viewerUserId, props.hasEditKey ?? false),
 )
-const canEdit = computed(() =>
-  canEditComment(comment.value, props.viewerUserId, {
-    anonWindowMinutes: props.anonWindowMinutes,
-    hasEditKey: props.hasEditKey,
-  }),
+const canEdit = computed(
+  () =>
+    props.writeAllowed !== false &&
+    canEditComment(comment.value, props.viewerUserId, {
+      anonWindowMinutes: props.anonWindowMinutes,
+      hasEditKey: props.hasEditKey,
+    }),
 )
 const formattedDate = computed(() => formatRelativeTime(comment.value.createdAt))
 const createdTitle = computed(() => new Date(comment.value.createdAt).toLocaleString())
@@ -165,6 +175,10 @@ function cancelReply() {
 
 function toggleReply() {
   dispatch({ type: 'edit/close' })
+  if (props.writeAllowed === false) {
+    replyPrompt.value = !replyPrompt.value
+    return
+  }
   if (props.replyTo === comment.value.id) props.onCloseReply?.()
   else props.onReply(comment.value.id)
 }
@@ -181,8 +195,7 @@ function toggleReply() {
   >
     <template v-if="placeholder">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <span v-if="comment.status === 'deleted'" class="text-sm text-muted-foreground">[deleted]</span>
-        <template v-else>
+        <template v-if="comment.status !== 'deleted'">
           <LcAvatar :name="comment.authorName" :src="comment.avatarUrl" />
           <span class="min-w-0 truncate font-medium">{{ comment.authorName }}</span>
         </template>
@@ -197,7 +210,7 @@ function toggleReply() {
         Replying to <span class="font-medium text-foreground">@{{ props.parentAuthorName }}</span>
       </p>
       <p class="my-3 text-sm text-muted-foreground">
-        {{ comment.status === 'deleted' ? '[deleted]' : 'This comment is under review.' }}
+        {{ comment.status === 'deleted' ? '[This comment was deleted]' : 'This comment is under review.' }}
       </p>
     </template>
     <template v-else>
@@ -238,7 +251,7 @@ function toggleReply() {
           :comment="comment"
           :can-edit="canEdit"
           :editing="state.editing"
-          :is-own="isOwn"
+          :can-delete="canDelete"
           :viewer-role="props.viewerRole"
           :moderation-pending="moderationPending"
           @edit="openEdit"
@@ -289,7 +302,34 @@ function toggleReply() {
             :on-sign-in="props.onSignIn"
           />
         </div>
-        <div v-else-if="!props.readOnly && props.replyTo === comment.id && props.onReplySubmit" class="my-3">
+        <!-- eslint-disable vue/no-v-html -- renderMarkdown strips raw HTML and restricts link protocols. -->
+        <div
+          v-else
+          ref="bodyEl"
+          class="lc-markdown my-3 font-sans text-sm [overflow-wrap:anywhere]"
+          v-html="rendered"
+        />
+        <!-- eslint-enable vue/no-v-html -->
+        <!-- A signed-out reply on a login site: the sign-in prompt replaces the composer, below the message. -->
+        <div v-if="!props.readOnly && props.writeAllowed === false && replyPrompt" class="my-3">
+          <SignInPrompt
+            :info="signInRequired('reply')"
+            context="reply"
+            :sign-in-href="props.signInHref"
+            @sign-in="props.onSignIn?.()"
+          />
+        </div>
+        <!-- The reply composer sits below the message it answers, so that message stays visible. -->
+        <div
+          v-if="
+            !props.readOnly &&
+            !state.editing &&
+            props.writeAllowed !== false &&
+            props.replyTo === comment.id &&
+            props.onReplySubmit
+          "
+          class="my-3"
+        >
           <CommentForm
             :site-key="props.replySiteKey"
             :turnstile-options="props.turnstileOptions"
@@ -312,21 +352,13 @@ function toggleReply() {
             </template>
           </CommentForm>
         </div>
-        <!-- eslint-disable vue/no-v-html -- renderMarkdown strips raw HTML and restricts link protocols. -->
-        <div
-          v-else
-          ref="bodyEl"
-          class="lc-markdown my-3 font-sans text-sm [overflow-wrap:anywhere]"
-          v-html="rendered"
-        />
-        <!-- eslint-enable vue/no-v-html -->
         <div v-if="!props.readOnly" class="flex flex-wrap items-center gap-1 text-sm">
           <button
             v-if="canReplyHere"
             type="button"
             :class="[buttonClass('ghost', actionMode === 'icon' ? 'icon-xs' : 'xs'), 'lc-action']"
             :aria-label="actionMode === 'icon' ? 'Reply' : undefined"
-            :aria-expanded="props.replyTo === comment.id"
+            :aria-expanded="props.writeAllowed === false ? replyPrompt : props.replyTo === comment.id"
             @click="toggleReply"
           >
             <Reply v-if="actionMode !== 'text'" aria-hidden="true" />
@@ -397,6 +429,7 @@ function toggleReply() {
               :reply-site-key="props.replySiteKey"
               :turnstile-options="props.turnstileOptions"
               :reply-guest="props.replyGuest"
+              :write-allowed="props.writeAllowed"
               :on-close-reply="props.onCloseReply"
               :on-moderate="props.onModerate"
               :on-block-user="props.onBlockUser"

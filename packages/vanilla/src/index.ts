@@ -1,3 +1,13 @@
+/**
+ * Plain-HTML subpath of `@lst97-oss/last-comments-widgets`.
+ *
+ * `mountComments` renders the widget into an element and `renderCommentViewer`
+ * renders the read-only thread; the module also auto-mounts `[data-lc-comments]`
+ * and `[data-lc-viewer]` elements from `data-lc-*` attributes. Import
+ * `@lst97-oss/last-comments-widgets/vanilla/styles.css` (or the hosted
+ * `/dist/vanilla/styles.css`) once, and route `/api/*` through a same-origin
+ * proxy: the API sends no `Access-Control-Allow-Credentials`.
+ */
 export type { ThemeVars, WidgetTheme } from '@last-comments-widgets/client'
 
 import type {
@@ -21,6 +31,8 @@ import {
   beginOAuthSignIn,
   buildCommentTree,
   buildThreadGuidePath,
+  type CommentSettings,
+  canDeleteComment,
   canModerate,
   collectThreadParticipants,
   createClient,
@@ -28,19 +40,25 @@ import {
   DEFAULT_BODY_LIMIT,
   describeError,
   EDIT_WINDOW_CLOSED,
+  fetchCommentSettings,
   fetchViewerSession,
   foldReplySummary,
   forgetEditKey,
   formatRelativeTime,
+  gateFor,
   getEditKey,
+  isCompleteSettings,
   isEditWindowOpen,
   loadThreadWindow,
   moderationCommentToComment,
   normalizePageUrl,
   renderMarkdown,
   resolveEditWindow,
+  resolveSettings,
+  type SignInOperation,
   safeUrl,
   saveEditKey,
+  signInRequired,
   signOutViewerSession,
   sortCommentRoots,
   THEME_CSS_VARIABLES,
@@ -102,31 +120,57 @@ export function resolveTurnstileConfig(dark: boolean, options?: TurnstileOptions
   return config
 }
 
+/**
+ * Options for {@link mountComments}; every field except `site` and `baseUrl` is
+ * optional. The declarative auto-mount reads the same options from `data-lc-*`
+ * attributes (see the attribute list at the bottom of this module).
+ */
 export type MountOptions = {
+  /** Site key the last-comments server registered for this host. */
   site: string
+  /** Origin of the last-comments server; `/api/*` on it must be same-origin (see the module note). */
   baseUrl: string
+  /** Thread identity; defaults to `window.location.href`. */
   pageUrl?: string
-  // Host-known thread id: moderator mode then addresses this page directly
-  // instead of matching `pageUrl` against the site's (capped) page list.
+  /**
+   * Host-known thread id: moderator mode then addresses this page directly
+   * instead of matching `pageUrl` against the site's (capped) page list.
+   */
   pageId?: string
+  /** The site's public policy. Anything given here wins over the public settings endpoint. */
+  settings?: Partial<CommentSettings>
+  /** Public Cloudflare Turnstile key for guest posting; without it guests solve no challenge. */
   turnstileSiteKey?: string
-  // Cloudflare owns the challenge box (cross-origin iframe): `theme` defaults to
-  // the widget's own light/dark mode, and these are the only design knobs
-  // (`size`, `appearance`, `language`). Background, border, radius and shadow
-  // cannot be overridden; style the `.lc-turnstile` container instead.
+  /**
+   * Cloudflare owns the challenge box (cross-origin iframe): `theme` defaults to
+   * the widget's own light/dark mode, and these are the only design knobs
+   * (`size`, `appearance`, `language`). Background, border, radius and shadow
+   * cannot be overridden; style the `.lc-turnstile` container instead.
+   */
   turnstileOptions?: TurnstileOptions
+  /** Top-level threads per page (default 20); a thread's replies come with it. */
   limit?: number
+  /** `'system'` (default) follows the OS preference. */
   theme?: Theme
+  /** Per-instance design-token overrides; see `WidgetTheme`. */
   themeVars?: WidgetTheme
+  /**
+   * Host-owned sign-in page for `login`/`private` sites. Without it the widget
+   * starts the API's OAuth flow in place.
+   */
   signInUrl?: string
+  /** Fallback viewer identity when the session probe cannot answer (no same-origin proxy). */
   viewerUserId?: string
+  /** `'admin'` turns on the moderation UI; the server authorizes every call. */
   viewerRole?: ViewerRole
-  // Guest-authored comments may be edited for this many minutes from this
-  // browser (default 10; 0 = unlimited). Signed-in authors have no window.
+  /**
+   * Guest-authored comments may be edited for this many minutes from this
+   * browser (default 10; 0 = unlimited). Signed-in authors have no window.
+   */
   anonEditWindowMinutes?: number
-  // Reply/action rendering, default 'icon-text'.
+  /** Reply/action rendering, default `'icon-text'`. */
   actionMode?: ActionMode
-  // Max body characters, counted before trimming to match the server routes.
+  /** Max body characters, counted before trimming to match the server routes. */
   bodyLimit?: number
   /** Embed below the fold: fetch only once the widget scrolls into view. */
   lazy?: boolean
@@ -136,14 +180,18 @@ export type MountOptions = {
   mermaid?: boolean
   /** Syntax highlighting for fenced code (on by default; the React bundle is the only one that highlights today). */
   codeHighlight?: boolean
+  /** Custom fetch, e.g. one that rewrites requests to a same-origin proxy. */
   fetchImpl?: typeof fetch
   /** Fires after a successful moderation action, lock change or moderator post. */
   onModerated?: () => void
 }
 
+/** Handle to a mounted widget: re-fetch the thread, or tear the widget down. */
 export type WidgetHandle = {
-  destroy(): void
+  /** Re-fetches the thread from page 1, keeping the current identity and sort. */
   refresh(): Promise<void>
+  /** Removes the widget markup and its listeners, restoring the host's inline theme values. */
+  destroy(): void
 }
 
 declare global {
@@ -195,6 +243,24 @@ export function errorMarkup(info: ErrorInfo, opts: { signInUrl?: string; retryAc
     <p class="mt-0.5 text-destructive/90">${escapeHtml(info.message)}</p>
     ${action ? `<div class="mt-2 flex flex-wrap items-center gap-2">${action}</div>` : ''}
   </div>
+</div>`
+}
+
+// A sign-in request, not a failure: the neutral card login and private sites show. Its colours are the
+// --lc-signin-* tokens, so a host retheme reaches it.
+export function signInPromptMarkup(
+  info: ErrorInfo,
+  context: SignInOperation,
+  opts: { signInUrl?: string } = {},
+): string {
+  const signInUrl = safeUrl(opts.signInUrl)
+  const button = signInUrl
+    ? `<a href="${escapeHtml(signInUrl)}" class="lc-signin-button">Sign in</a>`
+    : '<button type="button" data-action="error-sign-in" class="lc-signin-button">Sign in</button>'
+  return `<div class="lc-signin" role="status" data-lc-signin data-signin-context="${context}">
+  <p class="font-medium">${escapeHtml(info.title)}</p>
+  <p>${escapeHtml(info.message)}</p>
+  <div class="mt-2 flex flex-wrap items-center gap-2">${button}</div>
 </div>`
 }
 
@@ -413,6 +479,9 @@ export type CommentNodeOptions = {
   replyTo?: string | null
   turnstileSiteKey?: string
   guest?: boolean
+  // False when the site asks a visitor to sign in before writing: Reply opens the sign-in prompt, not the form.
+  writeAllowed?: boolean
+  signInUrl?: string
   viewerUserId?: string
   viewerRole?: ViewerRole
   // Per-row slot state (editor, reply, collapse), keyed by comment id.
@@ -439,12 +508,12 @@ function actionEntries(
   ctx: {
     canEdit: boolean
     editing: boolean
-    isOwn: boolean
+    canDelete: boolean
     viewerRole?: ViewerRole
     pending: boolean
   },
 ): string[] {
-  const { canEdit, editing, isOwn, viewerRole, pending } = ctx
+  const { canEdit, editing, canDelete, viewerRole, pending } = ctx
   const id = escapeHtml(comment.id)
   const entry = (attrs: string, iconName: string, label: string, destructive = false) =>
     `<button type="button" ${attrs} class="${destructive ? MENU_ITEM_DESTRUCTIVE_CLASS : MENU_ITEM_CLASS}">${icon(iconName)}${label}</button>`
@@ -452,7 +521,7 @@ function actionEntries(
   if (canEdit && !editing) entries.push(entry(`data-action="menu-edit" data-comment-id="${id}"`, 'pencil', 'Edit'))
   // Delete is soft (status 'deleted', restorable by a moderator), so the menu
   // entry acts immediately instead of asking for confirmation.
-  if (isOwn && !viewerRole && !editing)
+  if (canDelete && !viewerRole && !editing)
     entries.push(entry(`data-action="delete" data-comment-id="${id}"`, 'trash', 'Delete', true))
   if (viewerRole) {
     const disabled = pending ? ' disabled' : ''
@@ -514,7 +583,7 @@ export function actionsMenuMarkup(
   ctx: {
     canEdit: boolean
     editing: boolean
-    isOwn: boolean
+    canDelete: boolean
     viewerRole?: ViewerRole
     pending: boolean
   },
@@ -566,13 +635,13 @@ function renderPlaceholder(node: ThreadNode, depth: number, options: CommentNode
   const deleted = comment.status === 'deleted'
   const id = escapeHtml(comment.id)
   const author = deleted
-    ? '<span class="text-sm text-muted-foreground">[deleted]</span>'
+    ? ''
     : `${avatarMarkup(comment.authorName, safeUrl(comment.avatarUrl) ?? null)}<span class="min-w-0 truncate font-medium">${escapeHtml(comment.authorName)}</span>`
   const caption =
     depth > 0 && options.parentAuthorName && !deleted
       ? `<p class="mt-1 text-xs text-muted-foreground">Replying to <span class="font-medium text-foreground">@${escapeHtml(options.parentAuthorName)}</span></p>`
       : ''
-  const body = deleted ? '[deleted]' : 'This comment is under review.'
+  const body = deleted ? '[This comment was deleted]' : 'This comment is under review.'
   return `<article class="lc-comment${depth > 0 ? ' lc-reply' : ''}" data-depth="${depth}" data-comment-id="${id}" data-comment-depth="${depth}" data-lc-placeholder="${deleted ? 'deleted' : 'under-review'}">
   <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
     ${author}
@@ -590,6 +659,8 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
     replyTo = null,
     turnstileSiteKey,
     guest = true,
+    writeAllowed = true,
+    signInUrl,
     viewerUserId,
     viewerRole,
     items = {},
@@ -607,11 +678,13 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   const item = items[comment.id] ?? ITEM_INITIAL
   const { editing, saving, editError, replying, replyError, collapsedOverride } = item
   const id = escapeHtml(comment.id)
-  const isOwn = Boolean(viewerUserId && comment.userId && viewerUserId === comment.userId)
-  const canEdit = canEditComment(comment, viewerUserId, {
-    anonWindowMinutes,
-    hasEditKey: getEditKey(comment.id) !== null,
-  })
+  const canDelete = writeAllowed && canDeleteComment(comment, viewerUserId, getEditKey(comment.id) !== null)
+  const canEdit =
+    writeAllowed &&
+    canEditComment(comment, viewerUserId, {
+      anonWindowMinutes,
+      hasEditKey: getEditKey(comment.id) !== null,
+    })
   const moderationPending = pendingModeration?.[comment.id] ?? false
   const canReplyHere = !(viewerRole && comment.status !== 'visible')
   // The host hides votes list-wide (locked page) and hidden/deleted rows never
@@ -645,24 +718,26 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
           cancelLabel: 'Cancel',
         })}</div>`
       : ''
+  // A signed-out visitor on a login site gets the sign-in prompt where the reply form would open.
   const replyForm =
     !readOnly && !editing && replyTo === comment.id
-      ? `<div class="my-3">${renderForm({
-          parentId: comment.id,
-          turnstileSiteKey,
-          guest,
-          formId: `reply-${comment.id}`,
-          bodyLimit,
-          pending: replying,
-          error: replyError,
-          submitDisabled,
-        })}</div>`
+      ? `<div class="my-3">${
+          writeAllowed
+            ? renderForm({
+                parentId: comment.id,
+                turnstileSiteKey,
+                guest,
+                formId: `reply-${comment.id}`,
+                bodyLimit,
+                pending: replying,
+                error: replyError,
+                submitDisabled,
+              })
+            : signInPromptMarkup(signInRequired('reply'), 'reply', { signInUrl })
+        }</div>`
       : ''
-  // One slot at a time: the editor replaces the body, and so does an open reply.
-  const body =
-    editing || (!readOnly && replyTo === comment.id)
-      ? ''
-      : `<div class="lc-markdown my-3 font-sans text-sm">${parts.body}</div>`
+  // The editor replaces the body; an open reply sits below it, so the message being answered stays visible.
+  const body = editing ? '' : `<div class="lc-markdown my-3 font-sans text-sm">${parts.body}</div>`
   const replyAction =
     readOnly || !canReplyHere
       ? ''
@@ -689,7 +764,7 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
       ? `<p class="mt-1 text-xs text-muted-foreground">Replying to <span class="font-medium text-foreground">@${escapeHtml(parentAuthorName)}</span></p>`
       : ''
   const expanded = `${caption}
-  ${editor}${replyForm}${body}
+  ${editor}${body}${replyForm}
   ${readOnly ? '' : `<div class="flex flex-wrap items-center gap-1 text-sm">${replyAction}</div>`}
   ${children.length > 0 ? replyGroup(node, depth, options) : ''}`
   return `<article class="lc-comment${depth > 0 ? ' lc-reply' : ''}" data-depth="${depth}" data-comment-id="${id}" data-comment-depth="${depth}">
@@ -702,7 +777,7 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
     ${comment.userBlocked ? badge('outline', 'lc-blocked-badge', `${icon('ban')}blocked`) : ''}
     <time dateTime="${escapeHtml(comment.createdAt)}" title="${escapeHtml(new Date(comment.createdAt).toLocaleString())}" class="text-xs text-muted-foreground">${escapeHtml(formatRelativeTime(comment.createdAt))}</time>
     ${flags}
-    ${readOnly ? '' : actionsTrigger(comment, actionEntries(comment, { canEdit, editing, isOwn, viewerRole, pending: moderationPending }))}
+    ${readOnly ? '' : actionsTrigger(comment, actionEntries(comment, { canEdit, editing, canDelete, viewerRole, pending: moderationPending }))}
     ${hideVotes ? '' : `<span class="ml-auto"><div class="lc-vote flex items-center gap-0.5">${score}</div></span>`}
   </div>
   ${collapsed ? `<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" data-lc-collapsed="">${folded}</div>` : expanded}
@@ -1520,6 +1595,14 @@ export function runMarkdownEnhancers(root: ParentNode, flags: MarkdownEnhanceFla
   }
 }
 
+/**
+ * Mounts the comments widget into `el` and returns a handle to refresh or
+ * destroy it. Renders the full composer, thread, votes, paging and (with
+ * `viewerRole: 'admin'`) moderation; a `private` site renders one sign-in card
+ * instead of the thread.
+ *
+ * Requires the vanilla stylesheet and a same-origin `/api/*` (see the module note).
+ */
 export function mountComments(el: HTMLElement, options: MountOptions): WidgetHandle {
   const limit = options.limit ?? 20
   const theme = options.theme ?? 'system'
@@ -1549,7 +1632,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   // The guide measurement session for the current list DOM; a repaint replaces
   // it wholesale, so each paint gets a fresh one.
   let guides: GuidesSession | null = null
-  const bodyLimit = options.bodyLimit ?? DEFAULT_BODY_LIMIT
+  let bodyLimit = options.bodyLimit ?? DEFAULT_BODY_LIMIT
+  let anonWindowMinutes = options.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES
+  let turnstileKey = options.turnstileSiteKey
   const actionMode = options.actionMode ?? 'icon-text'
   const math = options.math ?? false
   const mermaid = options.mermaid ?? false
@@ -1571,6 +1656,42 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   let session: ViewerSession | null = null
   let sessionStatus: 'loading' | 'ready' = 'loading'
   let commentAs: 'account' | 'anonymous' = 'account'
+  // The site's policy, resolved once the public settings are read (or immediately, when the host
+  // supplies a complete `settings` object). Reads and writes are gated on it.
+  let settingsFetched: CommentSettings | null = null
+  let settingsSettled = isCompleteSettings(options.settings)
+  let policy: CommentSettings = resolveSettings({}, options.settings, null)
+  let identityDone = false
+  let loaded = false
+  let refusedRead = false
+  function applyPolicy() {
+    policy = resolveSettings(
+      {
+        bodyLimit: options.bodyLimit,
+        anonEditWindowMinutes: options.anonEditWindowMinutes,
+        turnstileSiteKey: options.turnstileSiteKey,
+      },
+      options.settings,
+      settingsFetched,
+    )
+    bodyLimit = policy.bodyLimit
+    anonWindowMinutes = policy.anonEditWindowMinutes
+    turnstileKey = policy.turnstileSiteKey ?? undefined
+  }
+  // A login or private site cannot decide who may see or write until the identity probe settles.
+  function identityPendingNow(): boolean {
+    return sessionStatus === 'loading' && policy.access !== 'open'
+  }
+  // The composer is a form while the identity is unknown (disabled) and whenever writing is allowed.
+  function composerShowsForm(): boolean {
+    return identityPendingNow() || writeAllowedNow()
+  }
+  function writeAllowedNow(): boolean {
+    return gateFor(policy.access, 'write', composerIdentity().signed || moderator) === 'allow'
+  }
+  function readAllowedNow(): boolean {
+    return gateFor(policy.access, 'read', composerIdentity().signed || moderator) === 'allow'
+  }
   // UI flags live in one immutable record; reads go through the current value.
   let ui: UiState = UI_INITIAL
   // Shared by every render path so the composer, the turnstile box and the
@@ -1579,7 +1700,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const signed = Boolean(session) || Boolean(options.viewerUserId)
     return {
       signed,
-      guest: !signed || commentAs === 'anonymous',
+      guest: !signed || (commentAs === 'anonymous' && policy.access === 'open'),
       label: session?.name || 'Your account',
       viewerUserId: options.viewerUserId ?? session?.userId,
     }
@@ -1634,7 +1755,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const check = `<span class="pointer-events-none absolute right-2 flex items-center justify-center">${icon('check')}</span>`
     const radio = (action: string, checked: boolean, inner: string) =>
       `<div role="menuitemradio" aria-checked="${checked}" data-action="${action}" data-selected="${checked}" tabindex="-1" class="${IDENTITY_RADIO_ITEM_CLASS}">${checked ? check : ''}${inner}</div>`
-    const anonymous = radio('identity-anonymous', anonymousSelected, 'Anonymous')
+    const anonymous = policy.access === 'open' ? radio('identity-anonymous', anonymousSelected, 'Anonymous') : ''
     const account = signed
       ? radio('identity-account', accountSelected, `${escapeHtml(label)} (you)`)
       : signInUrl
@@ -1649,7 +1770,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
 
   function refreshSignInRow() {
     closeIdentityMenu()
-    const host = el.querySelector('[data-lc-signin]')
+    const host = el.querySelector('[data-lc-identity]')
     if (host) host.innerHTML = signInRow()
   }
 
@@ -1708,11 +1829,11 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const viewerUserId = composerIdentity().viewerUserId
     const entries = actionEntries(comment, {
       canEdit: canEditComment(comment, viewerUserId, {
-        anonWindowMinutes: options.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+        anonWindowMinutes,
         hasEditKey: getEditKey(comment.id) !== null,
       }),
       editing: (ui.items[comment.id] ?? ITEM_INITIAL).editing,
-      isOwn: Boolean(viewerUserId && comment.userId && viewerUserId === comment.userId),
+      canDelete: writeAllowedNow() && canDeleteComment(comment, viewerUserId, getEditKey(comment.id) !== null),
       viewerRole,
       pending: ui.pendingModeration[comment.id] ?? false,
     })
@@ -1902,7 +2023,10 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         : ''
     const actionBanner = ui.actionError ? errorMarkup(ui.actionError, { signInUrl }) : ''
     if (status === 'loading' && comments.length === 0) return skeletonBlock(3)
-    if (status === 'error' && comments.length === 0 && error) return errorMarkup(error, { signInUrl })
+    if (status === 'error' && comments.length === 0 && error)
+      return error.action === 'sign-in'
+        ? signInPromptMarkup(error, 'read', { signInUrl })
+        : errorMarkup(error, { signInUrl })
     if (status === 'ready' && comments.length === 0)
       return `${lockBar}${actionBanner}<p class="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground">No comments yet.</p>`
     // A page is a window over ROOTS: cutting rows would split a thread and
@@ -1915,22 +2039,22 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const pageRoots = roots.slice((ui.page - 1) * limit, ui.page * limit)
     const tree = renderCommentTree(pageRoots, {
       replyTo: ui.replyTo,
-      turnstileSiteKey: options.turnstileSiteKey,
+      turnstileSiteKey: turnstileKey,
       guest,
+      writeAllowed: writeAllowedNow(),
+      signInUrl,
       viewerUserId,
       viewerRole,
       items: ui.items,
-      anonWindowMinutes: options.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+      anonWindowMinutes,
       actionMode,
       bodyLimit,
       math,
       pendingModeration: ui.pendingModeration,
       submitDisabled: sessionStatus === 'loading',
-      hideVotes: Boolean(viewerRole) && Boolean(pageLock?.locked),
+      hideVotes: !policy.features.votes || (Boolean(viewerRole) && Boolean(pageLock?.locked)),
     })
-    const signIn = ui.needsSignIn
-      ? `<p class="rounded-lg border border-border bg-card p-5 text-sm">Please sign in to vote. ${signInUrl ? `<a href="${escapeHtml(signInUrl)}" class="underline">Sign in</a>` : ''}</p>`
-      : ''
+    const signIn = ui.needsSignIn ? signInPromptMarkup(signInRequired('vote'), 'vote', { signInUrl }) : ''
     const sortBar = status !== 'error' && roots.length > 0 ? sortToggleMarkup(ui.sort) : ''
     const list =
       pageRoots.length > 0
@@ -1941,10 +2065,15 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   function composerHtml(): string {
+    if (!composerShowsForm()) {
+      // On a private site the list's read prompt is the only sign-in card, so the composer slot stays empty.
+      if (!readAllowedNow()) return ''
+      return signInPromptMarkup(signInRequired('write'), 'write', { signInUrl: safeUrl(options.signInUrl) })
+    }
     const { guest } = composerIdentity()
-    const signInHtml = `<div data-lc-signin>${signInRow()}</div>`
+    const signInHtml = `<div data-lc-identity>${signInRow()}</div>`
     return renderForm({
-      turnstileSiteKey: options.turnstileSiteKey,
+      turnstileSiteKey: turnstileKey,
       guest,
       formId: 'top',
       signInHtml,
@@ -2009,7 +2138,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     // The token gate lives here, not in the markup: the challenge answers after
     // the paint, so the rendered button is re-synced with it.
     syncSubmits()
-    const siteKey = options.turnstileSiteKey
+    const siteKey = turnstileKey
     if (!siteKey) return
     const config = resolveTurnstileConfig(el.classList.contains('dark'), options.turnstileOptions)
     void ensureTurnstile().then(() => {
@@ -2312,6 +2441,12 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   async function vote(commentId: string, value: VoteValue) {
     const current = comments.find((c) => c.id === commentId)
     ui = transition(ui, { type: 'error', value: null })
+    // Votes need a signed-in session: a guest gets the sign-in notice instead of a refused request.
+    if (!composerIdentity().signed && !moderator) {
+      ui = transition(ui, { type: 'signin/needed', value: true })
+      renderList()
+      return
+    }
     try {
       // Moderators vote through the moderation endpoint: the public vote route
       // checks the site's origin allow-list, which a dashboard origin is not on.
@@ -2435,8 +2570,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       const busy = formBusy(formId)
       const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')
       if (!submit) continue
-      submit.disabled =
-        over || sessionStatus === 'loading' || (Boolean(options.turnstileSiteKey) && !tokens.get(formId)) || busy
+      submit.disabled = over || sessionStatus === 'loading' || (Boolean(turnstileKey) && !tokens.get(formId)) || busy
       submit.setAttribute('aria-busy', String(busy))
       // The loading state is swapped in place: the forms keep their draft in
       // the DOM, so they are never repainted while a request is in flight.
@@ -2539,7 +2673,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   async function removeComment(commentId: string) {
     ui = transition(ui, { type: 'error', value: null })
     try {
-      await client.deleteOwnComment(commentId)
+      // A guest proves ownership with the edit key kept in this browser; a signed-in author sends none.
+      await client.deleteOwnComment(commentId, getEditKey(commentId) ?? undefined)
       // Keep the row as a tombstone: the thread keeps its shape and the normal
       // view renders the deleted placeholder instead of the body.
       comments = comments.map((c) => (c.id === commentId ? { ...c, status: 'deleted' } : c))
@@ -2722,24 +2857,53 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
   // Both requests hang off this: a below-the-fold embed should reach the
   // network only once it is scrolled near.
+  function maybeLoad() {
+    if (destroyed || loaded || !settingsSettled) return
+    if (policy.access !== 'open' && !identityDone) return
+    loaded = true
+    if (!readAllowedNow()) {
+      refusedRead = true
+      status = 'error'
+      error = signInRequired('read')
+      paint()
+      return
+    }
+    void initialLoad()
+  }
   function startLoading() {
+    void fetchCommentSettings({ baseUrl: options.baseUrl, site: options.site, fetchImpl: options.fetchImpl }).then(
+      (value) => {
+        settingsFetched = value
+        settingsSettled = true
+        applyPolicy()
+        if (destroyed) return
+        paint()
+        maybeLoad()
+      },
+    )
     void fetchViewerSession({ baseUrl: options.baseUrl, fetchImpl: options.fetchImpl }).then((next) => {
-      sessionStatus = 'ready'
-      if (destroyed) return
       const wasGuest = composerIdentity().guest
+      const wasComposer = composerShowsForm()
+      sessionStatus = 'ready'
+      identityDone = true
+      if (destroyed) return
       if (next) session = next
-      // Only the composer's guest fields move without an identity change, and
-      // rebuilding the whole widget would drop what was typed while we waited.
-      if (composerIdentity().guest !== wasGuest) {
+      // Only the composer's own state moves without an identity change, and rebuilding
+      // the whole widget would drop what was typed while we waited.
+      if (composerShowsForm() !== wasComposer || composerIdentity().guest !== wasGuest) {
         renderComposer()
         renderList()
-        return
+      } else {
+        refreshSignInRow()
+        // Every form was rendered disabled while the identity was unknown.
+        for (const form of el.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) syncCounter(form)
       }
-      refreshSignInRow()
-      // Every form was rendered disabled while the identity was unknown.
-      for (const form of el.querySelectorAll<HTMLFormElement>('form[data-lc-form]')) syncCounter(form)
+      if (!loaded) maybeLoad()
+      else if (refusedRead && readAllowedNow()) {
+        refusedRead = false
+        void initialLoad()
+      }
     })
-    void initialLoad()
   }
   // A sign-in the provider rejected returns here with a failure marker. Explain it
   // once in the identity control, then drop the marker so a reload does not repeat it.
@@ -2779,6 +2943,11 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     },
   }
 }
+/**
+ * Mounts the read-only thread into `el`: no composer, votes or actions, the
+ * same site policy as {@link mountComments}. Requires the vanilla stylesheet
+ * and a same-origin `/api/*`.
+ */
 export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): WidgetHandle {
   const theme = options.theme ?? 'system'
   const limit = options.limit ?? 20
@@ -2827,12 +2996,14 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     guides = null
     const roots = currentTree()
     const pageRoots = roots.slice((page - 1) * limit, page * limit)
+    const signInUrl = safeUrl(options.signInUrl)
     const body =
       status === 'loading'
         ? skeletonBlock(3, true)
-        : // The read-only viewer has no sign-in path, so its only remedy is a reload.
-          status === 'error'
-          ? errorMarkup(failure.action === 'sign-in' ? { ...failure, action: 'retry' } : failure)
+        : status === 'error'
+          ? failure.action === 'sign-in'
+            ? signInPromptMarkup(failure, 'read', { signInUrl })
+            : errorMarkup(failure, { signInUrl })
           : roots.length === 0
             ? `<p class="text-sm text-muted-foreground">No comments yet.</p>`
             : ''
@@ -2904,11 +3075,49 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     paint()
   }
 
+  // A private site's thread waits for the policy and the session: a signed-out visitor gets the prompt, no fetch.
+  let viewerStarted = false
+  async function startViewer() {
+    if (viewerStarted) return
+    viewerStarted = true
+    const fetched = await fetchCommentSettings({
+      baseUrl: options.baseUrl,
+      site: options.site,
+      fetchImpl: options.fetchImpl,
+    })
+    const policy = resolveSettings({}, undefined, fetched)
+    const signedIn =
+      policy.access !== 'open' &&
+      (await fetchViewerSession({ baseUrl: options.baseUrl, fetchImpl: options.fetchImpl })) !== null
+    if (destroyed) return
+    if (gateFor(policy.access, 'read', signedIn) === 'sign-in') {
+      status = 'error'
+      failure = signInRequired('read')
+      paint()
+      return
+    }
+    void load()
+  }
+
+  // The viewer has no identity menu: its sign-in is the OAuth start the comments widget uses.
+  async function signIn() {
+    try {
+      window.location.assign(
+        await beginOAuthSignIn({ baseUrl: options.baseUrl, pageUrl, fetchImpl: options.fetchImpl }),
+      )
+    } catch (err) {
+      status = 'error'
+      failure = describeError(err, { title: "Sign-in didn't start" })
+      paint()
+    }
+  }
+
   function onClick(ev: Event) {
     const target = (ev.target as HTMLElement).closest('[data-action]') as HTMLElement | null
     if (!target || !el.contains(target)) return
     const action = target.getAttribute('data-action')
     if (action === 'error-retry') void load()
+    else if (action === 'error-sign-in') void signIn()
     else if (action === 'sort') {
       const next = target.getAttribute('data-sort')
       if (next === 'newest' || next === 'oldest' || next === 'best') {
@@ -2937,7 +3146,7 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     el,
     Boolean(options.lazy),
     typeof IntersectionObserver === 'undefined' ? undefined : IntersectionObserver,
-    () => void load(),
+    () => void startViewer(),
   )
 
   return {
@@ -3020,6 +3229,24 @@ function readTurnstileOptions(node: HTMLElement): TurnstileOptions | undefined {
   return Object.keys(options).length > 0 ? options : undefined
 }
 
+/**
+ * Declarative mount for hosts that load the bundle without calling the API.
+ *
+ * `[data-lc-comments]` mounts {@link mountComments} and `[data-lc-viewer]`
+ * mounts {@link renderCommentViewer}; both take their options from attributes:
+ * `data-lc-site`, `data-lc-base-url`, `data-lc-page-url`, `data-lc-limit`,
+ * `data-lc-theme`, `data-lc-sign-in-url`, `data-lc-viewer-user-id`,
+ * `data-lc-viewer-role`, `data-lc-anon-edit-window-minutes`,
+ * `data-lc-action-mode`, `data-lc-body-limit`, the boolean flags
+ * `data-lc-lazy`, `data-lc-math`, `data-lc-mermaid`,
+ * `data-lc-no-code-highlight`, the Turnstile knobs `data-lc-turnstile`,
+ * `data-lc-turnstile-theme`, `data-lc-turnstile-size`,
+ * `data-lc-turnstile-appearance`, `data-lc-turnstile-language`, and the theme
+ * tokens `data-lc-theme-var-*` / `data-lc-theme-dark-var-*`.
+ * `site` and `turnstile` may also be set once on the `<script>` tag. Invalid
+ * values are ignored. `pageId`, `settings`, `fetchImpl` and `onModerated` have
+ * no attribute — call the mount functions for those.
+ */
 function autoMount() {
   if (typeof document === 'undefined') return
   for (const node of document.querySelectorAll<HTMLElement>('[data-lc-comments]')) {
@@ -3043,7 +3270,7 @@ function autoMount() {
       theme: (node.getAttribute('data-lc-theme') as Theme | null) ?? undefined,
       signInUrl: node.getAttribute('data-lc-sign-in-url') ?? undefined,
       viewerUserId: node.getAttribute('data-lc-viewer-user-id') ?? undefined,
-      viewerRole: viewerRoleAttr === 'admin' || viewerRoleAttr === 'moderator' ? viewerRoleAttr : undefined,
+      viewerRole: viewerRoleAttr === 'admin' ? viewerRoleAttr : undefined,
       anonEditWindowMinutes: readNumber(node, 'data-lc-anon-edit-window-minutes', Number.parseFloat),
       actionMode: readActionMode(node),
       bodyLimit: readNumber(node, 'data-lc-body-limit', Number.parseInt),
@@ -3068,6 +3295,7 @@ function autoMount() {
       pageUrl: node.getAttribute('data-lc-page-url') ?? undefined,
       limit: limitRaw ? Number(limitRaw) : undefined,
       theme: (node.getAttribute('data-lc-theme') as Theme | null) ?? undefined,
+      signInUrl: node.getAttribute('data-lc-sign-in-url') ?? undefined,
       lazy: node.hasAttribute('data-lc-lazy'),
       math: node.hasAttribute('data-lc-math'),
       mermaid: node.hasAttribute('data-lc-mermaid'),

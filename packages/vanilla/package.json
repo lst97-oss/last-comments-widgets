@@ -25,7 +25,7 @@
     "access": "public"
   },
   "scripts": {
-    "check": "bun run typecheck && bun run lint && bun run format:check",
+    "check": "bun check --no-script && bun run lint && bun fmt --check",
     "lint": "biome check --error-on-warnings .",
     "build": "bunx tsup src/index.ts --format esm --clean --dts --target es2025 --out-dir dist --external katex --external mermaid && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",
