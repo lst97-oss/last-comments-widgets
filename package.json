@@ -25,7 +25,8 @@
     "update:deps": "bun scripts/update-deps.ts",
     "version": "changeset version && bun install && bun run versions:check",
     "release": "bun run versions:check && bun run check && bun test && bun run build && bun run pack:check && changeset publish",
-    "test:theme": "bun run build && bun scripts/check-theme.ts"
+    "test:theme": "bun run build && bun scripts/check-theme.ts",
+    "test:settings": "bun run build && bun scripts/check-settings.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
