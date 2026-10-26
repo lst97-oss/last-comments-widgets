@@ -3,6 +3,21 @@
 // src/routes/api.comments.vote.ts + src/routes/api.comments.$commentId.ts +
 // src/routes/api.moderation.ts exactly.
 import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked'
+import { IMAGE_SIZES, imageRenditions } from './images'
+import { DEFAULT_ANON_EDIT_WINDOW_MINUTES } from './settings'
+
+export type { CommentSettings, Gate, SettingsOverrides, SiteAccess } from './settings'
+export {
+  DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+  DEFAULT_BODY_LIMIT,
+  DEFAULT_SETTINGS,
+  fetchCommentSettings,
+  gateFor,
+  isCompleteSettings,
+  normalizeSettings,
+  resetSettingsCache,
+  resolveSettings,
+} from './settings'
 
 export type CommentStatus = 'visible' | 'hidden' | 'deleted'
 export type VoteValue = -1 | 1
@@ -21,9 +36,9 @@ export type Comment = {
   editedAt: string | null
   score: number
   viewerVote: VoteValue | null
-  // Site role of the author when the server resolved one; null for guests and
-  // signed-in users without a membership on this site.
-  authorRole: ViewerRole | null
+  // The author's role on this site, as the server resolved it. Null for guests and for signed-in
+  // accounts that hold no role here.
+  authorRole: SiteRole | null
   // Returned once by POST /api/comments for guest authors; list endpoints omit it.
   editKey?: string
   // Present only on moderation-sourced comments (GET /api/moderation); the public endpoints never send it.
@@ -34,18 +49,21 @@ export type VoteSummary = { score: number; viewerVote: VoteValue | null }
 
 export type ThreadNode = { comment: Comment; children: ThreadNode[] }
 
-// Account badge for a comment's author: `admin` for the site admin, `member` for
-// a signed-in account without a site role. Guests and moderators get none.
-export type AccountBadge = 'admin' | 'member'
-export function accountBadge(comment: Pick<Comment, 'userId' | 'authorRole'>): AccountBadge | null {
-  if (comment.authorRole === 'admin') return 'admin'
-  if (comment.userId !== null && comment.authorRole === null) return 'member'
-  return null
+// A role on one site, mirroring the server's site_role enum: `admin` manages the
+// site, `member` comments and nothing else.
+export type SiteRole = 'admin' | 'member'
+
+// Account badge for a comment's author, taken straight from the server's role:
+// `admin` for the site admin, `member` for a member. Guests and accounts with no
+// role get none.
+export type AccountBadge = SiteRole
+export function accountBadge(comment: Pick<Comment, 'authorRole'>): AccountBadge | null {
+  return comment.authorRole
 }
 
-// Viewer role for the site, mirroring the server's site_role enum. The
-// server authorizes every moderation call; the value only gates UI.
-export type ViewerRole = 'admin' | 'moderator'
+// The viewer's role for the moderation UI. Only the site admin gets it; the server
+// authorizes every moderation call, so this value only gates UI.
+export type ViewerRole = 'admin'
 
 // Mirrors the server moderation action enum (routes/api.moderation.ts).
 export type ModerationAction = 'hide' | 'restore' | 'delete' | 'pin' | 'unpin'
@@ -69,8 +87,8 @@ export type ModerationComment = {
   // Vote state for the requesting moderator.
   score: number
   viewerVote: VoteValue | null
-  // Site role of the author, mirroring the public comment wire field.
-  authorRole: ViewerRole | null
+  // The author's role on this site, mirroring the public comment wire field.
+  authorRole: SiteRole | null
 }
 
 // Wire shape of the server's ModerationPageSummary.
@@ -86,7 +104,7 @@ export type ModerationPage = {
   latestAt: string | null
 }
 
-export type ModerationSite = { id: string; key: string; name: string; role: ViewerRole; origins: string[] }
+export type ModerationSite = { id: string; key: string; name: string; role: SiteRole; origins: string[] }
 
 // GET /api/moderation with a site. The route sends no CORS headers and
 // requires a same-origin session with the instance-admin role.
@@ -330,7 +348,7 @@ export type LastCommentsClient = {
   castVote: (commentId: string, value: VoteValue) => Promise<VoteSummary>
   clearVote: (commentId: string) => Promise<VoteSummary>
   editOwnComment: (input: EditInput) => Promise<Comment>
-  deleteOwnComment: (commentId: string) => Promise<Comment>
+  deleteOwnComment: (commentId: string, editKey?: string) => Promise<Comment>
   listModeration: (input: ListModerationInput) => Promise<ModerationOverview>
   createModerationComment: (input: CreateModerationCommentInput) => Promise<Comment>
   editModerationComment: (input: EditModerationCommentInput) => Promise<Comment>
@@ -411,11 +429,13 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     return data.comment
   }
 
-  async function deleteOwnComment(commentId: string): Promise<Comment> {
+  // A guest proves ownership with the edit key from create time, in a header so it stays out of the URL.
+  async function deleteOwnComment(commentId: string, editKey?: string): Promise<Comment> {
     const params = new URLSearchParams({ site })
     const res = await fetchImpl(`${base}/api/comments/${commentId}?${params}`, {
       method: 'DELETE',
       credentials: 'include',
+      ...(editKey === undefined ? {} : { headers: { 'x-lc-edit-key': editKey } }),
     })
     const data = await readEnvelope<{ comment: Comment }>(res)
     return data.comment
@@ -558,9 +578,10 @@ function safeHref(href: string): string | null {
 
 // Images may only load over http(s); mailto:/data:/blob: sources can never
 // render, so they fall back to their alt text like any other rejected href.
+// Absolute http(s) only: a relative image path would resolve against the page the comment sits on.
 function isHttpHref(href: string): boolean {
   try {
-    const parsed = new URL(href, 'https://invalid.local')
+    const parsed = new URL(href)
     return parsed.protocol === 'http:' || parsed.protocol === 'https:'
   } catch {
     return false
@@ -590,12 +611,52 @@ const markdownRenderers: RendererObject = {
     return `<a href="${safe}"${title ? ` title="${escapeAttr(title)}"` : ''}>${text}</a>`
   },
   image({ href, title, text }) {
-    if (!isHttpHref(href)) return escapeAttr(text)
+    // A link that is not http(s) is never rendered: the reader sees that the image is missing.
+    if (!isHttpHref(href)) return unavailableImage(text)
     const safe = escapeAttr(href)
-    const img = `<img src="${safe}" alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
+    // A host that can resize gets a 640/1280 candidate set. The original stays in data-lc-original
+    // as the fallback, so a rendition the host cannot serve does not lose the image.
+    const rendition = imageRenditions(href)
+    const source = rendition
+      ? ` src="${escapeAttr(rendition.src)}" srcset="${escapeAttr(rendition.srcset)}" sizes="${IMAGE_SIZES}" data-lc-original="${safe}"`
+      : ` src="${safe}"`
+    const img = `<img${source} alt="${escapeAttr(text)}"${title ? ` title="${escapeAttr(title)}"` : ''} loading="lazy" decoding="async" fetchpriority="low" referrerpolicy="no-referrer" />`
     if (insideLink) return img
     return `<a href="${safe}">${img}</a>`
   },
+}
+
+function unavailableImage(text: string): string {
+  return `<span class="lc-image-unavailable">${text ? `Image unavailable: ${escapeAttr(text)}` : 'Image unavailable'}</span>`
+}
+
+// A broken image (404, a dead host, a refused rendition) reaches the reader as a
+// labelled placeholder instead of the browser's broken-image box. Listening on the
+// document in the capture phase catches the error events, which do not bubble.
+let imageFallbacksInstalled = false
+
+function installImageFallbacks(): void {
+  if (imageFallbacksInstalled || typeof document === 'undefined') return
+  imageFallbacksInstalled = true
+  document.addEventListener('error', onImageError, true)
+}
+
+function onImageError(event: Event): void {
+  const img = event.target
+  if (!(img instanceof HTMLImageElement) || !img.closest('.lc-markdown')) return
+  const original = img.getAttribute('data-lc-original')
+  if (original && img.getAttribute('src') !== original) {
+    // The rendition failed: try the original file once, then give up on it.
+    img.removeAttribute('data-lc-original')
+    img.removeAttribute('srcset')
+    img.removeAttribute('sizes')
+    img.setAttribute('src', original)
+    return
+  }
+  const placeholder = document.createElement('span')
+  placeholder.className = 'lc-image-unavailable'
+  placeholder.textContent = img.alt ? `Image unavailable: ${img.alt}` : 'Image unavailable'
+  img.replaceWith(placeholder)
 }
 
 // Inline tokenizer for `$…$` and `$$…$$`. Delimiter guards keep currency
@@ -638,15 +699,12 @@ export type MarkdownOptions = {
 }
 
 export function renderMarkdown(source: string, options?: MarkdownOptions): string {
+  installImageFallbacks()
   const instance = options?.math ? markdownMath : markdown
   return instance.parse(source) as string
 }
 
 export const DEFAULT_EDIT_WINDOW_MINUTES = 5
-export const DEFAULT_ANON_EDIT_WINDOW_MINUTES = 10
-// Comment bodies are capped at this many characters (counted before trimming).
-// Hosts whose server enforces a different number pass it to the widget.
-export const DEFAULT_BODY_LIMIT = 10_000
 // Returned by resolveEditWindow for anyone who does not own the comment.
 export const EDIT_WINDOW_CLOSED = -1
 
@@ -740,10 +798,21 @@ export function forgetEditKey(commentId: string): void {
   } catch {}
 }
 
+// Who may delete: a signed-in author their own comment, or a guest the edit key they were issued at
+// create time. The server checks the same rule; this only decides what the menu offers.
+export function canDeleteComment(
+  comment: { userId: string | null },
+  viewerUserId: string | undefined,
+  hasEditKey: boolean,
+): boolean {
+  if (comment.userId === null) return hasEditKey
+  return Boolean(viewerUserId) && viewerUserId === comment.userId
+}
+
 // UI gate only — the server authorizes every moderation call. An absent
 // role means the plain public widget.
 export function canModerate(viewerRole?: ViewerRole | null): boolean {
-  return viewerRole === 'admin' || viewerRole === 'moderator'
+  return viewerRole === 'admin'
 }
 
 // Renders moderation rows through the same list/tree code as public
@@ -838,6 +907,11 @@ export const THEME_CSS_VARIABLES = {
   adminBadgeForeground: '--lc-admin-badge-foreground',
   memberBadgeBackground: '--lc-member-badge-background',
   memberBadgeForeground: '--lc-member-badge-foreground',
+  signInBackground: '--lc-signin-background',
+  signInBorder: '--lc-signin-border',
+  signInForeground: '--lc-signin-foreground',
+  signInButtonBackground: '--lc-signin-button-background',
+  signInButtonForeground: '--lc-signin-button-foreground',
 } as const
 
 // Theme values that are not free-form CSS: a closed set, so a typo is a
@@ -1056,6 +1130,26 @@ const NETWORK_COPY: ErrorCopy = {
 // readEnvelope synthesises this when the API sends no error message.
 const SYNTHETIC_MESSAGE = /^request failed with \d+$/
 
+// What a gated visitor was refused: reading the thread, posting a comment, replying to one, or voting.
+export type SignInOperation = 'read' | 'write' | 'reply' | 'vote'
+
+// The refusal a gated visitor gets: the error a server sends, so every path shows one sign-in state.
+export function signInRequiredError(operation: SignInOperation): ApiError {
+  const message = {
+    read: 'Sign in to read these comments.',
+    write: 'Sign in to comment on this site.',
+    reply: 'Sign in to reply to this comment.',
+    vote: 'Sign in to vote.',
+  }[operation]
+  return new ApiError('UNAUTHENTICATED', message, 401)
+}
+
+export function signInRequired(operation: SignInOperation): ErrorInfo {
+  const error = signInRequiredError(operation)
+  // The UNAUTHENTICATED copy is generic and would hide the per-operation line, so the refusal's own message wins.
+  return describeError(error, { message: error.message })
+}
+
 export function describeError(error: unknown, overrides: { title?: string; message?: string } = {}): ErrorInfo {
   const api = error instanceof ApiError ? error : null
   if (!api && error instanceof TypeError) return { code: null, ...copyFor(NETWORK_COPY) }
@@ -1154,6 +1248,8 @@ export type ViewerOptions = {
   codeHighlight?: boolean
   theme?: 'light' | 'dark' | 'system'
   themeVars?: WidgetTheme
+  // Where a private site's sign-in button goes; without it the button starts the OAuth flow in place.
+  signInUrl?: string
   fetchImpl?: typeof fetch
 }
 
