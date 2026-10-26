@@ -1,3 +1,11 @@
+/**
+ * Vue subpath of `@lst97-oss/last-comments-widgets`.
+ *
+ * Exports the `Comments` and `CommentViewer` SFCs, their props types, the
+ * standalone pieces a host can compose, and the edit/moderation helpers.
+ * Import `@lst97-oss/last-comments-widgets/vue/styles.css` once, and proxy
+ * `/api/*` same-origin (the API sends no `Access-Control-Allow-Credentials`).
+ */
 export type { ThemeVars, WidgetTheme } from '@last-comments-widgets/client'
 export { default as CommentForm } from './CommentForm.vue'
 export { default as CommentItem } from './CommentItem.vue'

@@ -25,6 +25,8 @@ const props = defineProps<{
   identityLabel: string
   identityOpen: boolean
   signInUrl?: string
+  // Anonymous writing exists only on an open site; a login or private site offers accounts alone.
+  allowAnonymous?: boolean
   error?: { info: ErrorInfo; retry: () => void } | null
   onChoose: (value: 'account' | 'anonymous') => void
   onSignIn: () => void
@@ -74,7 +76,7 @@ const INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex items-center 
           :model-value="activeValue"
           @update:model-value="(value) => props.onChoose(value as 'account' | 'anonymous')"
         >
-          <DropdownMenuRadioItem :class="RADIO_ITEM_CLASS" value="anonymous">
+          <DropdownMenuRadioItem v-if="props.allowAnonymous !== false" :class="RADIO_ITEM_CLASS" value="anonymous">
             <span class="truncate">Anonymous</span>
             <span :class="INDICATOR_CLASS">
               <Check v-if="activeValue === 'anonymous'" class="size-4 shrink-0" aria-hidden="true" />

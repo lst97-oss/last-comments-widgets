@@ -1,15 +1,28 @@
 <script setup lang="ts">
+/**
+ * Root Vue port of the comments widget: list, composer, replies, votes, paging
+ * and inline moderation. Options are `CommentsProps` in `./types`, passed
+ * kebab-cased by the host. Import
+ * `@lst97-oss/last-comments-widgets/vue/styles.css` once and proxy `/api/*`
+ * same-origin. Emits `moderated` after a moderation action, lock change or
+ * moderator post.
+ */
 import { useTheme } from './lib/useTheme'
 import {
   ApiError,
   beginOAuthSignIn,
   canModerate,
   createClient,
-  DEFAULT_ANON_EDIT_WINDOW_MINUTES,
-  DEFAULT_BODY_LIMIT,
   describeError,
   type ErrorInfo,
+  type CommentSettings,
+  fetchCommentSettings,
   fetchViewerSession,
+  forgetEditKey,
+  gateFor,
+  isCompleteSettings,
+  resolveSettings,
+  signInRequired,
   getEditKey,
   loadThreadWindow,
   type ModerationAction,
@@ -28,6 +41,7 @@ import {
 import { computed, onMounted, ref, useTemplateRef, watch } from 'vue'
 import CommentError from './CommentError.vue'
 import CommentForm from './CommentForm.vue'
+import SignInPrompt from './SignInPrompt.vue'
 import CommentList from './CommentList.vue'
 import CommentSkeleton from './CommentSkeleton.vue'
 import CommentsPager from './CommentsPager.vue'
@@ -49,7 +63,6 @@ const props = withDefaults(defineProps<CommentsProps>(), {
   mermaid: false,
   codeHighlight: true,
   actionMode: 'icon-text',
-  bodyLimit: DEFAULT_BODY_LIMIT,
 })
 const emit = defineEmits<{ 'sign-in': []; moderated: [] }>()
 
@@ -158,7 +171,32 @@ const {
 })
 const moderator = computed(() => canModerate(props.viewerRole))
 const signedIn = computed(() => Boolean(session.value) || Boolean(props.viewerUserId))
-const guest = computed(() => !signedIn.value || commentAs.value === 'anonymous')
+// The site's policy: a complete `settings` prop is used as given, otherwise the public settings
+// endpoint is read once per site. Explicit props still win over both.
+const settingsFetched = ref<CommentSettings | null>(null)
+const settingsSettled = ref(false)
+const settingsComplete = computed(() => isCompleteSettings(props.settings))
+const settingsReady = computed(() => settingsComplete.value || settingsSettled.value)
+const policy = computed(() =>
+  resolveSettings(
+    {
+      bodyLimit: props.bodyLimit,
+      anonEditWindowMinutes: props.anonEditWindowMinutes,
+      turnstileSiteKey: props.turnstileSiteKey,
+    },
+    props.settings,
+    settingsFetched.value,
+  ),
+)
+const gateSignedIn = computed(() => signedIn.value || moderator.value)
+const readGate = computed(() => gateFor(policy.value.access, 'read', gateSignedIn.value))
+const writeAllowed = computed(() => gateFor(policy.value.access, 'write', gateSignedIn.value) === 'allow')
+// A locked site waits for the identity probe before it asks anyone to sign in.
+const sessionPending = computed(() => sessionStatus.value === 'loading' && policy.value.access !== 'open')
+const showComposer = computed(() => !settingsReady.value || sessionPending.value || writeAllowed.value)
+// One vote prompt, whichever path refused the vote: a guest's click, or the server's 401.
+const votePromptOpen = computed(() => actionError.value?.action === 'sign-in' || unauthenticated.value)
+const guest = computed(() => !signedIn.value || (commentAs.value === 'anonymous' && policy.value.access === 'open'))
 const identityLabel = computed(() =>
   commentAs.value === 'anonymous' || !signedIn.value ? 'Anonymous' : session.value?.name || 'Your account',
 )
@@ -291,6 +329,11 @@ function updateComment(id: string, patch: { score?: number; viewerVote?: VoteVal
 
 async function vote(commentId: string, value: VoteValue | 'clear') {
   actionError.value = null
+  // Votes need a signed-in session: a guest is told so, rather than sent a request that is refused.
+  if (!gateSignedIn.value) {
+    actionError.value = signInRequired('vote')
+    return
+  }
   try {
     // Moderators vote through the moderation endpoint: the public vote route
     // checks the site's origin allow-list, which a dashboard origin is not on.
@@ -335,7 +378,9 @@ async function edit(commentId: string, bodyMarkdown: string): Promise<ErrorInfo 
 async function remove(commentId: string) {
   actionError.value = null
   try {
-    await client.value.deleteOwnComment(commentId)
+    // A guest proves ownership with the edit key kept in this browser; a signed-in author sends none.
+    await client.value.deleteOwnComment(commentId, getEditKey(commentId) ?? undefined)
+    forgetEditKey(commentId)
     // Keep the row as a tombstone: the thread keeps its shape and the normal
     // view renders the deleted placeholder instead of the body.
     comments.value = comments.value.map((c) => (c.id === commentId ? { ...c, status: 'deleted' } : c))
@@ -409,10 +454,6 @@ async function toggleLock() {
   }
 }
 
-function signIn() {
-  emit('sign-in')
-}
-
 async function startSignIn() {
   identityOpen.value = false
   identityPending.value = true
@@ -462,11 +503,34 @@ const listEl = useTemplateRef<HTMLElement>('listEl')
 provideWidgetRoot(rootEl)
 // `lazy` gates the session probe too: an offscreen embed issues no requests, so
 // the identity stays a disabled skeleton chip until the first intersection.
+// The first list request waits for the site's policy and, on a locked site, for the identity probe,
+// so a private site never fires a request it is bound to refuse. It runs again as each one settles.
+function requestList() {
+  if (!started.value || !settingsReady.value || sessionPending.value) return
+  if (readGate.value === 'sign-in') {
+    status.value = 'error'
+    errorInfo.value = signInRequired('read')
+    return
+  }
+  void loadFirstPage()
+}
+
+async function fetchSettings() {
+  if (settingsComplete.value) return
+  settingsSettled.value = false
+  settingsFetched.value = await fetchCommentSettings({
+    baseUrl: props.baseUrl,
+    site: props.site,
+    fetchImpl: props.fetchImpl,
+  })
+  settingsSettled.value = true
+}
+
 const { started } = useLazyLoad(
   rootEl,
   () => props.lazy,
   () => {
-    void loadFirstPage()
+    void fetchSettings()
     void fetchViewerSession({ baseUrl: props.baseUrl, fetchImpl: props.fetchImpl })
       .then((value) => {
         session.value = value
@@ -477,11 +541,19 @@ const { started } = useLazyLoad(
   },
 )
 
+watch([started, settingsReady, sessionPending, readGate], requestList)
+
+// A new site or base URL reads its own policy before the list may load.
+watch(
+  () => [props.site, props.baseUrl, props.fetchImpl],
+  () => {
+    if (started.value) void fetchSettings()
+  },
+)
+
 watch(
   () => [props.site, props.baseUrl, props.pageUrl, props.pageId, props.limit, props.viewerRole, props.fetchImpl],
-  () => {
-    if (started.value) void loadFirstPage()
-  },
+  requestList,
 )
 
 defineExpose({ refresh })
@@ -510,23 +582,32 @@ defineExpose({ refresh })
       </button>
     </div>
 
+    <SignInPrompt
+      v-if="votePromptOpen"
+      :info="signInRequired('vote')"
+      context="vote"
+      :sign-in-href="signInUrl"
+      @sign-in="startSignIn"
+    />
     <CommentError
-      v-if="actionError"
+      v-else-if="actionError"
       :info="actionError"
       :sign-in-href="signInUrl"
       @retry="refresh"
       @sign-in="startSignIn"
     />
 
+    <!-- A private site shows one sign-in card, in the list slot below: no composer card here. -->
     <CommentForm
-      :site-key="props.turnstileSiteKey"
+      v-if="readGate !== 'sign-in' && showComposer"
+      :site-key="policy.turnstileSiteKey ?? undefined"
       :turnstile-options="props.turnstileOptions"
       :guest="guest"
       :dark="dark"
       :session-pending="sessionStatus === 'loading'"
       :parent-id="null"
       :error="formError"
-      :body-limit="props.bodyLimit"
+      :body-limit="policy.bodyLimit"
       :math="props.math"
       :mermaid="props.mermaid"
       :code-highlight="props.codeHighlight"
@@ -543,6 +624,7 @@ defineExpose({ refresh })
           :identity-pending="identityPending"
           :session-pending="sessionStatus === 'loading'"
           :identity-label="identityLabel"
+          :allow-anonymous="policy.access === 'open'"
           :identity-open="identityOpen"
           :sign-in-url="signInUrl"
           :error="identityError"
@@ -553,27 +635,13 @@ defineExpose({ refresh })
         />
       </template>
     </CommentForm>
-
-    <div v-if="unauthenticated" role="alert" class="rounded-lg border border-border bg-card p-5 text-sm">
-      <p class="text-card-foreground">Sign in to vote on comments.</p>
-      <div class="mt-3">
-        <a
-          v-if="signInUrl"
-          :href="signInUrl"
-          class="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent bg-primary px-2.5 text-sm font-medium whitespace-nowrap text-primary-foreground transition-all hover:bg-primary/80"
-        >
-          Sign in
-        </a>
-        <button
-          v-else
-          type="button"
-          class="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent bg-primary px-2.5 text-sm font-medium whitespace-nowrap text-primary-foreground transition-all hover:bg-primary/80"
-          @click="signIn"
-        >
-          Sign in
-        </button>
-      </div>
-    </div>
+    <SignInPrompt
+      v-else-if="readGate !== 'sign-in'"
+      :info="signInRequired('write')"
+      context="write"
+      :sign-in-href="signInUrl"
+      @sign-in="startSignIn"
+    />
 
     <ThreadSortToggle v-if="status !== 'error' && roots.length > 0" :value="sort" :on-change="handleSortChange" />
 
@@ -582,8 +650,15 @@ defineExpose({ refresh })
     </div>
 
     <div v-else-if="status === 'error'">
+      <SignInPrompt
+        v-if="errorInfo?.action === 'sign-in'"
+        :info="errorInfo"
+        context="read"
+        :sign-in-href="signInUrl"
+        @sign-in="startSignIn"
+      />
       <CommentError
-        v-if="errorInfo"
+        v-else-if="errorInfo"
         :info="errorInfo"
         :sign-in-href="signInUrl"
         @retry="refresh"
@@ -621,12 +696,12 @@ defineExpose({ refresh })
           :nodes="pageRoots"
           :viewer-user-id="props.viewerUserId ?? session?.userId"
           :viewer-role="props.viewerRole"
-          :hide-votes="moderator && Boolean(pageLock?.locked)"
+          :hide-votes="!policy.features.votes || (moderator && Boolean(pageLock?.locked))"
           :pending-moderation="pendingModeration"
-          :anon-window-minutes="props.anonEditWindowMinutes ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES"
+          :anon-window-minutes="policy.anonEditWindowMinutes"
           :has-edit-keys="guestEditKeys"
           :action-mode="props.actionMode"
-          :body-limit="props.bodyLimit"
+          :body-limit="policy.bodyLimit"
           :math="props.math"
           :mermaid="props.mermaid"
           :code-highlight="props.codeHighlight"
@@ -639,12 +714,13 @@ defineExpose({ refresh })
           :on-edit="edit"
           :on-delete="remove"
           :on-reply-submit="submitReply"
-          :reply-site-key="props.turnstileSiteKey"
+          :reply-site-key="policy.turnstileSiteKey ?? undefined"
           :turnstile-options="props.turnstileOptions"
           :reply-guest="guest"
           :on-close-reply="cancelReply"
           :on-moderate="moderate"
           :on-block-user="blockUser"
+          :write-allowed="writeAllowed"
         >
           <template #signIn>
             <IdentityMenu
@@ -655,6 +731,7 @@ defineExpose({ refresh })
               :identity-pending="identityPending"
               :session-pending="sessionStatus === 'loading'"
               :identity-label="identityLabel"
+              :allow-anonymous="policy.access === 'open'"
               :identity-open="identityOpen"
               :sign-in-url="signInUrl"
               :error="identityError"
