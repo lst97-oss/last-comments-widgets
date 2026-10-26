@@ -17,7 +17,13 @@ import {
   type Comment,
   describeError,
   type ErrorInfo,
+  fetchCommentSettings,
+  fetchViewerSession,
+  gateFor,
   loadThreadWindow,
+  resolveSettings,
+  safeUrl,
+  signInRequiredError,
   sortCommentRoots,
   type ThreadNode,
   type ThreadSort,
@@ -27,6 +33,7 @@ import {
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 import { LcCommentListComponent, type CommentSubmitHandler } from './comment-list.component'
+import { LcSignInPromptComponent } from './sign-in-prompt.component'
 import { observeInView } from './observe-in-view'
 import { prefersDark, subscribeSystemTheme } from './theme-media'
 import { threadSignature } from './thread-guides'
@@ -48,17 +55,38 @@ type LoadParams = {
 // The read-only viewer never edits, deletes or votes.
 const noopAsync: CommentSubmitHandler = async () => null
 
-// Read-only comment viewer: same list endpoint, no posting or voting.
+/**
+ * Read-only thread widget (`<lc-comment-viewer>`): same list endpoint and site
+ * policy as {@link LcCommentsComponent}, with no composer, votes or actions.
+ *
+ * Import `@lst97-oss/last-comments-widgets/angular/styles.css` once and proxy
+ * `/api/*` same-origin.
+ */
 @Component({
   selector: 'lc-comment-viewer',
-  imports: [LcCommentErrorComponent, LcCommentListComponent, LcCommentSkeletonsComponent, LcThreadSortToggleComponent],
+  imports: [
+    LcCommentErrorComponent,
+    LcCommentListComponent,
+    LcCommentSkeletonsComponent,
+    LcSignInPromptComponent,
+    LcThreadSortToggleComponent,
+  ],
   template: `
     <section class="lc-comments grid gap-4" [class.dark]="dark()" [style]="themeStyle()" aria-label="Comments">
       @if (status() === 'loading') {
         <lc-comment-skeletons [count]="3" [readOnly]="true" />
       }
       @if (error(); as failure) {
-        <lc-comment-error [info]="failure" (retry)="load()" (signIn)="signInFromError()" />
+        @if (failure.action === 'sign-in') {
+          <lc-sign-in-prompt
+            [info]="failure"
+            context="read"
+            [signInHref]="safeSignInUrl()"
+            (signIn)="signInFromError()"
+          />
+        } @else {
+          <lc-comment-error [info]="failure" (retry)="load()" (signIn)="signInFromError()" />
+        }
       }
       @if (status() === 'ready' && roots().length === 0) {
         <p class="text-sm text-muted-foreground">No comments yet.</p>
@@ -119,19 +147,30 @@ const noopAsync: CommentSubmitHandler = async () => null
   `,
 })
 export class LcCommentViewerComponent {
+  /** Site key the last-comments server registered for this host. */
   site = input.required<string>()
+  /** Origin of the last-comments server; `/api/*` on it must be same-origin (see the class note). */
   baseUrl = input.required<string>()
+  /** Thread identity; defaults to `window.location.href`. */
   pageUrl = input<string | undefined>(undefined)
+  /** Top-level threads per page (default 20). */
   limit = input<number | undefined>(undefined)
+  /** `'system'` (default) follows the OS preference. */
   theme = input<Theme>('system')
+  /** Per-instance design-token overrides; see `WidgetTheme`. */
   themeVars = input<WidgetTheme | undefined>(undefined)
+  /** Custom fetch, e.g. one that rewrites requests to a same-origin proxy. */
   fetchImpl = input<typeof fetch | undefined>(undefined)
+  /** Embed below the fold: hold the first fetch until the viewer nears the viewport. */
   lazy = input(false)
-  // Render `$…$` / `$$…$$` with KaTeX (lazy; off by default).
+  /** Where a signed-out visitor goes to sign in on a private site. Without it the OAuth flow starts. */
+  signInUrl = input<string | undefined>(undefined)
+  readonly safeSignInUrl = computed(() => safeUrl(this.signInUrl()))
+  /** Render `$…$` / `$$…$$` with KaTeX (lazy; off by default). */
   math = input(false)
-  // Render ```mermaid fences as diagrams (lazy; off by default).
+  /** Render ```mermaid fences as diagrams (lazy; off by default). */
   mermaid = input(false)
-  // Syntax highlighting for fenced code (lazy; on by default; React only today).
+  /** Syntax highlighting for fenced code (lazy; on by default; React only today). */
   codeHighlight = input(true)
 
   readonly noop = noopAsync
@@ -154,6 +193,17 @@ export class LcCommentViewerComponent {
     loader: async ({ params }) => {
       // Hold the first request until the lazy gate opens.
       await this.#gate
+      // A private site's thread needs a signed-in visitor: refuse before the thread request, not after.
+      const policy = resolveSettings(
+        {},
+        undefined,
+        await fetchCommentSettings({ baseUrl: params.baseUrl, site: params.site, fetchImpl: params.fetchImpl }),
+      )
+      const signedIn =
+        policy.access === 'open'
+          ? true
+          : (await fetchViewerSession({ baseUrl: params.baseUrl, fetchImpl: params.fetchImpl })) !== null
+      if (gateFor(policy.access, 'read', signedIn) === 'sign-in') throw signInRequiredError('read')
       // Fill the first thread window (pages: 1) before rendering it: replies
       // consume rows, so one `limit`-row fetch yields fewer than `limit` roots.
       const window = await loadThreadWindow({
@@ -167,6 +217,8 @@ export class LcCommentViewerComponent {
       return { comments: window.comments, hasMore: window.hasMore }
     },
   })
+  // A failed load has no value, and reading one throws: the row state reads it only when there is one.
+  readonly rootValue = computed(() => (this.root.hasValue() ? this.root.value() : undefined))
   readonly status = computed<Status>(() => {
     const status = this.root.status()
     if (status === 'error') return 'error'
@@ -180,11 +232,11 @@ export class LcCommentViewerComponent {
   })
   // Row cache: replaced by a load or by paging; a fresh load resets the page.
   readonly comments = linkedSignal<RootLoad | undefined, Comment[]>({
-    source: () => this.root.value(),
+    source: () => this.rootValue(),
     computation: (value) => value?.comments ?? [],
   })
   readonly hasMore = linkedSignal<RootLoad | undefined, boolean>({
-    source: () => this.root.value(),
+    source: () => this.rootValue(),
     computation: (value) => value?.hasMore ?? false,
   })
   readonly roots = computed<ThreadNode[]>(() => sortCommentRoots(buildCommentTree(this.comments()), this.sort()))
@@ -193,7 +245,7 @@ export class LcCommentViewerComponent {
   // A delete/edit shrinks the rows locally, so the current window can go empty
   // while the page state stays put: clamp to the last page that still has roots.
   readonly page = linkedSignal<{ loaded: RootLoad | undefined; roots: number; size: number }, number>({
-    source: () => ({ loaded: this.root.value(), roots: this.roots().length, size: this.pageSize() }),
+    source: () => ({ loaded: this.rootValue(), roots: this.roots().length, size: this.pageSize() }),
     computation: ({ loaded, roots, size }, previous) => {
       const requested = previous && previous.source.loaded === loaded ? previous.value : 1
       return Math.min(requested, Math.max(1, Math.ceil(roots / size)))
