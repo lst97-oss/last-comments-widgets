@@ -230,6 +230,14 @@ export function Comments({
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<ThreadSort>('newest')
   const [listError, setListError] = useState<ErrorInfo | null>(null)
+  // A gated read, or one the API refused as unauthenticated, shows the sign-in
+  // card: derived during render so no effect adjusts state for it.
+  const readPrompt =
+    readGate === 'sign-in'
+      ? signInRequired('read')
+      : status === 'error' && listError?.action === 'sign-in'
+        ? listError
+        : null
   const [hasMore, setHasMore] = useState(false)
   const [loadingPage, setLoadingPage] = useState(false)
   const [ui, uiDispatch] = useReducer(uiReducer, UI_INITIAL)
@@ -320,13 +328,9 @@ export function Comments({
   }, [client, url, pageId, limit, moderator, site, baseUrl, fetchImpl])
 
   useEffect(() => {
-    if (!inView || !settingsReady) return
-    if (identityPending) return
-    if (readGate === 'sign-in') {
-      setListError(signInRequired('read'))
-      setStatus('error')
-      return
-    }
+    // A gated read renders from `readGate` itself, so no state is adjusted
+    // here: only an allowed read fetches.
+    if (!inView || !settingsReady || identityPending || readGate !== 'allow') return
     void load()
   }, [load, inView, settingsReady, identityPending, readGate])
 
@@ -855,74 +859,81 @@ export function Comments({
           ) : (
             <SignInPrompt info={signInRequired('write')} context="write" {...signInProps} />
           )}
-          {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
-          {status === 'loading' && <CommentSkeletons count={3} />}
-          {status === 'error' && listError?.action === 'sign-in' ? (
-            <SignInPrompt info={listError} context="read" {...signInProps} />
+          {readPrompt ? (
+            <SignInPrompt info={readPrompt} context="read" {...signInProps} />
           ) : (
-            status === 'error' &&
-            listError && <CommentError info={listError} onRetry={() => void load()} {...signInProps} />
-          )}
-          {status === 'ready' && roots.length === 0 && (
-            <section className="rounded-lg border border-border p-6 text-sm text-muted-foreground">
-              No comments yet.
-            </section>
-          )}
-          {pageRoots.length > 0 && (
-            <section ref={listRef} aria-label="Comments" className="lc-thread-guides relative grid grid-cols-1 gap-3">
-              {/* New window or a new render order (votes re-rank under `best`) remounts to re-measure. */}
-              <ThreadGuides key={`${currentPage}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
-              {pageRoots.map((node) => (
-                <CommentItem
-                  key={node.comment.id}
-                  node={node}
-                  depth={0}
-                  pendingVotes={pendingVotes}
-                  replyTo={replyTo}
-                  viewerUserId={viewerUserId ?? session?.userId}
-                  viewerRole={viewerRole}
-                  writeAllowed={writeAllowed}
-                  signInProps={signInProps}
-                  // Voting is only possible on visible comments of an unlocked page.
-                  hideVotes={
-                    !policy.features.votes ||
-                    (moderator && (node.comment.status !== 'visible' || Boolean(pageLock?.locked)))
-                  }
-                  pendingModeration={pendingModeration}
-                  anonWindowMinutes={anonEditWindowMinutes}
-                  hasEditKey={guestEditKeys[node.comment.id] ?? false}
-                  actionMode={actionMode}
-                  bodyLimit={bodyLimit}
-                  math={math}
-                  mermaid={mermaid}
-                  codeHighlight={codeHighlight}
-                  onVote={itemActions.onVote}
-                  onClear={itemActions.onClear}
-                  onReply={setReplyTo}
-                  onEdit={itemActions.onEdit}
-                  onDelete={itemActions.onDelete}
-                  onReplySubmit={itemActions.onReplySubmit}
-                  replySiteKey={turnstileSiteKey}
-                  replyGuest={guest}
-                  replyIdentity={identity}
-                  onCloseReply={itemActions.onCloseReply}
-                  onModerate={itemActions.onModerate}
-                  onBlockUser={itemActions.onBlockUser}
+            <>
+              {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
+              {status === 'loading' && <CommentSkeletons count={3} />}
+              {status === 'error' && listError && (
+                <CommentError info={listError} onRetry={() => void load()} {...signInProps} />
+              )}
+              {status === 'ready' && roots.length === 0 && (
+                <section className="rounded-lg border border-border p-6 text-sm text-muted-foreground">
+                  No comments yet.
+                </section>
+              )}
+              {pageRoots.length > 0 && (
+                <section
+                  ref={listRef}
+                  aria-label="Comments"
+                  className="lc-thread-guides relative grid grid-cols-1 gap-3"
+                >
+                  {/* New window or a new render order (votes re-rank under `best`) remounts to re-measure. */}
+                  <ThreadGuides key={`${currentPage}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
+                  {pageRoots.map((node) => (
+                    <CommentItem
+                      key={node.comment.id}
+                      node={node}
+                      depth={0}
+                      pendingVotes={pendingVotes}
+                      replyTo={replyTo}
+                      viewerUserId={viewerUserId ?? session?.userId}
+                      viewerRole={viewerRole}
+                      writeAllowed={writeAllowed}
+                      signInProps={signInProps}
+                      // Voting is only possible on visible comments of an unlocked page.
+                      hideVotes={
+                        !policy.features.votes ||
+                        (moderator && (node.comment.status !== 'visible' || Boolean(pageLock?.locked)))
+                      }
+                      pendingModeration={pendingModeration}
+                      anonWindowMinutes={anonEditWindowMinutes}
+                      hasEditKey={guestEditKeys[node.comment.id] ?? false}
+                      actionMode={actionMode}
+                      bodyLimit={bodyLimit}
+                      math={math}
+                      mermaid={mermaid}
+                      codeHighlight={codeHighlight}
+                      onVote={itemActions.onVote}
+                      onClear={itemActions.onClear}
+                      onReply={setReplyTo}
+                      onEdit={itemActions.onEdit}
+                      onDelete={itemActions.onDelete}
+                      onReplySubmit={itemActions.onReplySubmit}
+                      replySiteKey={turnstileSiteKey}
+                      replyGuest={guest}
+                      replyIdentity={identity}
+                      onCloseReply={itemActions.onCloseReply}
+                      onModerate={itemActions.onModerate}
+                      onBlockUser={itemActions.onBlockUser}
+                    />
+                  ))}
+                </section>
+              )}
+              {loadingPage && <CommentSkeletons count={2} />}
+              {status === 'ready' && (
+                <CommentsPager
+                  page={currentPage}
+                  limit={limit}
+                  threads={roots.length}
+                  hasMore={hasMore}
+                  loading={loadingPage}
+                  onPrev={goPrev}
+                  onNext={goNextClick}
                 />
-              ))}
-            </section>
-          )}
-          {loadingPage && <CommentSkeletons count={2} />}
-          {status === 'ready' && (
-            <CommentsPager
-              page={currentPage}
-              limit={limit}
-              threads={roots.length}
-              hasMore={hasMore}
-              loading={loadingPage}
-              onPrev={goPrev}
-              onNext={goNextClick}
-            />
+              )}
+            </>
           )}
           <footer className="lc-footer mt-2 text-right text-xs text-muted-foreground">
             Powered by{' '}

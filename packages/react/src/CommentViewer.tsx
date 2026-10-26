@@ -2,6 +2,7 @@ import {
   beginOAuthSignIn,
   buildCommentTree,
   type Comment,
+  type CommentSettings,
   describeError,
   type ErrorInfo,
   fetchCommentSettings,
@@ -17,7 +18,7 @@ import {
   themeVarsToStyle,
   type ViewerOptions,
 } from '@last-comments-widgets/client'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type RefObject, useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import { CommentError } from './CommentError'
 import { CommentItem } from './CommentItem'
 import { CommentSkeletons } from './CommentSkeletons'
@@ -43,6 +44,78 @@ export type CommentViewerProps = ViewerOptions & {
   signInUrl?: string
 }
 
+type ViewerStatus = 'loading' | 'ready' | 'error'
+
+type ViewerState = {
+  rows: Comment[]
+  page: number
+  sort: ThreadSort
+  hasMore: boolean
+  loadingPage: boolean
+  status: ViewerStatus
+  error: ErrorInfo | null
+  policy: CommentSettings | null
+  signedIn: boolean | null
+  signInError: ErrorInfo | null
+}
+
+type ViewerAction =
+  | { type: 'policy/settle'; policy: CommentSettings }
+  | { type: 'session/settle'; signedIn: boolean }
+  | { type: 'load/start' }
+  | { type: 'load/success'; comments: Comment[]; hasMore: boolean }
+  | { type: 'load/error'; error: ErrorInfo }
+  | { type: 'page/start' }
+  | { type: 'page/success'; comments: Comment[]; hasMore: boolean; page: number }
+  | { type: 'page/error'; error: ErrorInfo }
+  | { type: 'page/set'; page: number }
+  | { type: 'sort/set'; sort: ThreadSort }
+  | { type: 'sign-in/error'; error: ErrorInfo | null }
+
+const VIEWER_INITIAL: ViewerState = {
+  rows: [],
+  page: 1,
+  sort: 'newest',
+  hasMore: false,
+  loadingPage: false,
+  status: 'loading',
+  error: null,
+  policy: null,
+  signedIn: null,
+  signInError: null,
+}
+
+// One transition per fetch outcome, so the component never adjusts state from
+// an effect: the fetches only report what arrived.
+function viewerReducer(state: ViewerState, action: ViewerAction): ViewerState {
+  switch (action.type) {
+    case 'policy/settle':
+      return { ...state, policy: action.policy }
+    case 'session/settle':
+      return { ...state, signedIn: action.signedIn }
+    case 'load/start':
+      return { ...state, status: 'loading', page: 1, error: null }
+    case 'load/success':
+      return { ...state, rows: action.comments, hasMore: action.hasMore, status: 'ready' }
+    case 'load/error':
+      return { ...state, error: action.error, status: 'error' }
+    case 'page/start':
+      return { ...state, loadingPage: true }
+    case 'page/success':
+      return { ...state, rows: action.comments, hasMore: action.hasMore, page: action.page, loadingPage: false }
+    case 'page/error':
+      return { ...state, error: action.error, status: 'error', loadingPage: false }
+    case 'page/set':
+      return { ...state, page: action.page }
+    case 'sort/set':
+      return { ...state, sort: action.sort, page: 1 }
+    case 'sign-in/error':
+      return { ...state, signInError: action.error }
+    default:
+      throw new Error(`Unknown comment viewer action: ${JSON.stringify(action)}`)
+  }
+}
+
 /**
  * Read-only comment thread: no composer, votes or actions. Follows the same
  * site policy as {@link Comments} — a private site shows one sign-in card and
@@ -66,17 +139,8 @@ export function CommentViewer({
   signInUrl,
 }: CommentViewerProps) {
   const dark = useTheme(theme)
-  const [rows, setRows] = useState<Comment[]>([])
-  const [page, setPage] = useState(1)
-  const [sort, setSort] = useState<ThreadSort>('newest')
-  const [hasMore, setHasMore] = useState(false)
-  const [loadingPage, setLoadingPage] = useState(false)
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [error, setError] = useState<ErrorInfo | null>(null)
-  // The site's policy and the visitor's session, both needed before a private site's thread may load.
-  const [policy, setPolicy] = useState<ReturnType<typeof resolveSettings> | null>(null)
-  const [viewerSignedIn, setViewerSignedIn] = useState<boolean | null>(null)
-  const [signInError, setSignInError] = useState<ErrorInfo | null>(null)
+  const [state, dispatch] = useReducer(viewerReducer, VIEWER_INITIAL)
+  const { rows, page, sort, hasMore, loadingPage, status, error, policy, signedIn: viewerSignedIn, signInError } = state
   // `lazy` holds the first fetch until the viewer nears the viewport (SSR/test safe).
 
   const rootRef = useRef<HTMLElement>(null)
@@ -87,21 +151,16 @@ export function CommentViewer({
   const loadSeq = useRef(0)
   const load = useCallback(async () => {
     const seq = ++loadSeq.current
-    setStatus('loading')
-    setPage(1)
-    setError(null)
+    dispatch({ type: 'load/start' })
     try {
       // One `limit`-row fetch yields fewer threads (replies consume rows), so
       // fill window 1 before rendering it.
       const window = await loadThreadWindow({ site, baseUrl, pageUrl, limit, fetchImpl, pages: 1 })
       if (seq !== loadSeq.current) return
-      setRows(window.comments)
-      setHasMore(window.hasMore)
-      setStatus('ready')
+      dispatch({ type: 'load/success', comments: window.comments, hasMore: window.hasMore })
     } catch (err) {
       if (seq !== loadSeq.current) return
-      setError(describeError(err))
-      setStatus('error')
+      dispatch({ type: 'load/error', error: describeError(err) })
     }
   }, [site, baseUrl, pageUrl, limit, fetchImpl])
 
@@ -110,14 +169,14 @@ export function CommentViewer({
     if (!inView) return
     let active = true
     void fetchCommentSettings({ baseUrl, site, fetchImpl }).then((value) => {
-      if (active) setPolicy(resolveSettings({}, undefined, value))
+      if (active) dispatch({ type: 'policy/settle', policy: resolveSettings({}, undefined, value) })
     })
     void fetchViewerSession({ baseUrl, fetchImpl }).then(
       (next) => {
-        if (active) setViewerSignedIn(next !== null)
+        if (active) dispatch({ type: 'session/settle', signedIn: next !== null })
       },
       () => {
-        if (active) setViewerSignedIn(false)
+        if (active) dispatch({ type: 'session/settle', signedIn: false })
       },
     )
     return () => {
@@ -135,11 +194,11 @@ export function CommentViewer({
   // The sign-in button mirrors the Comments widget: a configured sign-in page, else the OAuth flow.
   const signInHref = safeUrl(signInUrl)
   async function startSignIn() {
-    setSignInError(null)
+    dispatch({ type: 'sign-in/error', error: null })
     try {
       window.location.assign(await beginOAuthSignIn({ baseUrl, pageUrl: pageUrl ?? window.location.href, fetchImpl }))
     } catch (err) {
-      setSignInError(describeError(err))
+      dispatch({ type: 'sign-in/error', error: describeError(err) })
     }
   }
 
@@ -154,7 +213,7 @@ export function CommentViewer({
   // A page is a window over roots (threads): fill the destination window, then render it.
   const goNext = useCallback(async () => {
     const target = currentPage + 1
-    setLoadingPage(true)
+    dispatch({ type: 'page/start' })
     try {
       const window = await loadThreadWindow({
         site,
@@ -165,24 +224,18 @@ export function CommentViewer({
         pages: target,
         existing: rows,
       })
-      setRows(window.comments)
-      setHasMore(window.hasMore)
-      setPage(target)
+      dispatch({ type: 'page/success', comments: window.comments, hasMore: window.hasMore, page: target })
     } catch (err) {
-      setError(describeError(err, { title: 'Failed to load more comments' }))
-      setStatus('error')
-    } finally {
-      setLoadingPage(false)
+      dispatch({ type: 'page/error', error: describeError(err, { title: 'Failed to load more comments' }) })
     }
   }, [baseUrl, currentPage, fetchImpl, limit, pageUrl, rows, site])
 
-  const goPrev = useCallback(() => setPage(currentPage - 1), [currentPage])
+  const goPrev = useCallback(() => dispatch({ type: 'page/set', page: currentPage - 1 }), [currentPage])
   const goNextClick = useCallback(() => void goNext(), [goNext])
 
   function handleSortChange(next: ThreadSort) {
-    setSort(next)
     // Window boundaries follow the new order, so start from its first page.
-    setPage(1)
+    dispatch({ type: 'sort/set', sort: next })
   }
 
   return (
@@ -204,50 +257,25 @@ export function CommentViewer({
             {signInError && <CommentError info={signInError} />}
           </>
         ) : (
-          <>
-            {status === 'loading' && <CommentSkeletons count={3} readOnly />}
-            {status === 'error' && error && <CommentError info={error} onRetry={() => void load()} />}
-            {status === 'ready' && roots.length === 0 && (
-              <p className="text-sm text-muted-foreground">No comments yet.</p>
-            )}
-            {roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
-            {pageRoots.length > 0 && (
-              <section ref={listRef} aria-label="Comments" className="lc-thread-guides relative grid gap-4">
-                {/* New window or a new render order remounts to re-measure. */}
-                <ThreadGuides key={`${currentPage}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
-                {pageRoots.map((node) => (
-                  <CommentItem
-                    key={node.comment.id}
-                    node={node}
-                    depth={0}
-                    pendingVotes={{}}
-                    replyTo={null}
-                    readOnly
-                    math={math}
-                    mermaid={mermaid}
-                    codeHighlight={codeHighlight}
-                    onVote={noop}
-                    onClear={noop}
-                    onReply={noop}
-                    onEdit={noopAsync}
-                    onDelete={noopAsync}
-                  />
-                ))}
-              </section>
-            )}
-            {loadingPage && <CommentSkeletons count={2} readOnly />}
-            {status === 'ready' && (
-              <CommentsPager
-                page={currentPage}
-                limit={limit}
-                threads={roots.length}
-                hasMore={hasMore}
-                loading={loadingPage}
-                onPrev={goPrev}
-                onNext={goNextClick}
-              />
-            )}
-          </>
+          <CommentViewerThread
+            status={status}
+            error={error}
+            roots={roots}
+            pageRoots={pageRoots}
+            page={currentPage}
+            limit={limit}
+            hasMore={hasMore}
+            loadingPage={loadingPage}
+            sort={sort}
+            math={math}
+            mermaid={mermaid}
+            codeHighlight={codeHighlight}
+            listRef={listRef}
+            onRetry={() => void load()}
+            onSortChange={handleSortChange}
+            onPrev={goPrev}
+            onNext={goNextClick}
+          />
         )}
         <footer className="lc-footer mt-2 text-right text-xs text-muted-foreground">
           Powered by{' '}
@@ -262,5 +290,93 @@ export function CommentViewer({
         </footer>
       </section>
     </WidgetRootContext>
+  )
+}
+
+type CommentViewerThreadProps = {
+  status: ViewerStatus
+  error: ErrorInfo | null
+  roots: ThreadNode[]
+  pageRoots: ThreadNode[]
+  page: number
+  limit: number
+  hasMore: boolean
+  loadingPage: boolean
+  sort: ThreadSort
+  math: boolean
+  mermaid: boolean
+  codeHighlight: boolean
+  listRef: RefObject<HTMLElement | null>
+  onRetry: () => void
+  onSortChange: (next: ThreadSort) => void
+  onPrev: () => void
+  onNext: () => void
+}
+
+// The list half of the viewer: the status surface, the current page window,
+// its thread guides and the pager. Kept out of CommentViewer so the fetch and
+// gate logic there stays a single readable flow.
+function CommentViewerThread({
+  status,
+  error,
+  roots,
+  pageRoots,
+  page,
+  limit,
+  hasMore,
+  loadingPage,
+  sort,
+  math,
+  mermaid,
+  codeHighlight,
+  listRef,
+  onRetry,
+  onSortChange,
+  onPrev,
+  onNext,
+}: CommentViewerThreadProps) {
+  return (
+    <>
+      {status === 'loading' && <CommentSkeletons count={3} readOnly />}
+      {status === 'error' && error && <CommentError info={error} onRetry={onRetry} />}
+      {status === 'ready' && roots.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
+      {roots.length > 0 && <ThreadSortToggle value={sort} onChange={onSortChange} />}
+      {pageRoots.length > 0 && (
+        <section ref={listRef} aria-label="Comments" className="lc-thread-guides relative grid gap-4">
+          {/* New window or a new render order remounts to re-measure. */}
+          <ThreadGuides key={`${page}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
+          {pageRoots.map((node) => (
+            <CommentItem
+              key={node.comment.id}
+              node={node}
+              depth={0}
+              pendingVotes={{}}
+              replyTo={null}
+              readOnly
+              math={math}
+              mermaid={mermaid}
+              codeHighlight={codeHighlight}
+              onVote={noop}
+              onClear={noop}
+              onReply={noop}
+              onEdit={noopAsync}
+              onDelete={noopAsync}
+            />
+          ))}
+        </section>
+      )}
+      {loadingPage && <CommentSkeletons count={2} readOnly />}
+      {status === 'ready' && (
+        <CommentsPager
+          page={page}
+          limit={limit}
+          threads={roots.length}
+          hasMore={hasMore}
+          loading={loadingPage}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
+      )}
+    </>
   )
 }
