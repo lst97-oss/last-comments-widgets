@@ -1,5 +1,51 @@
 # @lst97-oss/last-comments-widgets
 
+## 0.6.0
+
+### Minor Changes
+
+- 3824875: Comment images load lighter and fail visibly.
+  
+  - Images fit the comment column and are capped at 28rem tall, keeping their proportions. The link around an image still opens the full file.
+  - Images from Cloudinary, Unsplash, imgix and Wikimedia Commons request a 640px and a 1280px rendition, so the browser fetches the smaller one on ordinary screens. If a rendition fails, the widget tries the original file once.
+  - Hosts without a known resize scheme load the original, lazily and without blocking the thread.
+  - A missing or refused image shows an "Image unavailable" label in place of the broken-image box. A link that is not an absolute http(s) URL, such as a relative path or `javascript:`, is never loaded.
+  
+  The label uses the `.lc-image-unavailable` theme hook.
+- be47f9a: Add opt-in TeX math and Mermaid diagrams, and make code highlighting switchable.
+  
+  - New `math` flag (default `false`): `$…$` and `$$…$$` render through KaTeX. The shared renderer emits an escaped formula placeholder in every port and each widget upgrades it after paint from a lazily imported KaTeX, so a host that leaves the flag off downloads nothing. Currency, lone dollar runs, escaped `\$`, code spans and fenced blocks stay literal.
+  - New `mermaid` flag (default `false`): ```mermaid fences render through a lazily imported Mermaid, with the source block kept for a parse error, a missing library or an svg that carries script, inline handlers or a `javascript:` url. Diagrams re-render when the widget's light/dark mode flips.
+  - New `codeHighlight` flag (default `true`): set it to `false` to skip the post-paint Shiki upgrade (React is the only port that highlights today).
+  - Plain HTML gains the presence-only `data-lc-math` and `data-lc-mermaid` attributes plus `data-lc-no-code-highlight`; `katex` and `mermaid` are optional peers, installed only by hosts that enable them.
+- 3824875: The account badge follows the server's site role now.
+  
+  - `Admin` shows for the site admin and `Member` for a member. A signed-in account with no role gets no badge. Before, every signed-in account without a membership was labelled `Member`.
+  - `ViewerRole` is `admin` only. Moderation controls show only for the site admin, so `viewerRole="moderator"` (or `data-lc-viewer-role="moderator"`) no longer renders them.
+  - New `SiteRole` type (`admin` | `member`) for an author's role and a moderation site's role.
+- 3824875: Login and private sites show a sign-in card in place of the composer and the thread.
+  
+  - `login`: a signed-out visitor sees the card where the composer would be. Reply stays visible, and a signed-out Reply opens the card under the comment, with no request.
+  - `private`: the thread is not fetched. The comments widget and the read-only viewer each show exactly one card, and the composer slot stays empty.
+  - The card is neutral and follows the host's theme through the new `signIn*` tokens (`--lc-signin-*`). Its button goes to `signInUrl`, or starts the sign-in flow in place when none is set. `CommentViewer` takes `signInUrl` too (`data-lc-sign-in-url` in vanilla).
+  - Fixed: every refused action showed the same generic "Sign in to do that." line. Each action keeps its own (for example "Sign in to reply to this comment.").
+  - Fixed: the Angular comments widget threw while rendering a private site, so nothing was shown in place of the thread.
+- 3824875: Widgets read the site's policy from the comments service instead of relying on the host to copy it.
+  
+  - A new `settings` prop takes the whole policy as one object. `bodyLimit`, `anonEditWindowMinutes` and `turnstileSiteKey` still work, and win over the policy when set.
+  - Without `settings`, the widget reads `GET /api/comments/settings` once per site, cached for a minute. A failed read falls back to the built-in defaults, and the service still enforces every rule.
+  - On a site that asks visitors to sign in, a signed-out visitor sees a sign-in block where the list or the composer would be, instead of a refused request. The Anonymous option appears only on open sites.
+  - `features.votes` turns voting off for a site: the arrows are hidden. A guest who clicks an arrow is asked to sign in, with no request sent.
+  - A guest deletes their own comment with the edit key they were issued, from the browser that stored it. The API sends the key in a header, so it stays out of the URL.
+  - A deleted comment stays in the thread as `[This comment was deleted]`, and its replies stay under it. The text used to read `[deleted]`, and the header showed the author's name.
+  
+  The endpoint needs a last-comments service that serves it. An older service answers 404, and the widget then behaves as it did before.
+
+### Patch Changes
+
+- 70c4d53: The ⋮ action menu on each comment is a flat popover: it now draws a solid border (`--lc-border-width`, in the theme's border colour) and no offset shadow. The shadow defaults to `none` through the new `--lc-actions-shadow` token; set it to restore a shadow on that menu. The identity menu (`Comment as`) keeps `--lc-dropdown-shadow`.
+- 3824875: Replying no longer hides the comment you are answering. The reply composer now opens below that comment's message in every port, so the message stays on screen while you write.
+
 ## 0.5.0
 
 ### Minor Changes
