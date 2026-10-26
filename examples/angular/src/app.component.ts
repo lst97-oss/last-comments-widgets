@@ -69,11 +69,10 @@ import {
         </label>
         <label>Viewer user ID (empty = guest) <input [(ngModel)]="viewerUserId" /></label>
         <label>
-          Viewer role (admin/moderator show inline moderation; needs a same-origin API)
+          Viewer role (admin shows inline moderation; needs a same-origin API)
           <select [(ngModel)]="viewerRole">
             <option value="">none</option>
             <option value="admin">admin</option>
-            <option value="moderator">moderator</option>
           </select>
         </label>
         <label>
@@ -99,7 +98,7 @@ export class AppComponent {
   turnstileTheme: '' | 'auto' | 'light' | 'dark' = ''
   turnstileOptions: TurnstileOptions | undefined = undefined
   viewerUserId = ''
-  viewerRole: '' | 'admin' | 'moderator' = ''
+  viewerRole: '' | 'admin' = ''
   actionMode: ActionMode = 'icon-text'
   theme: Theme = 'system'
   bodyLimit = 10_000

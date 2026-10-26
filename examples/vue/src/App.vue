@@ -48,7 +48,7 @@ const themeVars = computed(() => presets[preset.value])
       :turnstile-site-key="turnstileSiteKey || undefined"
       :viewer-user-id="viewerUserId || undefined"
       :sign-in-url="signInUrl || undefined"
-      :viewer-role="viewerRole === 'admin' || viewerRole === 'moderator' ? viewerRole : undefined"
+      :viewer-role="viewerRole === 'admin' ? viewerRole : undefined"
       :theme-vars="themeVars"
       :action-mode="actionMode"
       :body-limit="bodyLimit"
@@ -96,11 +96,10 @@ const themeVars = computed(() => presets[preset.value])
           <input v-model="signInUrl" class="rounded border border-input px-2 py-1" />
         </label>
         <label class="grid gap-1">
-          Viewer role (admin/moderator show the moderation actions; needs the same-origin proxy)
+          Viewer role (admin shows the moderation actions; needs the same-origin proxy)
           <select v-model="viewerRole" class="rounded border border-input px-2 py-1">
             <option value="">none</option>
             <option value="admin">admin</option>
-            <option value="moderator">moderator</option>
           </select>
         </label>
         <label class="grid gap-1">

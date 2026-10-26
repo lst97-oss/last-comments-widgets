@@ -59,7 +59,7 @@ function Demo() {
         turnstileSiteKey={turnstileSiteKey || undefined}
         viewerUserId={viewerUserId || undefined}
         signInUrl={signInUrl || undefined}
-        viewerRole={viewerRole === 'admin' || viewerRole === 'moderator' ? viewerRole : undefined}
+        viewerRole={viewerRole === 'admin' ? viewerRole : undefined}
         themeVars={THEME_PRESETS[preset]}
         lazy={lazy}
         math={math}
@@ -151,7 +151,7 @@ function Demo() {
             />
           </label>
           <label className="grid gap-1">
-            Viewer role (admin/moderator show inline moderation; needs the same-origin proxy)
+            Viewer role (admin shows inline moderation; needs the same-origin proxy)
             <select
               className="rounded border border-input px-2 py-1"
               value={viewerRole}
@@ -159,7 +159,6 @@ function Demo() {
             >
               <option value="">none</option>
               <option value="admin">admin</option>
-              <option value="moderator">moderator</option>
             </select>
           </label>
           <label className="flex items-center gap-2">
