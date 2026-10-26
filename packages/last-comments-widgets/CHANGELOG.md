@@ -1,5 +1,13 @@
 # @lst97-oss/last-comments-widgets
 
+## 0.6.2
+
+### Patch Changes
+
+- Render math, Mermaid and code highlighting in replies again. The recursive
+  React `CommentItem` dropped the render flags, so a reply showed raw `$$…$$`
+  and fences while top-level comments rendered correctly.
+
 ## 0.6.1
 
 ### Patch Changes

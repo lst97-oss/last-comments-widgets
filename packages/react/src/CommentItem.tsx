@@ -603,6 +603,9 @@ export function CommentItem({
                     readOnly={readOnly}
                     actionMode={actionMode}
                     bodyLimit={bodyLimit}
+                    math={math}
+                    mermaid={mermaid}
+                    codeHighlight={codeHighlight}
                     parentAuthorName={comment.authorName}
                     writeAllowed={writeAllowed}
                     signInProps={signInProps}
