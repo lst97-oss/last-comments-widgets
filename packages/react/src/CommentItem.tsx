@@ -1,12 +1,14 @@
 import {
   accountBadge,
   type Comment,
+  canDeleteComment,
   collectThreadParticipants,
   DEFAULT_BODY_LIMIT,
   type ErrorInfo,
   formatRelativeTime,
   type ModerationAction,
   safeUrl,
+  signInRequired,
   type ThreadNode,
   type ViewerRole,
   type VoteValue,
@@ -26,12 +28,13 @@ import {
   Reply,
   Trash2,
 } from 'lucide-react'
-import { type ComponentProps, memo, type ReactNode, useReducer, useRef } from 'react'
+import { type ComponentProps, memo, type ReactNode, useReducer, useRef, useState } from 'react'
 import { CommentForm, type CommentFormInput } from './CommentForm'
 import { CommentPlaceholder } from './CommentPlaceholder'
 import { canEditComment } from './editGate'
 import { cn, initials } from './lib/utils'
 import { Markdown } from './Markdown'
+import { SignInPrompt } from './SignInPrompt'
 import type { ActionMode } from './types'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion'
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount, AvatarImage } from './ui/avatar'
@@ -98,6 +101,10 @@ export function itemReducer(state: ItemState, action: ItemAction): ItemState {
 type CommentItemProps = {
   node: ThreadNode
   depth: number
+  // False when the site asks a visitor to sign in before writing: no reply, edit or delete from here.
+  writeAllowed?: boolean
+  // The Sign in action for the reply prompt a signed-out visitor sees, wired like the list and composer prompts.
+  signInProps?: { onSignIn?: () => void; signInHref?: string }
   pendingVotes: Record<string, boolean>
   replyTo: string | null
   viewerUserId?: string
@@ -176,7 +183,7 @@ function CommentActionsMenu({
   comment,
   canEdit,
   editing,
-  isOwn,
+  canDelete,
   viewerRole,
   moderationPending,
   onEdit,
@@ -187,7 +194,7 @@ function CommentActionsMenu({
   comment: Comment
   canEdit: boolean
   editing: boolean
-  isOwn: boolean
+  canDelete: boolean
   viewerRole?: ViewerRole
   moderationPending: boolean
   onEdit: () => void
@@ -198,7 +205,7 @@ function CommentActionsMenu({
   // Delete is soft (status 'deleted', restorable by a moderator), so the menu
   // entry acts immediately instead of asking for confirmation.
   const showEdit = canEdit && !editing
-  const showOwnDelete = isOwn && !viewerRole && !editing
+  const showOwnDelete = canDelete && !viewerRole && !editing
   const showModeration = Boolean(viewerRole)
   if (!showEdit && !showOwnDelete && !showModeration) return null
 
@@ -344,7 +351,7 @@ type CommentHeaderProps = {
   avatarUrl: string | undefined
   canEdit: boolean
   editing: boolean
-  isOwn: boolean
+  canDelete: boolean
   viewerRole?: ViewerRole
   moderationPending: boolean
   readOnly: boolean
@@ -365,7 +372,7 @@ function CommentHeader({
   avatarUrl,
   canEdit,
   editing,
-  isOwn,
+  canDelete,
   viewerRole,
   moderationPending,
   readOnly,
@@ -446,7 +453,7 @@ function CommentHeader({
           comment={comment}
           canEdit={canEdit}
           editing={editing}
-          isOwn={isOwn}
+          canDelete={canDelete}
           viewerRole={viewerRole}
           moderationPending={moderationPending}
           onEdit={onEditStart}
@@ -502,6 +509,8 @@ function CollapsedComment({
 export function CommentItem({
   node,
   depth,
+  writeAllowed = true,
+  signInProps,
   pendingVotes,
   replyTo,
   viewerUserId,
@@ -538,10 +547,13 @@ export function CommentItem({
   const replyingRef = useRef(false)
   // The inline editor's in-flight lock, for the same reason.
   const savingRef = useRef(false)
-  const isOwn = Boolean(viewerUserId && comment.userId && viewerUserId === comment.userId)
-  const canEdit = canEditComment(comment, viewerUserId, { anonWindowMinutes, hasEditKey })
+  const canDelete = writeAllowed && canDeleteComment(comment, viewerUserId, hasEditKey)
+  const canEdit = writeAllowed && canEditComment(comment, viewerUserId, { anonWindowMinutes, hasEditKey })
   const moderationPending = pendingModeration?.[comment.id] ?? false
+  // Reply is always offered on a visible comment. A signed-out visitor on a login site gets the sign-in prompt
+  // instead of the composer, so the button stays and the gate sits behind the click.
   const canReplyHere = !(viewerRole && comment.status !== 'visible')
+  const [replyPrompt, setReplyPrompt] = useState(false)
   const avatarUrl = safeUrl(comment.avatarUrl)
   const replyCount = countReplies(node.children)
   const repliesLabel = `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`
@@ -592,6 +604,8 @@ export function CommentItem({
                     actionMode={actionMode}
                     bodyLimit={bodyLimit}
                     parentAuthorName={comment.authorName}
+                    writeAllowed={writeAllowed}
+                    signInProps={signInProps}
                     onVote={onVote}
                     onClear={onClear}
                     onReply={onReply}
@@ -628,7 +642,7 @@ export function CommentItem({
         avatarUrl={avatarUrl}
         canEdit={canEdit}
         editing={editing}
-        isOwn={isOwn}
+        canDelete={canDelete}
         viewerRole={viewerRole}
         moderationPending={moderationPending}
         readOnly={readOnly}
@@ -690,7 +704,21 @@ export function CommentItem({
                 onCancelReply={() => dispatch({ type: 'edit/close' })}
               />
             </div>
-          ) : !readOnly && replyTo === comment.id && onReplySubmit ? (
+          ) : (
+            <Markdown
+              source={comment.bodyMarkdown}
+              className="lc-markdown my-3 font-sans text-sm"
+              math={math}
+              mermaid={mermaid}
+              codeHighlight={codeHighlight}
+            />
+          )}
+          {!readOnly && !writeAllowed && replyPrompt ? (
+            <div className="my-3">
+              <SignInPrompt info={signInRequired('reply')} context="reply" {...signInProps} />
+            </div>
+          ) : null}
+          {!readOnly && !editing && writeAllowed && replyTo === comment.id && onReplySubmit ? (
             <div className="my-3">
               <CommentForm
                 siteKey={replySiteKey}
@@ -723,15 +751,7 @@ export function CommentItem({
                 }}
               />
             </div>
-          ) : (
-            <Markdown
-              source={comment.bodyMarkdown}
-              className="lc-markdown my-3 font-sans text-sm"
-              math={math}
-              mermaid={mermaid}
-              codeHighlight={codeHighlight}
-            />
-          )}
+          ) : null}
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-1 text-sm">
               {canReplyHere && (
@@ -739,9 +759,13 @@ export function CommentItem({
                   icon={Reply}
                   label="Reply"
                   mode={actionMode}
-                  aria-expanded={replyTo === comment.id}
+                  aria-expanded={writeAllowed ? replyTo === comment.id : replyPrompt}
                   onClick={() => {
                     dispatch({ type: 'edit/close' })
+                    if (!writeAllowed) {
+                      setReplyPrompt((open) => !open)
+                      return
+                    }
                     if (replyTo === comment.id) onCloseReply?.()
                     else onReply(comment.id)
                   }}

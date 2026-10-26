@@ -1,9 +1,16 @@
 import {
+  beginOAuthSignIn,
   buildCommentTree,
   type Comment,
   describeError,
   type ErrorInfo,
+  fetchCommentSettings,
+  fetchViewerSession,
+  gateFor,
   loadThreadWindow,
+  resolveSettings,
+  safeUrl,
+  signInRequired,
   sortCommentRoots,
   type ThreadNode,
   type ThreadSort,
@@ -15,6 +22,7 @@ import { CommentError } from './CommentError'
 import { CommentItem } from './CommentItem'
 import { CommentSkeletons } from './CommentSkeletons'
 import { CommentsPager } from './CommentsPager'
+import { SignInPrompt } from './SignInPrompt'
 import { ThreadGuides, threadSignature } from './ThreadGuides'
 import { ThreadSortToggle } from './ThreadSortToggle'
 import { useInView } from './useInView'
@@ -25,12 +33,24 @@ import { WidgetRootContext } from './WidgetRootContext'
 const noop = () => {}
 // null = "no error".
 const noopAsync = async () => null
+/** Props for {@link CommentViewer}: a read-only thread with paging and sorting. */
 export type CommentViewerProps = ViewerOptions & {
+  /** Top-level threads per page (default 20). */
   limit?: number
-  // Embed below the fold: hold the first fetch until the viewer nears the viewport.
+  /** Embed below the fold: hold the first fetch until the viewer nears the viewport. */
   lazy?: boolean
+  /** Where a signed-out visitor goes to sign in on a private site. Without it the OAuth flow starts. */
+  signInUrl?: string
 }
 
+/**
+ * Read-only comment thread: no composer, votes or actions. Follows the same
+ * site policy as {@link Comments} — a private site shows one sign-in card and
+ * fetches no thread.
+ *
+ * Import `@lst97-oss/last-comments-widgets/react/styles.css` once, and proxy
+ * `/api/*` same-origin.
+ */
 export function CommentViewer({
   site,
   baseUrl,
@@ -43,6 +63,7 @@ export function CommentViewer({
   mermaid = false,
   codeHighlight = true,
   fetchImpl,
+  signInUrl,
 }: CommentViewerProps) {
   const dark = useTheme(theme)
   const [rows, setRows] = useState<Comment[]>([])
@@ -52,6 +73,10 @@ export function CommentViewer({
   const [loadingPage, setLoadingPage] = useState(false)
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<ErrorInfo | null>(null)
+  // The site's policy and the visitor's session, both needed before a private site's thread may load.
+  const [policy, setPolicy] = useState<ReturnType<typeof resolveSettings> | null>(null)
+  const [viewerSignedIn, setViewerSignedIn] = useState<boolean | null>(null)
+  const [signInError, setSignInError] = useState<ErrorInfo | null>(null)
   // `lazy` holds the first fetch until the viewer nears the viewport (SSR/test safe).
 
   const rootRef = useRef<HTMLElement>(null)
@@ -80,9 +105,43 @@ export function CommentViewer({
     }
   }, [site, baseUrl, pageUrl, limit, fetchImpl])
 
+  // The policy and the session are read once the viewer is in view. A private site's thread waits for both.
   useEffect(() => {
-    if (inView) void load()
-  }, [load, inView])
+    if (!inView) return
+    let active = true
+    void fetchCommentSettings({ baseUrl, site, fetchImpl }).then((value) => {
+      if (active) setPolicy(resolveSettings({}, undefined, value))
+    })
+    void fetchViewerSession({ baseUrl, fetchImpl }).then(
+      (next) => {
+        if (active) setViewerSignedIn(next !== null)
+      },
+      () => {
+        if (active) setViewerSignedIn(false)
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [baseUrl, site, fetchImpl, inView])
+
+  // Derived during render: the read gate once both the policy and the session have settled.
+  const readGate = policy && viewerSignedIn !== null ? gateFor(policy.access, 'read', viewerSignedIn) : null
+
+  useEffect(() => {
+    if (inView && readGate === 'allow') void load()
+  }, [load, inView, readGate])
+
+  // The sign-in button mirrors the Comments widget: a configured sign-in page, else the OAuth flow.
+  const signInHref = safeUrl(signInUrl)
+  async function startSignIn() {
+    setSignInError(null)
+    try {
+      window.location.assign(await beginOAuthSignIn({ baseUrl, pageUrl: pageUrl ?? window.location.href, fetchImpl }))
+    } catch (err) {
+      setSignInError(describeError(err))
+    }
+  }
 
   const roots: ThreadNode[] = useMemo(() => sortCommentRoots(buildCommentTree(rows), sort), [rows, sort])
   // Deleting the last thread of a page empties its window, so fall back to the
@@ -134,45 +193,61 @@ export function CommentViewer({
         style={themeVarsToStyle(themeVars, dark)}
         aria-label="Comments"
       >
-        {status === 'loading' && <CommentSkeletons count={3} readOnly />}
-        {status === 'error' && error && <CommentError info={error} onRetry={() => void load()} />}
-        {status === 'ready' && roots.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
-        {roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
-        {pageRoots.length > 0 && (
-          <section ref={listRef} aria-label="Comments" className="lc-thread-guides relative grid gap-4">
-            {/* New window or a new render order remounts to re-measure. */}
-            <ThreadGuides key={`${currentPage}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
-            {pageRoots.map((node) => (
-              <CommentItem
-                key={node.comment.id}
-                node={node}
-                depth={0}
-                pendingVotes={{}}
-                replyTo={null}
-                readOnly
-                math={math}
-                mermaid={mermaid}
-                codeHighlight={codeHighlight}
-                onVote={noop}
-                onClear={noop}
-                onReply={noop}
-                onEdit={noopAsync}
-                onDelete={noopAsync}
+        {readGate === 'sign-in' ? (
+          <>
+            <SignInPrompt
+              info={signInRequired('read')}
+              context="read"
+              signInHref={signInHref}
+              onSignIn={signInHref ? undefined : () => void startSignIn()}
+            />
+            {signInError && <CommentError info={signInError} />}
+          </>
+        ) : (
+          <>
+            {status === 'loading' && <CommentSkeletons count={3} readOnly />}
+            {status === 'error' && error && <CommentError info={error} onRetry={() => void load()} />}
+            {status === 'ready' && roots.length === 0 && (
+              <p className="text-sm text-muted-foreground">No comments yet.</p>
+            )}
+            {roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
+            {pageRoots.length > 0 && (
+              <section ref={listRef} aria-label="Comments" className="lc-thread-guides relative grid gap-4">
+                {/* New window or a new render order remounts to re-measure. */}
+                <ThreadGuides key={`${currentPage}:${sort}:${threadSignature(pageRoots)}`} listRef={listRef} />
+                {pageRoots.map((node) => (
+                  <CommentItem
+                    key={node.comment.id}
+                    node={node}
+                    depth={0}
+                    pendingVotes={{}}
+                    replyTo={null}
+                    readOnly
+                    math={math}
+                    mermaid={mermaid}
+                    codeHighlight={codeHighlight}
+                    onVote={noop}
+                    onClear={noop}
+                    onReply={noop}
+                    onEdit={noopAsync}
+                    onDelete={noopAsync}
+                  />
+                ))}
+              </section>
+            )}
+            {loadingPage && <CommentSkeletons count={2} readOnly />}
+            {status === 'ready' && (
+              <CommentsPager
+                page={currentPage}
+                limit={limit}
+                threads={roots.length}
+                hasMore={hasMore}
+                loading={loadingPage}
+                onPrev={goPrev}
+                onNext={goNextClick}
               />
-            ))}
-          </section>
-        )}
-        {loadingPage && <CommentSkeletons count={2} readOnly />}
-        {status === 'ready' && (
-          <CommentsPager
-            page={currentPage}
-            limit={limit}
-            threads={roots.length}
-            hasMore={hasMore}
-            loading={loadingPage}
-            onPrev={goPrev}
-            onNext={goNextClick}
-          />
+            )}
+          </>
         )}
         <footer className="lc-footer mt-2 text-right text-xs text-muted-foreground">
           Powered by{' '}

@@ -3,20 +3,25 @@ import {
   beginOAuthSignIn,
   buildCommentTree,
   type Comment,
+  type CommentSettings,
   canModerate,
   createClient,
-  DEFAULT_ANON_EDIT_WINDOW_MINUTES,
-  DEFAULT_BODY_LIMIT,
   describeError,
   type ErrorInfo,
+  fetchCommentSettings,
   fetchViewerSession,
+  forgetEditKey,
+  gateFor,
   getEditKey,
+  isCompleteSettings,
   loadThreadWindow,
   type ModerationAction,
   moderationCommentToComment,
   normalizePageUrl,
+  resolveSettings,
   safeUrl,
   saveEditKey,
+  signInRequired,
   signOutViewerSession,
   sortCommentRoots,
   type ThreadNode,
@@ -33,6 +38,7 @@ import { CommentForm, type CommentFormInput } from './CommentForm'
 import { CommentItem } from './CommentItem'
 import { CommentSkeletons } from './CommentSkeletons'
 import { CommentsPager } from './CommentsPager'
+import { SignInPrompt } from './SignInPrompt'
 import { ThreadGuides, threadSignature } from './ThreadGuides'
 import { ThreadSortToggle } from './ThreadSortToggle'
 import { TurnstileConfigContext } from './TurnstileConfig'
@@ -137,13 +143,21 @@ function moderationError(err: unknown, title: string): ErrorInfo {
   return describeError(err, { title })
 }
 
+/**
+ * Drop-in comment thread: list, composer, replies, votes, paging and inline
+ * moderation. A `private` site renders one sign-in card instead of the thread,
+ * and a locked page blocks posting.
+ *
+ * Import `@lst97-oss/last-comments-widgets/react/styles.css` once, and proxy
+ * `/api/*` same-origin (see {@link CommentsProps}).
+ */
 export function Comments({
   site,
   baseUrl,
   pageUrl,
   pageId,
   onModerated,
-  turnstileSiteKey,
+  turnstileSiteKey: turnstileKeyProp,
   turnstileOptions,
   limit = 20,
   theme = 'system',
@@ -152,14 +166,15 @@ export function Comments({
   onSignInClick,
   viewerUserId,
   viewerRole,
-  anonEditWindowMinutes = DEFAULT_ANON_EDIT_WINDOW_MINUTES,
+  anonEditWindowMinutes: anonEditWindowProp,
   actionMode = 'icon-text',
-  bodyLimit = DEFAULT_BODY_LIMIT,
+  bodyLimit: bodyLimitProp,
   lazy = false,
   math = false,
   mermaid = false,
   codeHighlight = true,
   fetchImpl,
+  settings,
 }: CommentsProps) {
   const dark = useTheme(theme)
   // Widget-wide Turnstile settings for the head and reply composers; the object
@@ -169,12 +184,49 @@ export function Comments({
   const [session, setSession] = useState<ViewerSession | null>(null)
   const [commentAs, setCommentAs] = useState<'account' | 'anonymous'>('account')
   const signedIn = Boolean(session) || Boolean(viewerUserId)
-  const guest = !signedIn || commentAs === 'anonymous'
+  // The site's policy. A complete `settings` object is used as given; otherwise the public settings
+  // endpoint is read once per site. Explicit props still win over both.
+  const [fetchedSettings, setFetchedSettings] = useState<CommentSettings | null>(null)
+  const [settingsSettled, setSettingsSettled] = useState(false)
+  const settingsComplete = isCompleteSettings(settings)
+  useEffect(() => {
+    if (settingsComplete) return
+    let active = true
+    void fetchCommentSettings({ baseUrl, site, fetchImpl }).then((value) => {
+      if (!active) return
+      setFetchedSettings(value)
+      setSettingsSettled(true)
+    })
+    return () => {
+      active = false
+    }
+  }, [baseUrl, site, fetchImpl, settingsComplete])
+  const policy = useMemo(
+    () =>
+      resolveSettings(
+        { bodyLimit: bodyLimitProp, anonEditWindowMinutes: anonEditWindowProp, turnstileSiteKey: turnstileKeyProp },
+        settings,
+        fetchedSettings,
+      ),
+    [bodyLimitProp, anonEditWindowProp, turnstileKeyProp, settings, fetchedSettings],
+  )
+  const settingsReady = settingsComplete || settingsSettled
+  const bodyLimit = policy.bodyLimit
+  const anonEditWindowMinutes = policy.anonEditWindowMinutes
+  const turnstileSiteKey = policy.turnstileSiteKey ?? undefined
   const client = useMemo(() => createClient({ baseUrl, site, fetchImpl }), [baseUrl, site, fetchImpl])
   const url = useMemo(() => pageUrl ?? (typeof window !== 'undefined' ? window.location.href : ''), [pageUrl])
   const [comments, setComments] = useState<Comment[]>([])
   const [status, setStatus] = useState<Status>('loading')
   const [sessionStatus, setSessionStatus] = useState<'loading' | 'ready'>('loading')
+  const guest = !signedIn || (commentAs === 'anonymous' && policy.access === 'open')
+  // A visitor is only asked to sign in once the identity probe has settled, so a signed-in
+  // reader on a locked site never sees the sign-in block by mistake.
+  const identityPending = sessionStatus === 'loading' && policy.access !== 'open'
+  const gateSignedIn = signedIn || moderator
+  const readGate = gateFor(policy.access, 'read', gateSignedIn)
+  const writeAllowed = gateFor(policy.access, 'write', gateSignedIn) === 'allow'
+  const showComposer = !settingsReady || identityPending || writeAllowed
   const [page, setPage] = useState(1)
   const [sort, setSort] = useState<ThreadSort>('newest')
   const [listError, setListError] = useState<ErrorInfo | null>(null)
@@ -268,8 +320,15 @@ export function Comments({
   }, [client, url, pageId, limit, moderator, site, baseUrl, fetchImpl])
 
   useEffect(() => {
-    if (inView) void load()
-  }, [load, inView])
+    if (!inView || !settingsReady) return
+    if (identityPending) return
+    if (readGate === 'sign-in') {
+      setListError(signInRequired('read'))
+      setStatus('error')
+      return
+    }
+    void load()
+  }, [load, inView, settingsReady, identityPending, readGate])
 
   useEffect(() => {
     // Deferred (below-the-fold) widgets probe the session only once in view:
@@ -320,6 +379,11 @@ export function Comments({
 
   const handleVote = useCallback(
     async (comment: Comment, value: VoteValue) => {
+      // Votes need a signed-in session: a guest is told so, rather than sent a request that is refused.
+      if (!gateSignedIn) {
+        setActionError(signInRequired('vote'))
+        return
+      }
       uiDispatch({ type: 'votes/pending', id: comment.id, pending: true })
       setActionError(null)
       try {
@@ -335,11 +399,15 @@ export function Comments({
         uiDispatch({ type: 'votes/pending', id: comment.id, pending: false })
       }
     },
-    [applyVote, client, moderator],
+    [applyVote, client, gateSignedIn, moderator],
   )
 
   const handleClear = useCallback(
     async (comment: Comment) => {
+      if (!gateSignedIn) {
+        setActionError(signInRequired('vote'))
+        return
+      }
       uiDispatch({ type: 'votes/pending', id: comment.id, pending: true })
       setActionError(null)
       try {
@@ -354,7 +422,7 @@ export function Comments({
         uiDispatch({ type: 'votes/pending', id: comment.id, pending: false })
       }
     },
-    [applyVote, client, moderator],
+    [applyVote, client, gateSignedIn, moderator],
   )
 
   // Shared create path: head comments and inline replies differ only in the
@@ -478,7 +546,10 @@ export function Comments({
     async (commentId: string) => {
       setActionError(null)
       try {
-        await client.deleteOwnComment(commentId)
+        // A guest proves ownership with the edit key kept in this browser; a signed-in author sends none.
+        const editKey = getEditKey(commentId)
+        await client.deleteOwnComment(commentId, editKey ?? undefined)
+        forgetEditKey(commentId)
         // Keep the row as a tombstone: the thread keeps its shape and the
         // normal view renders the deleted placeholder instead of the body.
         setComments((prev) => prev.map((c) => (c.id === commentId ? { ...c, status: 'deleted' } : c)))
@@ -702,9 +773,11 @@ export function Comments({
             value={guest ? 'anonymous' : 'account'}
             onValueChange={(value) => setCommentAs(value as 'account' | 'anonymous')}
           >
-            <DropdownMenuRadioItem value="anonymous" closeOnClick>
-              Anonymous
-            </DropdownMenuRadioItem>
+            {policy.access === 'open' && (
+              <DropdownMenuRadioItem value="anonymous" closeOnClick>
+                Anonymous
+              </DropdownMenuRadioItem>
+            )}
             {signedIn ? (
               <DropdownMenuRadioItem value="account" closeOnClick>
                 {session?.name || 'Your account'} (you)
@@ -757,27 +830,38 @@ export function Comments({
               </Button>
             </div>
           )}
-          {actionError && <CommentError info={actionError} onRetry={() => void load()} {...signInProps} />}
-          <CommentForm
-            key={formEpoch}
-            siteKey={turnstileSiteKey}
-            guest={guest}
-            parentId={null}
-            pending={posting}
-            error={formError}
-            {...signInProps}
-            identityPending={sessionStatus === 'loading'}
-            identity={identity}
-            bodyLimit={bodyLimit}
-            math={math}
-            mermaid={mermaid}
-            codeHighlight={codeHighlight}
-            onSubmit={handleSubmit}
-          />
+          {actionError?.action === 'sign-in' ? (
+            <SignInPrompt info={actionError} context="vote" {...signInProps} />
+          ) : (
+            actionError && <CommentError info={actionError} onRetry={() => void load()} {...signInProps} />
+          )}
+          {readGate === 'sign-in' ? null : showComposer ? (
+            <CommentForm
+              key={formEpoch}
+              siteKey={turnstileSiteKey}
+              guest={guest}
+              parentId={null}
+              pending={posting}
+              error={formError}
+              {...signInProps}
+              identityPending={sessionStatus === 'loading'}
+              identity={identity}
+              bodyLimit={bodyLimit}
+              math={math}
+              mermaid={mermaid}
+              codeHighlight={codeHighlight}
+              onSubmit={handleSubmit}
+            />
+          ) : (
+            <SignInPrompt info={signInRequired('write')} context="write" {...signInProps} />
+          )}
           {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
           {status === 'loading' && <CommentSkeletons count={3} />}
-          {status === 'error' && listError && (
-            <CommentError info={listError} onRetry={() => void load()} {...signInProps} />
+          {status === 'error' && listError?.action === 'sign-in' ? (
+            <SignInPrompt info={listError} context="read" {...signInProps} />
+          ) : (
+            status === 'error' &&
+            listError && <CommentError info={listError} onRetry={() => void load()} {...signInProps} />
           )}
           {status === 'ready' && roots.length === 0 && (
             <section className="rounded-lg border border-border p-6 text-sm text-muted-foreground">
@@ -797,8 +881,13 @@ export function Comments({
                   replyTo={replyTo}
                   viewerUserId={viewerUserId ?? session?.userId}
                   viewerRole={viewerRole}
+                  writeAllowed={writeAllowed}
+                  signInProps={signInProps}
                   // Voting is only possible on visible comments of an unlocked page.
-                  hideVotes={moderator && (node.comment.status !== 'visible' || Boolean(pageLock?.locked))}
+                  hideVotes={
+                    !policy.features.votes ||
+                    (moderator && (node.comment.status !== 'visible' || Boolean(pageLock?.locked)))
+                  }
                   pendingModeration={pendingModeration}
                   anonWindowMinutes={anonEditWindowMinutes}
                   hasEditKey={guestEditKeys[node.comment.id] ?? false}

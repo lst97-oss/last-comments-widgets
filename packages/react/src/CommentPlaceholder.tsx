@@ -27,9 +27,7 @@ export function CommentPlaceholder({
       data-lc-placeholder={deleted ? 'deleted' : 'under-review'}
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        {deleted ? (
-          <span className="text-sm text-muted-foreground">[deleted]</span>
-        ) : (
+        {!deleted && (
           <>
             <Avatar size="sm">
               {comment.avatarUrl && (
@@ -59,7 +57,9 @@ export function CommentPlaceholder({
           Replying to <span className="font-medium text-foreground">@{parentAuthorName}</span>
         </p>
       )}
-      <p className="my-3 text-sm text-muted-foreground">{deleted ? '[deleted]' : 'This comment is under review.'}</p>
+      <p className="my-3 text-sm text-muted-foreground">
+        {deleted ? '[This comment was deleted]' : 'This comment is under review.'}
+      </p>
       {replies}
     </article>
   )
