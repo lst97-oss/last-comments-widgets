@@ -38,7 +38,7 @@
     "access": "public"
   },
   "scripts": {
-    "check": "bun run typecheck && bun run lint && bun run format:check",
+    "check": "vue-tsc --noEmit && bun run lint && bun fmt --check",
     "lint": "eslint . --max-warnings 0",
     "build": "bunx vite build && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",

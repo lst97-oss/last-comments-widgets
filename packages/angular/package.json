@@ -35,7 +35,7 @@
     "access": "public"
   },
   "scripts": {
-    "check": "bun run typecheck && bun run lint && bun run format:check",
+    "check": "bun check --no-script && bun run lint && bun fmt --check",
     "lint": "eslint . --max-warnings 0",
     "build": "bunx ng-packagr -p ng-package.json && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",

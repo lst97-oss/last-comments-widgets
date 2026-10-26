@@ -9,7 +9,7 @@
     "examples/*"
   ],
   "scripts": {
-    "check": "bun run format:check && bun scripts/check-all.ts",
+    "check": "bun fmt --check && bun scripts/check-all.ts",
     "lint": "bun scripts/lint-all.ts",
     "test": "bun test",
     "build": "bun scripts/build-all.ts",

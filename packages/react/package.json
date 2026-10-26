@@ -26,7 +26,7 @@
     "access": "public"
   },
   "scripts": {
-    "check": "bun run typecheck && bun run lint && bun run format:check && react-doctor .",
+    "check": "bun check --no-script && bun run lint && bun fmt --check && react-doctor .",
     "lint": "biome check --error-on-warnings .",
     "build": "bunx tsup src/index.tsx --format esm --clean --dts --target es2025 --out-dir dist --external react --external react-dom --external shiki --external katex --external mermaid && bunx @tailwindcss/cli -i ./src/styles.css -o ./dist/styles.css && bun ../../scripts/isolate-styles.ts ./dist/styles.css && bun ../../scripts/copy-fonts.ts .",
     "test": "bun test",

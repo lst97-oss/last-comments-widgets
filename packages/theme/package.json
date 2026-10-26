@@ -30,6 +30,6 @@
     "lint:fix": "biome check --error-on-warnings --write .",
     "format": "bun fmt",
     "format:check": "bun fmt --check",
-    "check": "bun run lint && bun run format:check"
+    "check": "bun run lint && bun fmt --check"
   }
 }
