@@ -30,6 +30,7 @@ import {
   gateFor,
   isCompleteSettings,
   resolveSettings,
+  reactionFailure,
   signInRequired,
   signInRequiredError,
   forgetEditKey,
@@ -44,6 +45,7 @@ import {
   signOutViewerSession,
   sortCommentRoots,
   takeSignInFailure,
+  type ReactionSummary,
   type ThreadNode,
   type ThreadSort,
   themeVarsToStyle,
@@ -56,7 +58,8 @@ import { LcCommentErrorComponent } from './comment-error.component'
 import { LcSignInPromptComponent } from './sign-in-prompt.component'
 import { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 import { type CommentSubmit, LcCommentFormComponent } from './comment-form.component'
-import { LcCommentListComponent, type CommentSubmitHandler } from './comment-list.component'
+import { type CommentSubmitHandler, LcCommentListComponent, type ReactionRequest } from './comment-list.component'
+import { LcReactionBarComponent, type ReactionEvent } from './reaction-bar.component'
 import { observeInView } from './observe-in-view'
 import { LcWidgetOverlayContainer } from './overlay-container'
 import { prefersDark, subscribeSystemTheme } from './theme-media'
@@ -65,6 +68,7 @@ import { LcThreadSortToggleComponent } from './thread-sort-toggle.component'
 import {
   type ActionMode,
   applyVoteOverlay,
+  type ReactionMode,
   type Theme,
   type TurnstileOptions,
   type VoteOverlay,
@@ -119,6 +123,7 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
     CdkConnectedOverlay,
     LcCommentFormComponent,
     LcCommentListComponent,
+    LcReactionBarComponent,
     LcCommentErrorComponent,
     LcSignInPromptComponent,
     LcCommentSkeletonsComponent,
@@ -303,6 +308,14 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
           (signIn)="signInFromError()"
         />
       }
+      <lc-reaction-bar
+        label="Reactions to this page"
+        [mode]="pageReactionMode()"
+        [allowed]="policy().features.pageReactions"
+        [reactions]="pageReactions()"
+        [pending]="(pendingReactions()['page'] ?? false) || reactionsLocked()"
+        (react)="onPageReact($event)"
+      />
       @if (status() !== 'error' && roots().length > 0) {
         <lc-thread-sort-toggle [value]="sort()" (sortChange)="changeSort($event)" />
       }
@@ -339,6 +352,10 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
           [viewerUserId]="viewerIdentity()"
           [viewerRole]="viewerRole()"
           [hideVotes]="votesHidden()"
+          [reactionMode]="commentReactionMode()"
+          [reactionEmoji]="policy().features.commentReactions"
+          [pendingReactions]="pendingReactions()"
+          [reactionsLocked]="reactionsLocked()"
           [pendingModeration]="pendingModeration()"
           [writeAllowed]="writeAllowed()"
           [anonWindowMinutes]="policy().anonEditWindowMinutes"
@@ -352,6 +369,7 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
           [replyComment]="submitReply"
           [measureKey]="measureKey()"
           (vote)="onVote($event)"
+          (react)="onReact($event)"
           (deleted)="onDeleted($event)"
           (moderate)="onModerate($event)"
           (blockUser)="onBlockUser($event)"
@@ -614,6 +632,21 @@ export class LcCommentsComponent {
   // Only the page lock hides votes list-wide; single rows are handled by the
   // list component (voting is rejected on hidden/deleted comments).
   votesHidden = computed(() => !this.policy().features.votes || (this.moderator() && Boolean(this.pageLock()?.locked)))
+  // The site's switches decide whether reactions show. A moderator sees the counts and cannot react.
+  readonly pageReactionsOn = computed(() => this.policy().features.pageReactions.length > 0)
+  readonly pageReactionMode = computed<ReactionMode>(() => {
+    if (!this.pageReactionsOn()) return 'off'
+    return this.moderator() ? 'counts' : 'interactive'
+  })
+  readonly commentReactionMode = computed<ReactionMode>(() => {
+    if (this.policy().features.commentReactions.length === 0) return 'off'
+    return this.moderator() ? 'counts' : 'interactive'
+  })
+  readonly reactionsLocked = computed(() => Boolean(this.pageLock()?.locked))
+  readonly pageReactions = signal<ReactionSummary[]>([])
+  readonly pendingReactions = signal<Record<string, boolean>>({})
+  // Finished page presses, so a page read that started before one is dropped.
+  #pageWrites = 0
 
   #host = inject<ElementRef<HTMLElement>>(ElementRef)
   #destroyRef = inject(DestroyRef)
@@ -648,6 +681,29 @@ export class LcCommentsComponent {
     })
     // The overlay dismisses itself on an outside click; Escape needs a listener
     // because focus can still sit on the trigger.
+    // The page bar's counts come with the page. The read carries the session cookie, so a signed-in
+    // viewer's own reactions come back with them.
+    effect((onCleanup) => {
+      if (!this.pageReactionsOn()) return
+      const url = this.url()
+      let active = true
+      onCleanup(() => {
+        active = false
+      })
+      const writesAtStart = this.#pageWrites
+      // A press that finished while this read was on the wire is newer than the read.
+      const current = () => active && this.#pageWrites === writesAtStart
+      this.client()
+        .listPageReactions({ url })
+        .then(
+          (next) => {
+            if (current()) this.pageReactions.set(next)
+          },
+          () => {
+            if (current()) this.pageReactions.set([])
+          },
+        )
+    })
     effect((onCleanup) => {
       if (!this.identityOpen() || typeof document === 'undefined') return
       const onKey = (event: KeyboardEvent) => {
@@ -982,11 +1038,56 @@ export class LcCommentsComponent {
         : 'clear' in event
           ? await this.client().clearVote(event.id)
           : await this.client().castVote(event.id, event.value)
-      this.votes.set({ ...this.votes(), [event.id]: { score: vote.score, viewerVote: vote.viewerVote } })
+      this.votes.set({
+        ...this.votes(),
+        [event.id]: { ...this.votes()[event.id], score: vote.score, viewerVote: vote.viewerVote },
+      })
     } catch (err) {
       this.actionError.set(describeError(err, { title: "Your vote wasn't saved" }))
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
     }
+  }
+
+  // Every reaction goes through one path: the sign-in gate, the pending flag and the failure copy.
+  async #runReaction(pendingId: string, write: () => Promise<void>): Promise<void> {
+    this.actionError.set(null)
+    if (!this.gateSignedIn()) {
+      this.actionError.set(signInRequired('react'))
+      return
+    }
+    this.pendingReactions.set({ ...this.pendingReactions(), [pendingId]: true })
+    try {
+      await write()
+    } catch (err) {
+      this.actionError.set(reactionFailure(err))
+      if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
+    } finally {
+      this.pendingReactions.set({ ...this.pendingReactions(), [pendingId]: false })
+    }
+  }
+
+  // A reaction is the visitor's own; the server answers with the comment's counts, which replace the row's.
+  async onReact(event: ReactionRequest): Promise<void> {
+    await this.#runReaction(event.id, async () => {
+      const client = this.client()
+      const reactions = event.viewerReacted
+        ? await client.clearReaction(event.id, event.emoji)
+        : await client.castReaction(event.id, event.emoji)
+      this.votes.set({ ...this.votes(), [event.id]: { ...this.votes()[event.id], reactions } })
+    })
+  }
+
+  async onPageReact(event: ReactionEvent): Promise<void> {
+    await this.#runReaction('page', async () => {
+      const client = this.client()
+      const url = this.url()
+      this.pageReactions.set(
+        event.viewerReacted
+          ? await client.clearPageReaction({ url }, event.emoji)
+          : await client.castPageReaction({ url }, event.emoji),
+      )
+      this.#pageWrites += 1
+    })
   }
 
   async onDeleted(id: string): Promise<void> {

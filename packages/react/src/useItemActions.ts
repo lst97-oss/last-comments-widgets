@@ -8,6 +8,7 @@ import type { CommentFormInput } from './CommentForm'
 export function useItemActions(actions: {
   vote: (comment: Comment, value: VoteValue) => Promise<void>
   clear: (comment: Comment) => Promise<void>
+  react: (comment: Comment, emoji: string, viewerReacted: boolean) => Promise<void>
   edit: (commentId: string, bodyMarkdown: string) => Promise<ErrorInfo | null>
   remove: (commentId: string) => Promise<void>
   replySubmit: (commentId: string, input: CommentFormInput) => Promise<ErrorInfo | null>
@@ -15,11 +16,15 @@ export function useItemActions(actions: {
   moderate: (comment: Comment, action: ModerationAction) => Promise<void>
   blockUser: (comment: Comment, blocked: boolean) => Promise<void>
 }) {
-  const { vote, clear, edit, remove, replySubmit, closeReply, moderate, blockUser } = actions
+  const { vote, clear, react, edit, remove, replySubmit, closeReply, moderate, blockUser } = actions
 
   // The `void` wrappers match the item prop signatures: async work is fire-and-forget.
   const onVote = useCallback((comment: Comment, value: VoteValue) => void vote(comment, value), [vote])
   const onClear = useCallback((comment: Comment) => void clear(comment), [clear])
+  const onReact = useCallback(
+    (comment: Comment, emoji: string, viewerReacted: boolean) => void react(comment, emoji, viewerReacted),
+    [react],
+  )
   const onEdit = useCallback((commentId: string, bodyMarkdown: string) => edit(commentId, bodyMarkdown), [edit])
   const onDelete = useCallback((commentId: string) => void remove(commentId), [remove])
   const onReplySubmit = useCallback(
@@ -33,5 +38,5 @@ export function useItemActions(actions: {
   )
   const onBlockUser = useCallback((comment: Comment, blocked: boolean) => void blockUser(comment, blocked), [blockUser])
 
-  return { onVote, onClear, onEdit, onDelete, onReplySubmit, onCloseReply, onModerate, onBlockUser }
+  return { onVote, onClear, onReact, onEdit, onDelete, onReplySubmit, onCloseReply, onModerate, onBlockUser }
 }

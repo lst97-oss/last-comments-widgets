@@ -168,6 +168,7 @@ watch(
             :mermaid="props.mermaid"
             :code-highlight="props.codeHighlight"
             :on-vote="noop"
+            :on-react="noop"
             :on-reply="noop"
             :on-edit="noopEdit"
             :on-delete="noopAsync"

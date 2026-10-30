@@ -25,6 +25,7 @@ import {
   signInRequired,
   getEditKey,
   loadThreadWindow,
+  reactionFailure,
   type ModerationAction,
   moderationCommentToComment,
   normalizePageUrl,
@@ -34,6 +35,7 @@ import {
   sortCommentRoots,
   takeSignInFailure,
   themeVarsToStyle,
+  type ReactionSummary,
   type ThreadSort,
   type ViewerSession,
   type VoteValue,
@@ -53,7 +55,15 @@ import { useLazyLoad } from './lib/useLazyLoad'
 import { threadSignature } from './lib/useGuides'
 import { useThreadWindow } from './lib/useThreadWindow'
 import { provideWidgetRoot } from './lib/widgetRoot'
-import { applyVoteOverlay, type CommentsProps, resolvePageUrl, type VoteOverlay } from './types'
+import ReactionBar from './ReactionBar.vue'
+import {
+  applyCommentOverlay,
+  type CommentOverlay,
+  type CommentPatch,
+  type CommentsProps,
+  type ReactionMode,
+  resolvePageUrl,
+} from './types'
 
 const props = withDefaults(defineProps<CommentsProps>(), {
   limit: 20,
@@ -90,9 +100,9 @@ const rootStyle = computed(() => themeVarsToStyle(props.themeVars, dark.value))
 const client = computed(() => createClient({ baseUrl: props.baseUrl, site: props.site, fetchImpl: props.fetchImpl }))
 const pageUrl = computed(() => resolvePageUrl(props.pageUrl))
 const signInUrl = computed(() => safeUrl(props.signInUrl))
-// Vote results land in an overlay applied over the cached tree: rebuilding the
+// Vote and reaction results land in an overlay applied over the cached tree: rebuilding the
 // whole tree on every vote would hand every row a fresh prop object.
-const votes = ref<VoteOverlay>({})
+const overlay = ref<CommentOverlay>({})
 const {
   rows: comments,
   page,
@@ -110,7 +120,7 @@ const {
 } = useThreadWindow({
   limit: () => props.limit ?? 20,
   // Overlay before sorting: `best` must re-rank on a vote.
-  transform: (nodes) => sortCommentRoots(applyVoteOverlay(nodes, votes.value), sort.value),
+  transform: (nodes) => sortCommentRoots(applyCommentOverlay(nodes, overlay.value), sort.value),
   load: async ({ reset, pages, existing }) => {
     if (moderator.value) {
       // A host-supplied `pageId` wins over the URL match: the page list is
@@ -166,7 +176,7 @@ const {
   },
   onLoaded: (reset) => {
     // A committed reload supersedes every pending vote patch.
-    if (reset) votes.value = {}
+    if (reset) overlay.value = {}
   },
 })
 const moderator = computed(() => canModerate(props.viewerRole))
@@ -314,17 +324,9 @@ async function submitReply(
   }
 }
 
-function updateComment(id: string, patch: { score?: number; viewerVote?: VoteValue | null }) {
-  const base = comments.value.find((c) => c.id === id)
-  const current = votes.value[id] ?? (base ? { score: base.score, viewerVote: base.viewerVote } : null)
-  if (!current) return
-  votes.value = {
-    ...votes.value,
-    [id]: {
-      score: patch.score ?? current.score,
-      viewerVote: patch.viewerVote === undefined ? current.viewerVote : patch.viewerVote,
-    },
-  }
+// A patch merges over the row it names, so a vote and a reaction on one row do not undo each other.
+function updateComment(id: string, patch: CommentPatch) {
+  overlay.value = { ...overlay.value, [id]: { ...overlay.value[id], ...patch } }
 }
 
 async function vote(commentId: string, value: VoteValue | 'clear') {
@@ -353,6 +355,82 @@ async function vote(commentId: string, value: VoteValue | 'clear') {
   }
 }
 
+const PAGE_REACTIONS_KEY = 'page'
+const reactionPending = ref<Record<string, boolean>>({})
+// The page bar's counts, read with the page. The read carries the session cookie, so a signed-in
+// viewer's own reactions come back with them.
+const pageReactions = ref<ReactionSummary[]>([])
+// Finished page presses. A page read that started before one is older than it, so it is dropped.
+let pageWrites = 0
+const pageReactionsOn = computed(() => policy.value.features.pageReactions.length > 0)
+watch(
+  [pageUrl, pageReactionsOn],
+  ([url, on], _previous, onCleanup) => {
+    if (!on) return
+    let active = true
+    onCleanup(() => {
+      active = false
+    })
+    const writesAtStart = pageWrites
+    const current = () => active && pageWrites === writesAtStart
+    client.value.listPageReactions({ url }).then(
+      (next) => {
+        if (current()) pageReactions.value = next
+      },
+      () => {
+        if (current()) pageReactions.value = []
+      },
+    )
+  },
+  { immediate: true },
+)
+// Moderators see the counts and cannot react; a locked page keeps its counts but takes no reaction.
+const reactionsLocked = computed(() => Boolean(pageLock.value?.locked))
+const pageReactionMode = computed<ReactionMode>(() => {
+  if (!pageReactionsOn.value) return 'off'
+  return moderator.value ? 'counts' : 'interactive'
+})
+const commentReactionMode = computed<ReactionMode>(() => {
+  if (policy.value.features.commentReactions.length === 0) return 'off'
+  return moderator.value ? 'counts' : 'interactive'
+})
+
+// Every reaction goes through one path: the sign-in gate, the pending flag and the failure copy.
+async function runReaction(pendingId: string, write: () => Promise<void>) {
+  actionError.value = null
+  // Reactions need a signed-in session, as votes do: a guest is told so rather than refused by the server.
+  if (!gateSignedIn.value) {
+    actionError.value = signInRequired('react')
+    return
+  }
+  reactionPending.value = setPending(reactionPending.value, pendingId, true)
+  try {
+    await write()
+  } catch (err) {
+    actionError.value = reactionFailure(err)
+  } finally {
+    reactionPending.value = setPending(reactionPending.value, pendingId, false)
+  }
+}
+
+async function react(commentId: string, emoji: string, viewerReacted: boolean) {
+  await runReaction(commentId, async () => {
+    const reactions = viewerReacted
+      ? await client.value.clearReaction(commentId, emoji)
+      : await client.value.castReaction(commentId, emoji)
+    updateComment(commentId, { reactions })
+  })
+}
+
+async function reactPage(emoji: string, viewerReacted: boolean) {
+  await runReaction(PAGE_REACTIONS_KEY, async () => {
+    pageReactions.value = viewerReacted
+      ? await client.value.clearPageReaction({ url: pageUrl.value }, emoji)
+      : await client.value.castPageReaction({ url: pageUrl.value }, emoji)
+    pageWrites += 1
+  })
+}
+
 // Edit failures stay with the item's own editor (it must stay open, and the
 // widget's edit form renders the block): this only reports them.
 async function edit(commentId: string, bodyMarkdown: string): Promise<ErrorInfo | null> {
@@ -366,7 +444,14 @@ async function edit(commentId: string, bodyMarkdown: string): Promise<ErrorInfo 
       : await client.value.editOwnComment({ commentId, bodyMarkdown, ...(editKey ? { editKey } : {}) })
     comments.value = comments.value.map((c) =>
       c.id === commentId
-        ? { ...c, ...updated, score: updated.score ?? c.score, viewerVote: updated.viewerVote ?? c.viewerVote }
+        ? {
+            ...c,
+            ...updated,
+            score: updated.score ?? c.score,
+            viewerVote: updated.viewerVote ?? c.viewerVote,
+            // An edit's answer carries no reaction counts, so the row keeps the ones it has.
+            reactions: c.reactions,
+          }
         : c,
     )
     return null
@@ -584,7 +669,7 @@ defineExpose({ refresh })
 
     <SignInPrompt
       v-if="votePromptOpen"
-      :info="signInRequired('vote')"
+      :info="actionError?.action === 'sign-in' ? actionError : signInRequired('vote')"
       context="vote"
       :sign-in-href="signInUrl"
       @sign-in="startSignIn"
@@ -643,6 +728,16 @@ defineExpose({ refresh })
       @sign-in="startSignIn"
     />
 
+    <ReactionBar
+      v-if="pageReactionMode !== 'off'"
+      label="Reactions to this page"
+      :mode="pageReactionMode"
+      :allowed="policy.features.pageReactions"
+      :reactions="pageReactions"
+      :pending="(reactionPending[PAGE_REACTIONS_KEY] ?? false) || reactionsLocked"
+      :on-react="reactPage"
+    />
+
     <ThreadSortToggle v-if="status !== 'error' && roots.length > 0" :value="sort" :on-change="handleSortChange" />
 
     <div v-if="status === 'loading'" class="space-y-3">
@@ -697,6 +792,10 @@ defineExpose({ refresh })
           :viewer-user-id="props.viewerUserId ?? session?.userId"
           :viewer-role="props.viewerRole"
           :hide-votes="!policy.features.votes || (moderator && Boolean(pageLock?.locked))"
+          :reaction-mode="commentReactionMode"
+          :reaction-emoji="policy.features.commentReactions"
+          :pending-reactions="reactionPending"
+          :reactions-locked="reactionsLocked"
           :pending-moderation="pendingModeration"
           :anon-window-minutes="policy.anonEditWindowMinutes"
           :has-edit-keys="guestEditKeys"
@@ -710,6 +809,7 @@ defineExpose({ refresh })
           :sign-in-href="signInUrl"
           :on-sign-in="startSignIn"
           :on-vote="vote"
+          :on-react="react"
           :on-reply="startReply"
           :on-edit="edit"
           :on-delete="remove"

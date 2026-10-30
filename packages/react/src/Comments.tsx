@@ -18,6 +18,8 @@ import {
   type ModerationAction,
   moderationCommentToComment,
   normalizePageUrl,
+  type ReactionSummary,
+  reactionFailure,
   resolveSettings,
   safeUrl,
   saveEditKey,
@@ -38,6 +40,7 @@ import { CommentForm, type CommentFormInput } from './CommentForm'
 import { CommentItem } from './CommentItem'
 import { CommentSkeletons } from './CommentSkeletons'
 import { CommentsPager } from './CommentsPager'
+import { PageReactions, type ReactionMode } from './Reactions'
 import { SignInPrompt } from './SignInPrompt'
 import { ThreadGuides, threadSignature } from './ThreadGuides'
 import { ThreadSortToggle } from './ThreadSortToggle'
@@ -69,6 +72,8 @@ export type UiState = {
   signingIn: boolean
   signingOut: boolean
   pendingVotes: Record<string, boolean>
+  // Keyed by comment id, and by PAGE_REACTIONS_KEY for the page bar.
+  pendingReactions: Record<string, boolean>
   pendingModeration: Record<string, boolean>
   signInError: ErrorInfo | null
 }
@@ -79,6 +84,7 @@ export type UiAction =
   | { type: 'signing-in/set'; value: boolean }
   | { type: 'signing-out/set'; value: boolean }
   | { type: 'votes/pending'; id: string; pending: boolean }
+  | { type: 'reactions/pending'; id: string; pending: boolean }
   | { type: 'moderation/pending'; id: string; pending: boolean }
   | { type: 'sign-in-error/set'; error: ErrorInfo | null }
 
@@ -88,17 +94,21 @@ export const UI_INITIAL: UiState = {
   signingIn: false,
   signingOut: false,
   pendingVotes: {},
+  pendingReactions: {},
   pendingModeration: {},
   signInError: null,
 }
 
-type VotePatch = { score: number; viewerVote: VoteValue | null }
-type VoteOverlay = Record<string, VotePatch>
-const EMPTY_VOTE_OVERLAY: VoteOverlay = {}
+const PAGE_REACTIONS_KEY = 'page'
 
-// Votes change one row, so they must not rebuild every tree node: clone only
-// the paths whose score changed (an untouched subtree keeps its identity).
-function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): ThreadNode[] {
+// What a vote or a reaction changes on one row. Both write the same overlay, so one tree pass applies both.
+type CommentPatch = Partial<Pick<Comment, 'score' | 'viewerVote' | 'reactions'>>
+type CommentOverlay = Record<string, CommentPatch>
+const EMPTY_OVERLAY: CommentOverlay = {}
+
+// Votes and reactions change one row, so they must not rebuild every tree node: clone only
+// the paths whose row changed (an untouched subtree keeps its identity).
+function applyCommentOverlay(nodes: ThreadNode[], overlay: CommentOverlay): ThreadNode[] {
   if (Object.keys(overlay).length === 0) return nodes
   const visit = (node: ThreadNode): ThreadNode => {
     const patch = overlay[node.comment.id]
@@ -125,6 +135,8 @@ export function uiReducer(state: UiState, action: UiAction): UiState {
       return { ...state, signingOut: action.value }
     case 'votes/pending':
       return { ...state, pendingVotes: { ...state.pendingVotes, [action.id]: action.pending } }
+    case 'reactions/pending':
+      return { ...state, pendingReactions: { ...state.pendingReactions, [action.id]: action.pending } }
     case 'moderation/pending':
       return { ...state, pendingModeration: { ...state.pendingModeration, [action.id]: action.pending } }
     case 'sign-in-error/set':
@@ -241,7 +253,16 @@ export function Comments({
   const [hasMore, setHasMore] = useState(false)
   const [loadingPage, setLoadingPage] = useState(false)
   const [ui, uiDispatch] = useReducer(uiReducer, UI_INITIAL)
-  const { posting, lockPending, signingIn, signingOut, pendingVotes, pendingModeration, signInError } = ui
+  const {
+    posting,
+    lockPending,
+    signingIn,
+    signingOut,
+    pendingVotes,
+    pendingReactions,
+    pendingModeration,
+    signInError,
+  } = ui
   const [formError, setFormError] = useState<ErrorInfo | null>(null)
   // Bumped after a successful post: remounting clears the composer draft.
   const [formEpoch, setFormEpoch] = useState(0)
@@ -364,19 +385,19 @@ export function Comments({
     window.history.replaceState(window.history.state, '', failure.cleanHref)
   }, [])
 
-  // Votes live beside the fetched rows. A reload fetches authoritative scores,
-  // so its epoch bump drops stale patches; posts and edits keep them.
-  const [votes, setVotes] = useState<{ epoch: number; patch: VoteOverlay }>({
+  // Votes and reactions live beside the fetched rows. A reload fetches authoritative values, so
+  // its epoch bump drops stale patches; posts and edits keep them.
+  const [overlay, setOverlay] = useState<{ epoch: number; patch: CommentOverlay }>({
     epoch: 0,
-    patch: EMPTY_VOTE_OVERLAY,
+    patch: EMPTY_OVERLAY,
   })
-  const votePatch = votes.epoch === loadEpoch ? votes.patch : EMPTY_VOTE_OVERLAY
-  const applyVote = useCallback(
-    (id: string, score: number, viewerVote: VoteValue | null) => {
-      setVotes((prev) => ({
-        epoch: loadEpoch,
-        patch: { ...(prev.epoch === loadEpoch ? prev.patch : EMPTY_VOTE_OVERLAY), [id]: { score, viewerVote } },
-      }))
+  const overlayPatch = overlay.epoch === loadEpoch ? overlay.patch : EMPTY_OVERLAY
+  const patchComment = useCallback(
+    (id: string, changes: CommentPatch) => {
+      setOverlay((prev) => {
+        const base = prev.epoch === loadEpoch ? prev.patch : EMPTY_OVERLAY
+        return { epoch: loadEpoch, patch: { ...base, [id]: { ...base[id], ...changes } } }
+      })
     },
     [loadEpoch],
   )
@@ -396,14 +417,14 @@ export function Comments({
         const vote = moderator
           ? await client.setModerationVote({ commentId: comment.id, value })
           : await client.castVote(comment.id, value)
-        applyVote(comment.id, vote.score, vote.viewerVote)
+        patchComment(comment.id, { score: vote.score, viewerVote: vote.viewerVote })
       } catch (err) {
         setActionError(describeError(err, { title: "Your vote wasn't saved" }))
       } finally {
         uiDispatch({ type: 'votes/pending', id: comment.id, pending: false })
       }
     },
-    [applyVote, client, gateSignedIn, moderator],
+    [patchComment, client, gateSignedIn, moderator],
   )
 
   const handleClear = useCallback(
@@ -418,7 +439,7 @@ export function Comments({
         const vote = moderator
           ? await client.setModerationVote({ commentId: comment.id, value: null })
           : await client.clearVote(comment.id)
-        applyVote(comment.id, vote.score, vote.viewerVote)
+        patchComment(comment.id, { score: vote.score, viewerVote: vote.viewerVote })
       } catch (err) {
         // keep existing vote state on failure
         setActionError(describeError(err, { title: "Your vote wasn't saved" }))
@@ -426,8 +447,79 @@ export function Comments({
         uiDispatch({ type: 'votes/pending', id: comment.id, pending: false })
       }
     },
-    [applyVote, client, gateSignedIn, moderator],
+    [patchComment, client, gateSignedIn, moderator],
   )
+
+  // The page bar's counts, read with the thread and replaced by each reaction's answer.
+  const [pageReactions, setPageReactions] = useState<ReactionSummary[]>([])
+
+  // Every reaction goes through one path: the sign-in gate, the pending flag and the failure copy.
+  const runReaction = useCallback(
+    async (pendingId: string, write: () => Promise<void>) => {
+      if (!gateSignedIn) {
+        setActionError(signInRequired('react'))
+        return
+      }
+      uiDispatch({ type: 'reactions/pending', id: pendingId, pending: true })
+      setActionError(null)
+      try {
+        await write()
+      } catch (err) {
+        setActionError(reactionFailure(err))
+      } finally {
+        uiDispatch({ type: 'reactions/pending', id: pendingId, pending: false })
+      }
+    },
+    [gateSignedIn],
+  )
+
+  // The server answers a comment's reaction with the comment's counts, which replace the row's.
+  const handleReact = useCallback(
+    (comment: Comment, emoji: string, viewerReacted: boolean) =>
+      runReaction(comment.id, async () => {
+        const reactions = viewerReacted
+          ? await client.clearReaction(comment.id, emoji)
+          : await client.castReaction(comment.id, emoji)
+        patchComment(comment.id, { reactions })
+      }),
+    [client, patchComment, runReaction],
+  )
+
+  // Counts of finished page presses. A page read that started before one is older than it, so it is dropped.
+  const pageWrites = useRef(0)
+  const handlePageReact = useCallback(
+    (emoji: string, viewerReacted: boolean) =>
+      runReaction(PAGE_REACTIONS_KEY, async () => {
+        const reactions = viewerReacted
+          ? await client.clearPageReaction({ url }, emoji)
+          : await client.castPageReaction({ url }, emoji)
+        pageWrites.current += 1
+        setPageReactions(reactions)
+      }),
+    [client, runReaction, url],
+  )
+
+  // The page bar's counts come with the page. The session cookie rides on the read, so a signed-in
+  // viewer's own reactions come back with them.
+  const pageReactionsOn = policy.features.pageReactions.length > 0
+  useEffect(() => {
+    if (!pageReactionsOn) return
+    let active = true
+    const writesAtStart = pageWrites.current
+    // A press that finished while this read was on the wire is newer than the read.
+    const current = () => active && pageWrites.current === writesAtStart
+    client.listPageReactions({ url }).then(
+      (next) => {
+        if (current()) setPageReactions(next)
+      },
+      () => {
+        if (current()) setPageReactions([])
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [client, url, pageReactionsOn])
 
   // Shared create path: head comments and inline replies differ only in the
   // parent, so the moderation/origin branching lives here once.
@@ -534,7 +626,14 @@ export function Comments({
         setComments((prev) =>
           prev.map((c) =>
             c.id === commentId
-              ? { ...c, ...updated, score: updated.score ?? c.score, viewerVote: updated.viewerVote ?? c.viewerVote }
+              ? {
+                  ...c,
+                  ...updated,
+                  score: updated.score ?? c.score,
+                  viewerVote: updated.viewerVote ?? c.viewerVote,
+                  // An edit's answer carries no reaction counts, so the row keeps the ones it has.
+                  reactions: c.reactions,
+                }
               : c,
           ),
         )
@@ -646,6 +745,7 @@ export function Comments({
   const itemActions = useItemActions({
     vote: handleVote,
     clear: handleClear,
+    react: handleReact,
     edit: handleEdit,
     remove: handleDelete,
     replySubmit: handleReplySubmit,
@@ -664,7 +764,7 @@ export function Comments({
 
   const tree = useMemo(() => buildCommentTree(comments), [comments])
   // Overlay before sorting: `best` must re-rank on a vote.
-  const patchedTree = useMemo(() => applyVoteOverlay(tree, votePatch), [tree, votePatch])
+  const patchedTree = useMemo(() => applyCommentOverlay(tree, overlayPatch), [tree, overlayPatch])
   const roots: ThreadNode[] = useMemo(() => sortCommentRoots(patchedTree, sort), [patchedTree, sort])
   // Deleting the last thread of a page empties its window, so fall back to the
   // last page that still has roots instead of rendering nothing (never refetches).
@@ -810,6 +910,12 @@ export function Comments({
     </>
   )
 
+  // The site's switches decide whether reactions show. A moderator sees the counts and cannot react.
+  const pageReactionMode: ReactionMode = pageReactionsOn ? (moderator ? 'counts' : 'interactive') : 'off'
+  const commentReactionMode: ReactionMode =
+    policy.features.commentReactions.length === 0 ? 'off' : moderator ? 'counts' : 'interactive'
+  const reactionsLocked = Boolean(pageLock?.locked)
+
   return (
     <WidgetRootContext value={rootRef}>
       <TurnstileConfigContext value={turnstileConfig}>
@@ -863,6 +969,13 @@ export function Comments({
             <SignInPrompt info={readPrompt} context="read" {...signInProps} />
           ) : (
             <>
+              <PageReactions
+                mode={pageReactionMode}
+                allowed={policy.features.pageReactions}
+                reactions={pageReactions}
+                disabled={(pendingReactions[PAGE_REACTIONS_KEY] ?? false) || reactionsLocked}
+                onReact={handlePageReact}
+              />
               {status !== 'error' && roots.length > 0 && <ThreadSortToggle value={sort} onChange={handleSortChange} />}
               {status === 'loading' && <CommentSkeletons count={3} />}
               {status === 'error' && listError && (
@@ -887,6 +1000,11 @@ export function Comments({
                       node={node}
                       depth={0}
                       pendingVotes={pendingVotes}
+                      reactionMode={commentReactionMode}
+                      reactionEmoji={policy.features.commentReactions}
+                      pendingReactions={pendingReactions}
+                      reactionsLocked={reactionsLocked}
+                      onReact={itemActions.onReact}
                       replyTo={replyTo}
                       viewerUserId={viewerUserId ?? session?.userId}
                       viewerRole={viewerRole}

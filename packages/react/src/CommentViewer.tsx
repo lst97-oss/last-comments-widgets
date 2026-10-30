@@ -358,6 +358,7 @@ function CommentViewerThread({
               codeHighlight={codeHighlight}
               onVote={noop}
               onClear={noop}
+              onReact={noop}
               onReply={noop}
               onEdit={noopAsync}
               onDelete={noopAsync}

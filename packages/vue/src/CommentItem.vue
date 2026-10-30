@@ -20,6 +20,7 @@ import LcAvatar from './Avatar.vue'
 import CommentActionsMenu from './CommentActionsMenu.vue'
 import CommentForm from './CommentForm.vue'
 import CommentList from './CommentList.vue'
+import ReactionBar from './ReactionBar.vue'
 import ReplyAvatarStack from './ReplyAvatarStack.vue'
 import SignInPrompt from './SignInPrompt.vue'
 import VoteButtons from './VoteButtons.vue'
@@ -28,7 +29,7 @@ import { buttonClass } from './lib/button'
 import { ITEM_INITIAL, type ItemAction, type ItemState, itemReducer } from './lib/itemState'
 import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 import { useMarkdownEnhance } from './lib/useMarkdownEnhance'
-import { type ActionMode, canEditComment } from './types'
+import { type ActionMode, canEditComment, type ReactionMode } from './types'
 
 export type CommentFormInput = {
   authorName: string
@@ -42,6 +43,12 @@ const props = defineProps<{
   viewerUserId?: string
   viewerRole?: ViewerRole
   hideVotes?: boolean
+  // The reaction control: `off` hides it, `counts` shows the counts read-only, `interactive` lets a visitor react.
+  reactionMode?: ReactionMode
+  // The site's allowed emoji. Empty means the switch is off.
+  reactionEmoji?: string[]
+  pendingReactions?: Record<string, boolean>
+  reactionsLocked?: boolean
   pendingModeration?: Record<string, boolean>
   // Window for guest-authored comments; signed-in owners have no window.
   anonWindowMinutes?: number
@@ -61,6 +68,7 @@ const props = defineProps<{
   signInHref?: string
   onSignIn?: () => void
   onVote: (commentId: string, value: VoteValue | 'clear') => void
+  onReact: (commentId: string, emoji: string, viewerReacted: boolean) => void
   onReply: (commentId: string) => void
   onEdit: (commentId: string, bodyMarkdown: string) => Promise<ErrorInfo | null>
   onDelete: (commentId: string) => Promise<void>
@@ -128,6 +136,11 @@ const replyStateLabel = computed(() => {
 })
 // Negative net score collapses in every sort mode; 0 stays expanded.
 const collapsed = computed(() => state.value.collapsedOverride ?? comment.value.score < 0)
+// A read-only viewer sees the counts and no control; an off switch, or an empty set, shows nothing.
+const reactionView = computed<ReactionMode>(() => {
+  if (props.reactionMode === undefined || props.reactionMode === 'off' || !props.reactionEmoji?.length) return 'off'
+  return props.readOnly ? 'counts' : props.reactionMode
+})
 const excerpt = computed(() => comment.value.bodyMarkdown.replace(/\s+/g, ' ').trim())
 // Removed comments read as placeholders in the normal view; moderators keep
 // the body so they can still judge a restore.
@@ -310,6 +323,15 @@ function toggleReply() {
           v-html="rendered"
         />
         <!-- eslint-enable vue/no-v-html -->
+        <ReactionBar
+          label="Reactions"
+          :mode="reactionView"
+          :allowed="props.reactionEmoji ?? []"
+          :reactions="comment.reactions"
+          :pending="(props.pendingReactions?.[comment.id] ?? false) || (props.reactionsLocked ?? false)"
+          picker
+          :on-react="(emoji, viewerReacted) => props.onReact(comment.id, emoji, viewerReacted)"
+        />
         <!-- A signed-out reply on a login site: the sign-in prompt replaces the composer, below the message. -->
         <div v-if="!props.readOnly && props.writeAllowed === false && replyPrompt" class="my-3">
           <SignInPrompt
@@ -406,6 +428,10 @@ function toggleReply() {
               :viewer-user-id="props.viewerUserId"
               :viewer-role="props.viewerRole"
               :hide-votes="props.hideVotes"
+              :reaction-mode="props.reactionMode"
+              :reaction-emoji="props.reactionEmoji"
+              :pending-reactions="props.pendingReactions"
+              :reactions-locked="props.reactionsLocked"
               :pending-moderation="props.pendingModeration"
               :anon-window-minutes="props.anonWindowMinutes"
               :has-edit-key="props.hasEditKey"
@@ -422,6 +448,7 @@ function toggleReply() {
               :sign-in-href="props.signInHref"
               :on-sign-in="props.onSignIn"
               :on-vote="props.onVote"
+              :on-react="props.onReact"
               :on-reply="props.onReply"
               :on-edit="props.onEdit"
               :on-delete="props.onDelete"

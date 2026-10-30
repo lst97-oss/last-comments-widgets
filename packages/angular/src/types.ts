@@ -1,10 +1,10 @@
 import {
+  type Comment,
   EDIT_WINDOW_CLOSED,
   isEditWindowOpen,
   resolveEditWindow,
   type ThreadNode,
   type ViewerRole,
-  type VoteValue,
   type WidgetTheme,
 } from '@last-comments-widgets/client'
 import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
@@ -80,10 +80,16 @@ export function canEditComment(
   return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
 }
 
-export type VoteOverlay = Record<string, { score: number; viewerVote: VoteValue | null }>
+// What a vote or a reaction changes on one row. Both write one overlay (the name is kept for consumers that
+// import it), so one tree pass applies both.
+export type VoteOverlay = Record<string, Partial<Pick<Comment, 'score' | 'viewerVote' | 'reactions'>>>
 
-// Applies pending vote results to a built tree without rebuilding it. Untouched
-// nodes keep their identity, so only the voted row (and its ancestors' child
+// The reaction control's mode, as the other ports: `off` hides it, `counts` shows it read-only,
+// `interactive` lets a signed-in visitor react.
+export type ReactionMode = 'off' | 'counts' | 'interactive'
+
+// Applies pending vote and reaction results to a built tree without rebuilding it. Untouched
+// nodes keep their identity, so only the changed row (and its ancestors' child
 // arrays) re-renders; an empty overlay returns the input array unchanged.
 export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): ThreadNode[] {
   if (Object.keys(overlay).length === 0) return nodes
@@ -95,7 +101,7 @@ export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): Thr
     if (!patch) return childrenChanged ? { ...node, children } : node
     changed = true
     return {
-      comment: { ...node.comment, score: patch.score, viewerVote: patch.viewerVote },
+      comment: { ...node.comment, ...patch },
       children: childrenChanged ? children : node.children,
     }
   }
