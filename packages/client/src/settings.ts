@@ -10,7 +10,8 @@ export type CommentSettings = {
   bodyLimit: number
   anonEditWindowMinutes: number
   turnstileSiteKey: string | null
-  features: { votes: boolean }
+  // The reaction lists are the emoji each switch allows. Empty means the switch is off.
+  features: { votes: boolean; pageReactions: string[]; commentReactions: string[] }
 }
 
 // Comment bodies are capped at this many characters (counted before trimming).
@@ -22,16 +23,30 @@ export const DEFAULT_SETTINGS: CommentSettings = {
   bodyLimit: DEFAULT_BODY_LIMIT,
   anonEditWindowMinutes: DEFAULT_ANON_EDIT_WINDOW_MINUTES,
   turnstileSiteKey: null,
-  features: { votes: true },
+  features: { votes: true, pageReactions: [], commentReactions: [] },
 }
 
 const ACCESS_LEVELS: readonly SiteAccess[] = ['open', 'login', 'private']
 const MAX_EDIT_WINDOW_MINUTES = 100_000
+const MAX_REACTION_KINDS = 32
 const SETTINGS_CACHE_MS = 60_000
 const SETTINGS_TIMEOUT_MS = 4_000
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 function wholeNumberIn(value: unknown, min: number, max: number): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max ? value : undefined
+}
+
+// Reactions fail closed, the opposite of votes: a server that predates them sends no list, and a widget
+// must not draw a reaction bar the server cannot back.
+function emojiList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((entry): entry is string => typeof entry === 'string' && entry !== '')
+    .slice(0, MAX_REACTION_KINDS)
 }
 
 // Fails open on unknown values. The server still refuses what it must, so a widget
@@ -43,14 +58,18 @@ export function normalizeSettings(raw: unknown): CommentSettings | null {
   const key =
     typeof value.turnstileSiteKey === 'string' && value.turnstileSiteKey.trim() !== '' ? value.turnstileSiteKey : null
   // A server that predates the flag sends none, which means voting stays on, as it always was.
-  const features = typeof value.features === 'object' && value.features !== null ? value.features : {}
+  const features = isRecord(value.features) ? value.features : {}
   return {
     access,
     bodyLimit: wholeNumberIn(value.bodyLimit, 1, DEFAULT_BODY_LIMIT) ?? DEFAULT_BODY_LIMIT,
     anonEditWindowMinutes:
       wholeNumberIn(value.anonEditWindowMinutes, 0, MAX_EDIT_WINDOW_MINUTES) ?? DEFAULT_ANON_EDIT_WINDOW_MINUTES,
     turnstileSiteKey: key,
-    features: { votes: (features as { votes?: unknown }).votes !== false },
+    features: {
+      votes: features.votes !== false,
+      pageReactions: emojiList(features.pageReactions),
+      commentReactions: emojiList(features.commentReactions),
+    },
   }
 }
 

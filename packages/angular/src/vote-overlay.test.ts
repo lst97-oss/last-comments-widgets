@@ -16,6 +16,7 @@ function comment(id: string, parentId: string | null = null): Comment {
     editedAt: null,
     score: 0,
     viewerVote: null,
+    reactions: [],
     authorRole: null,
   }
 }

@@ -34,6 +34,7 @@ function comment(id: string, parentId: string | null, bodyMarkdown: string, extr
     bodyMarkdown,
     status: 'visible',
     pinnedAt: null,
+    reactions: [],
     createdAt: new Date().toISOString(),
     editedAt: null,
     score: 0,

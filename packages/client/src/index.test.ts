@@ -26,6 +26,7 @@ import {
   type ModerationComment,
   moderationCommentToComment,
   normalizePageUrl,
+  reactionFailure,
   renderMarkdown,
   resolveEditWindow,
   safeUrl,
@@ -53,6 +54,7 @@ function comment(overrides: Partial<Comment>): Comment {
     editedAt: null,
     score: 0,
     viewerVote: null,
+    reactions: [],
     authorRole: null,
     ...overrides,
   }
@@ -1045,7 +1047,7 @@ describe('describeError', () => {
     expect(info).toEqual({
       code: 'PAGE_LOCKED',
       title: 'Comments are closed on this page',
-      message: 'New comments, replies and votes are disabled.',
+      message: 'New comments, replies, votes and reactions are disabled.',
       action: 'none',
     })
   })
@@ -1325,9 +1327,89 @@ describe('moderationCommentToComment', () => {
       editedAt: null,
       score: 3,
       viewerVote: -1,
+      reactions: [],
       authorRole: 'admin',
       userBlocked: true,
     })
+  })
+})
+
+describe('reactions on the wire', () => {
+  const base = { baseUrl: 'https://api.test', site: 'demo' }
+  const emojiOf = (url: string) => new URL(url).searchParams.get('emoji')
+
+  test('a comment list from a server that predates reactions still gives every comment a list', async () => {
+    const legacy = {
+      id: 'c1',
+      pageId: 'p1',
+      parentId: null,
+      userId: null,
+      authorName: 'Ada',
+      bodyMarkdown: 'hi',
+      status: 'visible',
+      pinnedAt: null,
+      createdAt: '2026-10-17T00:00:00.000Z',
+      editedAt: null,
+      score: 0,
+      viewerVote: null,
+      authorRole: null,
+    }
+    const fetchImpl = (async () => Response.json({ data: { comments: [legacy] } })) as unknown as typeof fetch
+    const [row] = await createClient({ ...base, fetchImpl }).listComments({ url: 'https://x.test/p' })
+    expect(row?.reactions).toEqual([])
+  })
+
+  test('castReaction and clearReaction name one comment and one emoji, and return the counts', async () => {
+    const seen: { method: string | undefined; url: string; body?: unknown }[] = []
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({
+        method: init?.method,
+        url: String(url),
+        ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+      })
+      return Response.json({ data: { reactions: [{ emoji: '👍', count: 2, viewerReacted: true }] } })
+    }) as unknown as typeof fetch
+    const client = createClient({ ...base, fetchImpl })
+    await expect(client.castReaction('c1', '👍')).resolves.toEqual([{ emoji: '👍', count: 2, viewerReacted: true }])
+    await client.clearReaction('c1', '👍')
+    expect(seen[0]).toEqual({
+      method: 'PUT',
+      url: 'https://api.test/api/comments/reactions',
+      body: { site: 'demo', commentId: 'c1', emoji: '👍' },
+    })
+    expect(seen[1]?.method).toBe('DELETE')
+    expect(new URL(seen[1]?.url ?? '').pathname).toBe('/api/comments/reactions')
+    expect(new URL(seen[1]?.url ?? '').searchParams.get('commentId')).toBe('c1')
+    expect(emojiOf(seen[1]?.url ?? '')).toBe('👍')
+  })
+
+  test('the page bar reads with the url, sends the slug only when the page has one, and writes the same way', async () => {
+    const seen: { method: string | undefined; url: string; body?: Record<string, unknown> }[] = []
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      seen.push({
+        method: init?.method,
+        url: String(url),
+        ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}),
+      })
+      return Response.json({ data: { reactions: [] } })
+    }) as unknown as typeof fetch
+    const client = createClient({ ...base, fetchImpl })
+    await client.listPageReactions({ url: 'https://x.test/post' })
+    await client.castPageReaction({ url: 'https://x.test/post' }, '🎉')
+    await client.clearPageReaction({ url: 'https://x.test/post' }, '🎉')
+
+    // No method is set on the read, so it is the default GET, as the comment list's read is.
+    expect(seen[0]?.method).toBeUndefined()
+    expect(new URL(seen[0]?.url ?? '').searchParams.get('url')).toBe('https://x.test/post')
+    expect(seen[1]?.body).toEqual({ site: 'demo', url: 'https://x.test/post', emoji: '🎉' })
+    expect(seen[2]?.method).toBe('DELETE')
+    expect(emojiOf(seen[2]?.url ?? '')).toBe('🎉')
+    expect(new URL(seen[2]?.url ?? '').searchParams.get('site')).toBe('demo')
+  })
+
+  test('signing in to react has its own message', () => {
+    expect(signInRequiredError('react').message).toBe('Sign in to react.')
+    expect(signInRequired('react').message).toBe('Sign in to react.')
   })
 })
 
@@ -1365,5 +1447,17 @@ describe('signInRequired', () => {
     expect(signInRequired('reply').message).toBe('Sign in to reply to this comment.')
     expect(signInRequired('vote').message).toBe('Sign in to vote.')
     expect(signInRequired('reply').action).toBe('sign-in')
+  })
+})
+
+describe('reactionFailure', () => {
+  test('a refused session gets the reaction sign-in line, by code or by status', () => {
+    expect(reactionFailure(new ApiError('UNAUTHENTICATED', 'Sign in to react', 401)).message).toBe('Sign in to react.')
+    expect(reactionFailure(new ApiError('SESSION_EXPIRED', 'expired', 401)).action).toBe('sign-in')
+  })
+
+  test('an unknown failure says the reaction did not save; a code with its own copy keeps that copy', () => {
+    expect(reactionFailure(new ApiError('SOMETHING_NEW', 'boom', 500)).title).toBe("Your reaction wasn't saved")
+    expect(reactionFailure(new ApiError('PAGE_LOCKED', 'locked', 423)).title).toBe('Comments are closed on this page')
   })
 })

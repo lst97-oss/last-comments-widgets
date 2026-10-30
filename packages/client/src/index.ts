@@ -36,6 +36,8 @@ export type Comment = {
   editedAt: string | null
   score: number
   viewerVote: VoteValue | null
+  // Emoji counts on this comment. Empty for a deleted one, and when reactions are off.
+  reactions: ReactionSummary[]
   // The author's role on this site, as the server resolved it. Null for guests and for signed-in
   // accounts that hold no role here.
   authorRole: SiteRole | null
@@ -45,7 +47,21 @@ export type Comment = {
   userBlocked?: boolean
 }
 
+// A comment as the wire sends it. A server that predates reactions sends no `reactions`.
+type WireComment = Omit<Comment, 'reactions'> & { reactions?: ReactionSummary[] }
+
 export type VoteSummary = { score: number; viewerVote: VoteValue | null }
+
+// One emoji on a page or a comment: how many visitors hold it, and whether the signed-in viewer does.
+export type ReactionSummary = { emoji: string; count: number; viewerReacted: boolean }
+
+// The page a reaction names, by its URL: the same way the comment list names it.
+export type PageRef = { url: string }
+
+// Servers before reactions send no `reactions` field; the widgets always see a list.
+function readComment(raw: WireComment): Comment {
+  return { ...raw, reactions: raw.reactions ?? [] }
+}
 
 export type ThreadNode = { comment: Comment; children: ThreadNode[] }
 
@@ -87,6 +103,8 @@ export type ModerationComment = {
   // Vote state for the requesting moderator.
   score: number
   viewerVote: VoteValue | null
+  // Reaction counts, read-only in the dashboard. Absent from a server that predates reactions.
+  reactions?: ReactionSummary[]
   // The author's role on this site, mirroring the public comment wire field.
   authorRole: SiteRole | null
 }
@@ -347,6 +365,11 @@ export type LastCommentsClient = {
   postComment: (input: PostInput) => Promise<Comment>
   castVote: (commentId: string, value: VoteValue) => Promise<VoteSummary>
   clearVote: (commentId: string) => Promise<VoteSummary>
+  castReaction: (commentId: string, emoji: string) => Promise<ReactionSummary[]>
+  clearReaction: (commentId: string, emoji: string) => Promise<ReactionSummary[]>
+  listPageReactions: (page: PageRef) => Promise<ReactionSummary[]>
+  castPageReaction: (page: PageRef, emoji: string) => Promise<ReactionSummary[]>
+  clearPageReaction: (page: PageRef, emoji: string) => Promise<ReactionSummary[]>
   editOwnComment: (input: EditInput) => Promise<Comment>
   deleteOwnComment: (commentId: string, editKey?: string) => Promise<Comment>
   listModeration: (input: ListModerationInput) => Promise<ModerationOverview>
@@ -370,8 +393,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     if (list.limit !== undefined) params.set('limit', String(list.limit))
     if (list.offset !== undefined) params.set('offset', String(list.offset))
     const res = await fetchImpl(`${base}/api/comments?${params}`, { credentials: 'include' })
-    const data = await readEnvelope<{ comments: Comment[] }>(res)
-    return data.comments
+    const data = await readEnvelope<{ comments: WireComment[] }>(res)
+    return data.comments.map(readComment)
   }
 
   async function postComment(input: PostInput): Promise<Comment> {
@@ -389,8 +412,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         ...(input.verificationToken !== undefined ? { verificationToken: input.verificationToken } : {}),
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   async function castVote(commentId: string, value: VoteValue): Promise<VoteSummary> {
@@ -414,6 +437,63 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     return data.vote
   }
 
+  // A reaction is one emoji per viewer. The server answers with the whole comment's counts, which the widget
+  // shows as they are, so no count is adjusted on the client.
+  async function castReaction(commentId: string, emoji: string): Promise<ReactionSummary[]> {
+    const res = await fetchImpl(`${base}/api/comments/reactions`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: jsonHeaders,
+      body: JSON.stringify({ site, commentId, emoji }),
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  async function clearReaction(commentId: string, emoji: string): Promise<ReactionSummary[]> {
+    const params = new URLSearchParams({ site, commentId, emoji })
+    const res = await fetchImpl(`${base}/api/comments/reactions?${params}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  // The page bar's counts. Read without a session, so a guest sees the bar and the counts.
+  async function listPageReactions(page: PageRef): Promise<ReactionSummary[]> {
+    const params = new URLSearchParams(pageQuery(page))
+    const res = await fetchImpl(`${base}/api/comments/page-reactions?${params}`, { credentials: 'include' })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  async function castPageReaction(page: PageRef, emoji: string): Promise<ReactionSummary[]> {
+    const res = await fetchImpl(`${base}/api/comments/page-reactions`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...pageQuery(page), emoji }),
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  async function clearPageReaction(page: PageRef, emoji: string): Promise<ReactionSummary[]> {
+    const params = new URLSearchParams({ ...pageQuery(page), emoji })
+    const res = await fetchImpl(`${base}/api/comments/page-reactions?${params}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  // The site and the page, as the page-reaction routes name them.
+  function pageQuery(page: PageRef): Record<string, string> {
+    return { site, url: normalizePageUrl(page.url) }
+  }
+
   async function editOwnComment(input: EditInput): Promise<Comment> {
     const res = await fetchImpl(`${base}/api/comments/${input.commentId}`, {
       method: 'PATCH',
@@ -425,8 +505,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         ...(input.editKey !== undefined ? { editKey: input.editKey } : {}),
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // A guest proves ownership with the edit key from create time, in a header so it stays out of the URL.
@@ -437,8 +517,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
       credentials: 'include',
       ...(editKey === undefined ? {} : { headers: { 'x-lc-edit-key': editKey } }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // Moderation is session-only and same-origin: the route sends no CORS
@@ -471,8 +551,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         bodyMarkdown: input.bodyMarkdown,
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // Same story as create: a moderator editing their own comment from a
@@ -489,8 +569,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         bodyMarkdown: input.bodyMarkdown,
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // Voting from a dashboard: the public vote route is origin-gated, so
@@ -546,6 +626,11 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     postComment,
     castVote,
     clearVote,
+    castReaction,
+    clearReaction,
+    listPageReactions,
+    castPageReaction,
+    clearPageReaction,
     editOwnComment,
     deleteOwnComment,
     listModeration,
@@ -833,6 +918,7 @@ export function moderationCommentToComment(row: ModerationComment): Comment {
     editedAt: null,
     score: row.score,
     viewerVote: row.viewerVote,
+    reactions: row.reactions ?? [],
     authorRole: row.authorRole,
     userBlocked: row.userBlocked,
   }
@@ -899,6 +985,10 @@ export const THEME_CSS_VARIABLES = {
   voteBackground: '--lc-vote-background',
   voteBorder: '--lc-vote-border',
   voteShadow: '--lc-vote-shadow',
+  reactionBackground: '--lc-reaction-background',
+  reactionBorder: '--lc-reaction-border',
+  reactionActiveBackground: '--lc-reaction-active-background',
+  reactionActiveBorder: '--lc-reaction-active-border',
   actionColor: '--lc-action-color',
   actionHoverColor: '--lc-action-hover-color',
   actionHoverBackground: '--lc-action-hover-background',
@@ -1077,7 +1167,7 @@ const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
   },
   PAGE_LOCKED: {
     title: 'Comments are closed on this page',
-    message: 'New comments, replies and votes are disabled.',
+    message: 'New comments, replies, votes and reactions are disabled.',
     specific: true,
   },
   PARENT_NOT_FOUND: {
@@ -1130,8 +1220,8 @@ const NETWORK_COPY: ErrorCopy = {
 // readEnvelope synthesises this when the API sends no error message.
 const SYNTHETIC_MESSAGE = /^request failed with \d+$/
 
-// What a gated visitor was refused: reading the thread, posting a comment, replying to one, or voting.
-export type SignInOperation = 'read' | 'write' | 'reply' | 'vote'
+// What a gated visitor was refused: reading the thread, posting a comment, replying to one, voting or reacting.
+export type SignInOperation = 'read' | 'write' | 'reply' | 'vote' | 'react'
 
 // The refusal a gated visitor gets: the error a server sends, so every path shows one sign-in state.
 export function signInRequiredError(operation: SignInOperation): ApiError {
@@ -1140,6 +1230,7 @@ export function signInRequiredError(operation: SignInOperation): ApiError {
     write: 'Sign in to comment on this site.',
     reply: 'Sign in to reply to this comment.',
     vote: 'Sign in to vote.',
+    react: 'Sign in to react.',
   }[operation]
   return new ApiError('UNAUTHENTICATED', message, 401)
 }
@@ -1148,6 +1239,13 @@ export function signInRequired(operation: SignInOperation): ErrorInfo {
   const error = signInRequiredError(operation)
   // The UNAUTHENTICATED copy is generic and would hide the per-operation line, so the refusal's own message wins.
   return describeError(error, { message: error.message })
+}
+
+// What a reader sees when a reaction does not save. A refused session gets the sign-in line, so every
+// port says the same thing for the same refusal.
+export function reactionFailure(err: unknown): ErrorInfo {
+  if (err instanceof ApiError && (err.code === 'UNAUTHENTICATED' || err.status === 401)) return signInRequired('react')
+  return describeError(err, { title: "Your reaction wasn't saved" })
 }
 
 export function describeError(error: unknown, overrides: { title?: string; message?: string } = {}): ErrorInfo {
