@@ -6,7 +6,7 @@ import { buttonClass } from './button-classes'
 @Component({
   selector: 'lc-thread-sort-toggle',
   template: `
-    <div class="flex items-center gap-1" role="toolbar" aria-label="Sort comments">
+    <div class="flex items-center gap-1" role="group" aria-label="Sort comments">
       <span class="mr-1 text-xs text-muted-foreground">Sort</span>
       @for (option of options; track option.value) {
         <button

@@ -6,7 +6,8 @@ export type { ThreadSort }
 
 export function ThreadSortToggle({ value, onChange }: { value: ThreadSort; onChange: (value: ThreadSort) => void }) {
   return (
-    <div className="flex items-center gap-1" role="toolbar" aria-label="Sort comments">
+    // biome-ignore lint/a11y/useSemanticElements: a group of toggle buttons; a fieldset would add form semantics and a border every port would need to undo
+    <div className="flex items-center gap-1" role="group" aria-label="Sort comments">
       <span className="mr-1 text-xs text-muted-foreground">Sort</span>
       <Button
         type="button"
