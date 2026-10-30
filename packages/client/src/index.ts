@@ -323,7 +323,8 @@ export function takeSignInFailure(href: string): SignInFailure | null {
   if (url.searchParams.get(SIGN_IN_FAILED_PARAM) !== 'failed') return null
   const code = url.searchParams.get('error') ?? 'unknown'
   for (const key of [SIGN_IN_FAILED_PARAM, 'error', 'error_description']) url.searchParams.delete(key)
-  const copy = SIGN_IN_FAILURE_COPY[code] ?? SIGN_IN_FAILURE_FALLBACK
+  // Own keys only: a plain object also answers `constructor`, `__proto__` and `toString`.
+  const copy = Object.hasOwn(SIGN_IN_FAILURE_COPY, code) ? SIGN_IN_FAILURE_COPY[code] : SIGN_IN_FAILURE_FALLBACK
   return { info: { code, title: copy.title, message: copy.message, action: 'none' }, cleanHref: url.toString() }
 }
 

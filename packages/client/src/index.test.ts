@@ -239,6 +239,13 @@ describe('takeSignInFailure', () => {
     expect(takeSignInFailure('https://demo.test/p?lc_sign_in=failed')?.info.code).toBe('unknown')
   })
 
+  test('an object key such as constructor or __proto__ is not copy: it gets the generic copy', () => {
+    for (const code of ['constructor', '__proto__', 'toString']) {
+      const failure = takeSignInFailure(`https://demo.test/p?lc_sign_in=failed&error=${code}`)
+      expect(failure?.info).toMatchObject({ code, title: "Sign-in didn't finish" })
+    }
+  })
+
   test('ignores an unparseable page URL', () => {
     expect(takeSignInFailure('not a url')).toBeNull()
   })
