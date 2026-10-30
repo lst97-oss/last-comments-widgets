@@ -3,7 +3,6 @@ import { CdkTrapFocus } from '@angular/cdk/a11y'
 import { CdkConnectedOverlay, type ConnectedPosition } from '@angular/cdk/overlay'
 import { Component, computed, input, output, signal, viewChild } from '@angular/core'
 import {
-  accountBadge,
   type Comment,
   collectThreadParticipants,
   DEFAULT_ANON_EDIT_WINDOW_MINUTES,
@@ -174,13 +173,13 @@ function initials(name: string): string {
             }
             <span [class]="avatarFallbackClass">{{ initialsLabel() }}</span>
           </span>
-          <span class="min-w-0 truncate font-medium" [class.lc-author-admin]="accountBadge(c) === 'admin'">{{
+          <span class="min-w-0 truncate font-medium" [class.lc-author-admin]="c.authorRole === 'admin'">{{
             c.authorName
           }}</span>
-          @if (accountBadge(c) === 'admin') {
+          @if (c.authorRole === 'admin') {
             <span [class]="adminBadgeClass">Admin</span>
           }
-          @if (accountBadge(c) === 'member') {
+          @if (c.authorRole === 'member') {
             <span [class]="memberBadgeClass">Member</span>
           }
           <!-- Moderation rows carry the block state; the public wire shape omits it. -->
@@ -588,7 +587,6 @@ export class LcCommentItemComponent {
   protected readonly avatarClass = AVATAR_CLASS
   protected readonly avatarFallbackClass = AVATAR_FALLBACK_CLASS
   protected readonly stackAvatarClass = STACK_AVATAR_CLASS
-  protected readonly accountBadge = accountBadge
   protected readonly adminBadgeClass = `${BADGE_CLASS} lc-admin-badge bg-primary text-primary-foreground`
   protected readonly memberBadgeClass = `${BADGE_CLASS} lc-member-badge bg-secondary text-secondary-foreground`
   protected readonly blockedBadgeClass = `${BADGE_CLASS} lc-blocked-badge border-border text-foreground`

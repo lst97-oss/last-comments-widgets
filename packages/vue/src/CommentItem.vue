@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  accountBadge,
   canDeleteComment,
   DEFAULT_BODY_LIMIT,
   type ErrorInfo,
@@ -239,13 +238,11 @@ function toggleReply() {
           <Minus v-else aria-hidden="true" />
         </button>
         <LcAvatar :name="comment.authorName" :src="comment.avatarUrl" />
-        <span class="min-w-0 truncate font-medium" :class="accountBadge(comment) === 'admin' ? 'lc-author-admin' : ''">
+        <span class="min-w-0 truncate font-medium" :class="comment.authorRole === 'admin' ? 'lc-author-admin' : ''">
           {{ comment.authorName }}
         </span>
-        <span v-if="accountBadge(comment) === 'admin'" :class="[badgeClass('default'), 'lc-admin-badge']">Admin</span>
-        <span v-if="accountBadge(comment) === 'member'" :class="[badgeClass('default'), 'lc-member-badge']"
-          >Member</span
-        >
+        <span v-if="comment.authorRole === 'admin'" :class="[badgeClass('default'), 'lc-admin-badge']">Admin</span>
+        <span v-if="comment.authorRole === 'member'" :class="[badgeClass('default'), 'lc-member-badge']">Member</span>
         <!-- Moderation rows carry the block state; the public wire shape omits it. -->
         <span v-if="comment.userBlocked" :class="[badgeClass('outline'), 'lc-blocked-badge']">
           <Ban aria-hidden="true" />

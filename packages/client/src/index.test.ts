@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
   ApiError,
-  accountBadge,
   beginOAuthSignIn,
   buildCommentTree,
   buildThreadGuidePath,
@@ -11,7 +10,6 @@ import {
   collectThreadParticipants,
   createClient,
   DEFAULT_ANON_EDIT_WINDOW_MINUTES,
-  DEFAULT_EDIT_WINDOW_MINUTES,
   describeError,
   EDIT_WINDOW_CLOSED,
   fetchViewerSession,
@@ -189,20 +187,6 @@ describe('beginOAuthSignIn', () => {
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).code).toBe('SIGN_IN_UNAVAILABLE')
     expect((err as ApiError).message).toBe('provider not configured')
-  })
-})
-
-describe('accountBadge', () => {
-  test('marks the site admin', () => {
-    expect(accountBadge({ authorRole: 'admin' })).toBe('admin')
-  })
-
-  test('marks a member by the server role, not by a signed-in account', () => {
-    expect(accountBadge({ authorRole: 'member' })).toBe('member')
-  })
-
-  test('gives guests and signed-in accounts with no role no badge', () => {
-    expect(accountBadge({ authorRole: null })).toBeNull()
   })
 })
 
@@ -546,7 +530,6 @@ describe('isEditWindowOpen', () => {
   })
 
   test('unlimited window and invalid dates', () => {
-    expect(DEFAULT_EDIT_WINDOW_MINUTES).toBe(5)
     expect(DEFAULT_ANON_EDIT_WINDOW_MINUTES).toBe(10)
     expect(isEditWindowOpen('2020-01-01T00:00:00.000Z', Date.now(), 0)).toBe(true)
     expect(isEditWindowOpen('2020-01-01T00:00:00.000Z', Date.now(), null)).toBe(true)

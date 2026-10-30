@@ -69,14 +69,6 @@ export type ThreadNode = { comment: Comment; children: ThreadNode[] }
 // site, `member` comments and nothing else.
 export type SiteRole = 'admin' | 'member'
 
-// Account badge for a comment's author, taken straight from the server's role:
-// `admin` for the site admin, `member` for a member. Guests and accounts with no
-// role get none.
-export type AccountBadge = SiteRole
-export function accountBadge(comment: Pick<Comment, 'authorRole'>): AccountBadge | null {
-  return comment.authorRole
-}
-
 // The viewer's role for the moderation UI. Only the site admin gets it; the server
 // authorizes every moderation call, so this value only gates UI.
 export type ViewerRole = 'admin'
@@ -790,18 +782,15 @@ export function renderMarkdown(source: string, options?: MarkdownOptions): strin
   return instance.parse(source) as string
 }
 
-export const DEFAULT_EDIT_WINDOW_MINUTES = 5
 // Returned by resolveEditWindow for anyone who does not own the comment.
 export const EDIT_WINDOW_CLOSED = -1
 
 // Mirror of the server edit windows. Invalid dates fail closed so widgets
 // never show an Edit button the server will reject.
 // null = unlimited; 0 = unlimited (legacy API); negative = always closed.
-export function isEditWindowOpen(
-  createdAtIso: string,
-  nowMs: number = Date.now(),
-  windowMinutes: number | null = DEFAULT_EDIT_WINDOW_MINUTES,
-): boolean {
+// Callers always pass the window from resolveEditWindow: there is no default,
+// so a missing value can never quietly pick a different window.
+export function isEditWindowOpen(createdAtIso: string, nowMs: number, windowMinutes: number | null): boolean {
   if (windowMinutes === null || windowMinutes === 0) return true
   if (windowMinutes < 0) return false
   const createdMs = Date.parse(createdAtIso)

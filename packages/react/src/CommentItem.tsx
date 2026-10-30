@@ -1,5 +1,4 @@
 import {
-  accountBadge,
   type Comment,
   canDeleteComment,
   collectThreadParticipants,
@@ -397,7 +396,7 @@ function CommentHeader({
   onModerate,
   onBlockUser,
 }: CommentHeaderProps) {
-  const badge = accountBadge(comment)
+  const badge = comment.authorRole
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <Button
