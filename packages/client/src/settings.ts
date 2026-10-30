@@ -107,11 +107,14 @@ export async function fetchCommentSettings(options: {
       return value
     } catch {
       return null
-    } finally {
-      inFlight.delete(key)
     }
   })()
+  // Stored before any cleanup can run: a fetch that throws synchronously settles
+  // inside the async body above, and must not leave its entry behind.
   inFlight.set(key, request)
+  void request.finally(() => {
+    if (inFlight.get(key) === request) inFlight.delete(key)
+  })
   return request
 }
 

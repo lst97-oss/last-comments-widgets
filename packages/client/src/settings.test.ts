@@ -199,6 +199,17 @@ describe('fetchCommentSettings', () => {
     expect(await fetchCommentSettings({ baseUrl: 'https://c.test', site: 's', fetchImpl: offline })).toBeNull()
   })
 
+  test('a fetch that throws synchronously does not stick: the next read retries', async () => {
+    const broken = (() => {
+      throw new TypeError('fetch wrapper threw at once')
+    }) as unknown as typeof fetch
+    expect(await fetchCommentSettings({ baseUrl: 'https://c.test', site: 's', fetchImpl: broken })).toBeNull()
+    const working = fakeFetch({ data: { settings: served } })
+    expect(
+      (await fetchCommentSettings({ baseUrl: 'https://c.test', site: 's', fetchImpl: working.fetchImpl }))?.access,
+    ).toBe('login')
+  })
+
   test('a malformed body resolves to null', async () => {
     const { fetchImpl } = fakeFetch({ data: { settings: 'not an object' } })
     expect(await fetchCommentSettings({ baseUrl: 'https://c.test', site: 's', fetchImpl })).toBeNull()
