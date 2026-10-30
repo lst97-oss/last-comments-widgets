@@ -9,7 +9,7 @@ import {
   type VoteValue,
   type WidgetTheme,
 } from '@last-comments-widgets/client'
-import type { TurnstileOptions } from './lib/turnstile'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 
 export { canModerate } from '@last-comments-widgets/client'
 

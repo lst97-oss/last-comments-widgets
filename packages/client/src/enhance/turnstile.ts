@@ -1,7 +1,7 @@
 // Minimal Cloudflare Turnstile loader, modelled on @marsidev/react-turnstile's
 // script handling (MIT) but reduced to what this widget needs: one cached
-// script for the page and explicit rendering into a container we own.
-// The Vue component attaches to it from a template ref — see ../Turnstile.vue.
+// script for the page and explicit rendering into a container we own. Every port
+// shares this one loader, so a page loads Cloudflare's script once.
 
 // Cloudflare draws the challenge itself inside a cross-origin iframe (in a
 // closed shadow root), so light/dark is the only design surface it exposes.

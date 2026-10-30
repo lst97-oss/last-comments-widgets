@@ -8,7 +8,7 @@ import {
   type VoteValue,
 } from '@last-comments-widgets/client'
 import CommentItem, { type CommentFormInput } from './CommentItem.vue'
-import type { TurnstileOptions } from './lib/turnstile'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 import { type ActionMode } from './types'
 
 defineProps<{

@@ -8,18 +8,16 @@ import type Katex from 'katex'
 let katexPromise: Promise<typeof Katex> | null = null
 let cssRequested = false
 
-// ng-packagr compiles only the reachable graph, so an ambient `*.css` module
-// declaration is never loaded: the specifier stays a variable (Angular hosts
-// import katex.min.css themselves). Documented in the README.
-const KATEX_CSS = 'katex/dist/katex.min.css'
+// The stylesheet is best effort: a port that bundles it passes the import as `loadStyles`, and a
+// host that ships the CSS itself passes nothing. The import must live in the port's own bundle,
+// so it is never a literal here. Requested once per page, by whichever port asks first.
+export type MathOptions = { loadStyles?: () => Promise<unknown> }
 
-// The stylesheet is best effort: bundlers inline it, and a host that ships the
-// CSS itself simply gets a failed dynamic import that is ignored.
-function loadKatex(): Promise<typeof Katex> {
+function loadKatex(loadStyles: MathOptions['loadStyles']): Promise<typeof Katex> {
   katexPromise ??= import('katex').then((module) => module.default)
-  if (!cssRequested) {
+  if (loadStyles && !cssRequested) {
     cssRequested = true
-    void Promise.resolve(import(KATEX_CSS)).catch(() => {})
+    void loadStyles().catch(() => {})
   }
   return katexPromise
 }
@@ -29,7 +27,8 @@ function clearPending(node: HTMLElement) {
   node.removeAttribute('aria-busy')
 }
 
-export function enhanceMath(root: ParentNode): () => void {
+// Returns a cleanup that cancels an in-flight upgrade, for a caller whose HTML changes or that unmounts.
+export function enhanceMath(root: ParentNode, options: MathOptions = {}): () => void {
   const nodes = Array.from(root.querySelectorAll<HTMLElement>('.lc-math:not([data-math])'))
   for (const node of nodes) {
     node.setAttribute('data-math', 'pending')
@@ -43,7 +42,7 @@ export function enhanceMath(root: ParentNode): () => void {
   }
 
   void (async () => {
-    const katex = await loadKatex()
+    const katex = await loadKatex(options.loadStyles)
     for (const node of nodes) {
       if (cancelled) return
       // Angular's [innerHTML] sanitizer drops `data-tex`; the escaped tex is

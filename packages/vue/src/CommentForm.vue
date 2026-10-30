@@ -6,7 +6,7 @@ import CommentError from './CommentError.vue'
 import Turnstile from './Turnstile.vue'
 import { buttonClass } from './lib/button'
 import { cn } from './lib/cn'
-import type { TurnstileOptions } from './lib/turnstile'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 import { useMarkdownEnhance } from './lib/useMarkdownEnhance'
 
 const props = defineProps<{

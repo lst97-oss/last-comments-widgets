@@ -1,41 +1,11 @@
 import { Directive, effect, ElementRef, inject, input, NgZone, type OnDestroy, output } from '@angular/core'
 import {
+  loadTurnstile,
   resolveTurnstileConfig,
+  type TurnstileApi,
   type TurnstileOptions,
   type TurnstileRenderConfig,
-  type TurnstileRenderParams,
-} from './types'
-
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (el: HTMLElement, opts: TurnstileRenderParams) => string | null | undefined
-      reset: (id: string) => void
-      remove?: (id: string) => void
-    }
-    __lcTurnstileLoading?: Promise<void>
-  }
-}
-
-function loadTurnstileScript(): Promise<void> {
-  if (typeof document === 'undefined') return Promise.resolve()
-  if (window.turnstile) return Promise.resolve()
-  if (!window.__lcTurnstileLoading) {
-    window.__lcTurnstileLoading = new Promise<void>((resolve, reject) => {
-      const script = document.createElement('script')
-      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
-      script.async = true
-      script.defer = true
-      script.onload = () => resolve()
-      script.onerror = () => {
-        window.__lcTurnstileLoading = undefined
-        reject(new Error('Failed to load Turnstile'))
-      }
-      document.head.appendChild(script)
-    })
-  }
-  return window.__lcTurnstileLoading
-}
+} from '@last-comments-widgets/client/enhance'
 
 // Renders a Cloudflare Turnstile challenge inside the host element and emits
 // the token. Call reset() after every submit (the token is single-use). The
@@ -49,6 +19,7 @@ export class LcTurnstileDirective implements OnDestroy {
   token = output<string>()
   expired = output<void>()
 
+  #api: TurnstileApi | undefined
   #widgetId: string | undefined
   #renderKey = ''
   #generation = 0
@@ -79,18 +50,19 @@ export class LcTurnstileDirective implements OnDestroy {
     // A widget re-render is a token reset: the old challenge cannot be posted.
     this.#remove(true)
     if (!siteKey || typeof document === 'undefined') return
+    let api: TurnstileApi
     try {
-      await loadTurnstileScript()
+      api = await loadTurnstile()
     } catch (error) {
       console.error('[last-comments-widgets] Turnstile failed to load', error)
       return
     }
     if (generation !== this.#generation || this.#destroyed) return
-    if (typeof window === 'undefined' || !window.turnstile) return
+    this.#api = api
     this.zone.runOutsideAngular(() => {
       try {
         this.#widgetId =
-          window.turnstile?.render(this.el.nativeElement, {
+          api.render(this.el.nativeElement, {
             sitekey: siteKey,
             ...config,
             callback: (token: string) => this.zone.run(() => this.#emitToken(token)),
@@ -119,7 +91,7 @@ export class LcTurnstileDirective implements OnDestroy {
     const id = this.#widgetId
     this.#widgetId = undefined
     try {
-      window.turnstile?.remove?.(id)
+      this.#api?.remove(id)
     } catch {
       // Already gone with its DOM.
     }
@@ -133,6 +105,6 @@ export class LcTurnstileDirective implements OnDestroy {
   }
 
   reset(): void {
-    if (this.#widgetId !== undefined) window.turnstile?.reset(this.#widgetId)
+    if (this.#widgetId !== undefined) this.#api?.reset(this.#widgetId)
   }
 }

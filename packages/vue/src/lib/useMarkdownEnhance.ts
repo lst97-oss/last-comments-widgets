@@ -1,8 +1,10 @@
+import { enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
 import { onBeforeUnmount, onMounted, type Ref, watch } from 'vue'
-import { enhanceMath } from './math'
-import { enhanceMermaid } from './mermaid'
 
 type EnhanceFlags = { math: () => boolean; mermaid: () => boolean }
+
+// This port bundles KaTeX's stylesheet; the import stays here so the bundle that owns the CSS requests it.
+const loadKatexStyles = () => import('katex/dist/katex.min.css')
 
 // Runs the post-paint upgrades against whichever element currently holds the
 // rendered markdown. Vue replaces that markup wholesale (v-html) or the row
@@ -15,7 +17,10 @@ export function useMarkdownEnhance(el: Ref<HTMLElement | null>, html: Ref<string
     cleanup = null
     const node = el.value
     if (!node) return
-    const cleanups = [...(flags.mermaid() ? [enhanceMermaid(node)] : []), ...(flags.math() ? [enhanceMath(node)] : [])]
+    const cleanups = [
+      ...(flags.mermaid() ? [enhanceMermaid(node)] : []),
+      ...(flags.math() ? [enhanceMath(node, { loadStyles: loadKatexStyles })] : []),
+    ]
     if (cleanups.length === 0) return
     cleanup = () => {
       for (const dispose of cleanups) dispose()

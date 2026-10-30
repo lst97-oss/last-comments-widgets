@@ -26,7 +26,7 @@ import VoteButtons from './VoteButtons.vue'
 import { badgeClass } from './lib/badge'
 import { buttonClass } from './lib/button'
 import { ITEM_INITIAL, type ItemAction, type ItemState, itemReducer } from './lib/itemState'
-import type { TurnstileOptions } from './lib/turnstile'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 import { useMarkdownEnhance } from './lib/useMarkdownEnhance'
 import { type ActionMode, canEditComment } from './types'
 

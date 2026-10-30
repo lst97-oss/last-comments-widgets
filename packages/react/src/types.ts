@@ -1,5 +1,5 @@
 import type { CommentSettings, ViewerRole, WidgetTheme } from '@last-comments-widgets/client'
-import type { TurnstileOptions } from './lib/turnstile'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 
 export type Theme = 'light' | 'dark' | 'system'
 

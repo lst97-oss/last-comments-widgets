@@ -1,8 +1,10 @@
 import { renderMarkdown } from '@last-comments-widgets/client'
+import { enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
 import { type ReactNode, useCallback, useMemo } from 'react'
 import { enhanceCodeBlocks } from './lib/codeBlock'
-import { enhanceMath } from './lib/math'
-import { enhanceMermaid } from './lib/mermaid'
+
+// This port bundles KaTeX's stylesheet; the import stays here so the bundle that owns the CSS requests it.
+const loadKatexStyles = () => import('katex/dist/katex.min.css')
 
 type MarkdownProps = {
   source: string
@@ -36,7 +38,7 @@ export function Markdown({
       const cleanups = [
         ...(codeHighlight ? [enhanceCodeBlocks(node)] : []),
         ...(mermaid ? [enhanceMermaid(node)] : []),
-        ...(math ? [enhanceMath(node)] : []),
+        ...(math ? [enhanceMath(node, { loadStyles: loadKatexStyles })] : []),
       ]
       if (cleanups.length === 0) return
       return () => {

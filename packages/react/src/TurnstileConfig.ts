@@ -1,5 +1,5 @@
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 import { createContext } from 'react'
-import type { TurnstileOptions } from './lib/turnstile'
 
 // Widget-wide Turnstile settings: the resolved light/dark mode plus the host's
 // Cloudflare render options. Comments and CommentsTheme provide it; the

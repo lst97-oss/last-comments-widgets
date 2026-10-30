@@ -1,6 +1,5 @@
 import { afterRenderEffect, DestroyRef, Directive, ElementRef, inject, input } from '@angular/core'
-import { enhanceMath } from './math'
-import { enhanceMermaid } from './mermaid'
+import { enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
 
 // Hooks the shared post-paint upgrades onto whichever element holds rendered
 // markdown. `[lcMarkdownEnhance]` is the html trigger: when Angular rewrites
