@@ -1,7 +1,7 @@
 import { CdkAccordion, CdkAccordionItem } from '@angular/cdk/accordion'
 import { CdkTrapFocus } from '@angular/cdk/a11y'
 import { CdkConnectedOverlay, type ConnectedPosition } from '@angular/cdk/overlay'
-import { Component, computed, input, output, signal } from '@angular/core'
+import { Component, computed, input, output, signal, viewChild } from '@angular/core'
 import {
   accountBadge,
   type Comment,
@@ -401,6 +401,7 @@ function initials(name: string): string {
           @if (!readOnly() && !state.editing && writeAllowed() && replyTo() === c.id) {
             <div class="my-3">
               <lc-comment-form
+                #replyComposer
                 [guest]="guest()"
                 [turnstileSiteKey]="turnstileSiteKey()"
                 [dark]="dark()"
@@ -729,12 +730,17 @@ export class LcCommentItemComponent {
     }
   }
 
+  readonly replyComposer = viewChild<LcCommentFormComponent>('replyComposer')
+
   protected async submitReply(submit: CommentSubmit): Promise<void> {
     // The in-flight lock: a second click must not post the same reply twice.
     if (this.itemState().replying) return
     this.dispatch({ type: 'reply/submit' })
     try {
-      this.dispatch({ type: 'reply/settle', error: await this.replyComment()(this.comment().comment.id, submit) })
+      const error = await this.replyComment()(this.comment().comment.id, submit)
+      // A refused reply has spent its challenge token; the draft stays for a retry with a fresh one.
+      if (error) this.replyComposer()?.resetChallenge()
+      this.dispatch({ type: 'reply/settle', error })
     } finally {
       this.dispatch({ type: 'replying/set', replying: false })
     }

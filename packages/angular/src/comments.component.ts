@@ -975,6 +975,8 @@ export class LcCommentsComponent {
       if (this.moderator()) this.moderated.emit()
     } catch (err) {
       this.formError.set(describeError(err, { title: "Your comment wasn't posted" }))
+      // A refused post has spent its challenge token; the draft stays for a retry with a fresh one.
+      this.composer()?.resetChallenge()
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
     } finally {
       this.posting.set(false)
