@@ -953,6 +953,13 @@ export class LcCommentsComponent {
     return normalized
   }
 
+  // A post joins the list at its end only when the list holds the whole stream. With more pages to come,
+  // the next page's offset would count a row the server never sent, so the root reloads instead.
+  #showPosted(created: Comment): void {
+    if (this.hasMore()) this.root.reload()
+    else this.comments.set([...this.comments(), created])
+  }
+
   async onTopLevelSubmit(input: CommentSubmit): Promise<void> {
     // The in-flight lock: a second click must not post the same comment twice.
     if (this.posting()) return
@@ -960,7 +967,7 @@ export class LcCommentsComponent {
     this.formError.set(null)
     try {
       const created = await this.#post(input, null)
-      this.comments.set([...this.comments(), created])
+      this.#showPosted(created)
       this.page.set(1)
       this.replyTo.set(null)
       // The head composer clears by resetting its own draft.
@@ -982,7 +989,7 @@ export class LcCommentsComponent {
     }
     try {
       const created = await this.#post(input, commentId)
-      this.comments.set([...this.comments(), created])
+      this.#showPosted(created)
       this.page.set(1)
       this.replyTo.set(null)
       if (this.moderator()) this.moderated.emit()

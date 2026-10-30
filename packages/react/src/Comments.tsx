@@ -555,6 +555,16 @@ export function Comments({
     [client, guest, moderationPageId, moderator, url],
   )
 
+  // A post joins the list at its end only when the list holds the whole stream. With more pages to come,
+  // the next page's offset would count a row the server never sent, so the first page reloads instead.
+  const showPosted = useCallback(
+    async (created: Comment) => {
+      if (hasMore) await load()
+      else setComments((prev) => [...prev, created])
+    },
+    [hasMore, load],
+  )
+
   // `false` = nothing was sent: the composer keeps the draft for a retry.
   async function handleSubmit(input: CommentFormInput): Promise<boolean> {
     // The in-flight lock: a second click must not post the same comment twice.
@@ -572,7 +582,7 @@ export function Comments({
     setFormError(null)
     try {
       const created = await postOne({ parentId: null, ...input })
-      setComments((prev) => [...prev, created])
+      await showPosted(created)
       setPage(1)
       setReplyTo(null)
       setFormEpoch((epoch) => epoch + 1)
@@ -598,7 +608,7 @@ export function Comments({
       }
       try {
         const created = await postOne({ parentId: commentId, ...input })
-        setComments((prev) => [...prev, created])
+        await showPosted(created)
         setPage(1)
         setReplyTo(null)
         if (status !== 'ready') setStatus('ready')
@@ -608,7 +618,7 @@ export function Comments({
         return describeError(err, { title: "Your reply wasn't posted" })
       }
     },
-    [moderator, onModerated, postOne, status],
+    [moderator, onModerated, postOne, showPosted, status],
   )
 
   // The item renders this in its own slot: it keeps the editor (and draft) open

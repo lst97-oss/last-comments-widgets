@@ -15,6 +15,7 @@ import {
   createClient,
   describeError,
   type ErrorInfo,
+  type Comment,
   type CommentSettings,
   fetchCommentSettings,
   fetchViewerSession,
@@ -241,6 +242,13 @@ const guestEditKeys = computed(() => {
 
 // Shared create path: head comments and inline replies differ only in the
 // parent, so the moderation/origin branching lives here once.
+// A post joins the list at its end only when the list holds the whole stream. With more pages to come,
+// the next page's offset would count a row the server never sent, so the first page reloads instead.
+async function showPosted(created: Comment) {
+  if (hasMore.value) await loadFirstPage()
+  else comments.value = [...comments.value, created]
+}
+
 async function postOne(
   parentId: string | null,
   input: { authorName: string; bodyMarkdown: string; verificationToken?: string },
@@ -287,7 +295,7 @@ async function submit(input: { authorName: string; bodyMarkdown: string; verific
   formError.value = null
   try {
     const created = await postOne(null, input)
-    comments.value = [...comments.value, created]
+    await showPosted(created)
     page.value = 1
     if (status.value !== 'ready') status.value = 'ready'
     if (moderator.value) emit('moderated')
@@ -313,7 +321,7 @@ async function submitReply(
   }
   try {
     const created = await postOne(commentId, input)
-    comments.value = [...comments.value, created]
+    await showPosted(created)
     page.value = 1
     replyTo.value = null
     if (status.value !== 'ready') status.value = 'ready'
