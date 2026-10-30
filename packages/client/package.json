@@ -37,6 +37,8 @@
     "marked": "^18.1.1"
   },
   "devDependencies": {
+    "katex": "^0.19.1",
+    "mermaid": "^12.2.0",
     "tsup": "^9.0.0",
     "typescript": "^6.0.3"
   }
