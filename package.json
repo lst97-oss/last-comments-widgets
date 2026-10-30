@@ -26,7 +26,11 @@
     "version": "changeset version && bun install && bun run versions:check",
     "release": "bun run versions:check && bun run check && bun test && bun run build && bun run pack:check && changeset publish",
     "test:theme": "bun run build && bun scripts/check-theme.ts",
-    "test:settings": "bun run build && bun scripts/check-settings.ts"
+    "test:settings": "bun run build && bun scripts/check-settings.ts",
+    "test:reactions": "bun run build && bun scripts/check-reactions.ts",
+    "test:posting": "bun run build && bun scripts/check-posting.ts",
+    "test:svg": "bun run build && bun scripts/check-svg.ts",
+    "test:browser": "bun run build && bun scripts/check-theme.ts && bun scripts/check-settings.ts && bun scripts/check-reactions.ts && bun scripts/check-posting.ts && bun scripts/check-svg.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.4",
