@@ -6,7 +6,7 @@ import CommentError from './CommentError.vue'
 import Turnstile from './Turnstile.vue'
 import { buttonClass } from './lib/button'
 import { cn } from './lib/cn'
-import type { TurnstileOptions } from './lib/turnstile'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 import { useMarkdownEnhance } from './lib/useMarkdownEnhance'
 
 const props = defineProps<{
@@ -146,14 +146,18 @@ async function submit() {
       bodyMarkdown: body.value,
       ...(props.siteKey && token.value ? { verificationToken: token.value } : {}),
     })
+    // The server spends the challenge token before it checks the page or the parent, so a refused
+    // send needs a fresh challenge too, even though its draft stays.
+    token.value = ''
+    turnstile.value?.reset()
     // `false` = the send failed: keep the draft so it can be retried.
     if (result === false) return
     body.value = ''
-    token.value = ''
     preview.value = false
-    turnstile.value?.reset()
     emit('submitted')
   } catch (err) {
+    token.value = ''
+    turnstile.value?.reset()
     formError.value = describeError(err, { title: props.errorTitle ?? "Your comment wasn't posted" })
   } finally {
     busy.value = false

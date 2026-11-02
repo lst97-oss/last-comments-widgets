@@ -4,6 +4,7 @@
 // inside the figure so a theme flip can re-render it.
 
 import type Mermaid from 'mermaid'
+import { parseSafeSvg } from './svg'
 
 let mermaidPromise: Promise<typeof Mermaid> | null = null
 let counter = 0
@@ -11,20 +12,6 @@ let counter = 0
 function loadMermaid(): Promise<typeof Mermaid> {
   mermaidPromise ??= import('mermaid').then((module) => module.default)
   return mermaidPromise
-}
-
-// Mermaid sanitizes under `securityLevel: 'strict'`; this is the second lock:
-// an svg that still carries script, event handlers or a javascript: url is
-// discarded and the source block stays.
-export function isSafeSvg(svg: string): boolean {
-  return !/<script[\s>]/i.test(svg) && !/\son[a-z]+\s*=/i.test(svg) && !/javascript:/i.test(svg)
-}
-
-function parseSvg(svg: string): SVGSVGElement | null {
-  const template = document.createElement('template')
-  template.innerHTML = svg.trim()
-  const rendered = template.content.firstElementChild
-  return rendered instanceof SVGSVGElement ? rendered : null
 }
 
 function isDark(root: ParentNode): boolean {
@@ -40,8 +27,8 @@ function clearPending(pre: HTMLPreElement) {
   pre.removeAttribute('aria-busy')
 }
 
-// Returns a cleanup so React 19's ref callback can cancel an in-flight upgrade
-// and drop the theme observer when the body changes or the component unmounts.
+// Returns a cleanup that cancels an in-flight upgrade and drops the theme observer,
+// for a caller whose body changes or that unmounts.
 export function enhanceMermaid(root: ParentNode): () => void {
   const codes = Array.from(root.querySelectorAll<HTMLElement>('pre:not(.shiki):not([data-mermaid]) > code'))
   const pres = new Set<HTMLPreElement>()
@@ -75,9 +62,9 @@ export function enhanceMermaid(root: ParentNode): () => void {
       }
       try {
         mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default' })
-        const { svg } = await mermaid.render(`lc-react-mermaid-${++counter}`, source)
+        const { svg } = await mermaid.render(`lc-mermaid-${++counter}`, source)
         if (cancelled) return
-        const rendered = isSafeSvg(svg) ? parseSvg(svg) : null
+        const rendered = parseSafeSvg(svg)
         if (!rendered) {
           clearPending(pre)
           continue
@@ -94,7 +81,7 @@ export function enhanceMermaid(root: ParentNode): () => void {
         pres.delete(pre)
         figures.push({ figure, source })
       } catch {
-        // Parse/DIagram failure: keep the source block visible.
+        // Parse or diagram failure: keep the source block visible.
         clearPending(pre)
       }
     }
@@ -128,9 +115,9 @@ export function enhanceMermaid(root: ParentNode): () => void {
       if (cancelled) return
       if (!item.figure.isConnected) continue
       try {
-        const { svg } = await mermaid.render(`lc-react-mermaid-${++counter}`, item.source)
+        const { svg } = await mermaid.render(`lc-mermaid-${++counter}`, item.source)
         if (cancelled) return
-        const rendered = isSafeSvg(svg) ? parseSvg(svg) : null
+        const rendered = parseSafeSvg(svg)
         if (rendered) item.figure.firstElementChild?.replaceWith(rendered)
       } catch {
         // Keep the previous svg rather than flashing the raw source.

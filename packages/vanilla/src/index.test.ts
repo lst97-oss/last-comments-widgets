@@ -10,7 +10,6 @@ import {
   ITEM_INITIAL,
   insertPrefix,
   insertWrap,
-  isSafeSvg,
   observeInView,
   pagerMarkup,
   parseThemeAttrs,
@@ -34,6 +33,7 @@ function comment(id: string, parentId: string | null, bodyMarkdown: string, extr
     bodyMarkdown,
     status: 'visible',
     pinnedAt: null,
+    reactions: [],
     createdAt: new Date().toISOString(),
     editedAt: null,
     score: 0,
@@ -596,7 +596,7 @@ describe('pickActive', () => {
 describe('sortToggleMarkup', () => {
   test('renders the toolbar with pressed states and variants', () => {
     const html = sortToggleMarkup('best')
-    expect(html).toContain('role="toolbar"')
+    expect(html).toContain('role="group"')
     expect(html).toContain('aria-label="Sort comments"')
     expect(html).toContain('>Sort</span>')
     for (const label of ['Newest', 'Oldest', 'Best']) expect(html).toContain(`>${label}</button>`)
@@ -732,28 +732,6 @@ describe('resolveTurnstileConfig', () => {
   })
 })
 
-describe('isSafeSvg', () => {
-  test('accepts the markup mermaid emits for a diagram', () => {
-    const svg =
-      '<svg id="lc-vanilla-mermaid-1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g class="node"><text>A</text></g></svg>'
-    expect(isSafeSvg(svg)).toBe(true)
-  })
-
-  test('rejects script elements', () => {
-    expect(isSafeSvg('<svg><script>alert(1)</script></svg>')).toBe(false)
-    expect(isSafeSvg('<svg>\n<script\nsrc="x"></script></svg>')).toBe(false)
-  })
-
-  test('rejects inline event handlers', () => {
-    expect(isSafeSvg('<svg><g onclick="alert(1)"></g></svg>')).toBe(false)
-    expect(isSafeSvg('<svg onload = "alert(1)"></svg>')).toBe(false)
-  })
-
-  test('rejects javascript urls', () => {
-    expect(isSafeSvg('<svg><a href="JavaScript:alert(1)"></a></svg>')).toBe(false)
-  })
-})
-
 describe('math placeholders', () => {
   test('rows render the math variant only when the flag is on', () => {
     const tree = buildCommentTree([comment('p', null, 'a $x$ b')])
@@ -779,5 +757,60 @@ describe('deleted comments', () => {
     const entry = { canEdit: false, editing: false, viewerRole: undefined, pending: false }
     expect(actionsMenuMarkup(row, { ...entry, canDelete: true })).toContain('data-action="delete"')
     expect(actionsMenuMarkup(row, { ...entry, canDelete: false })).not.toContain('data-action="delete"')
+  })
+})
+
+describe('reactions markup', () => {
+  const row = (reactions: { emoji: string; count: number; viewerReacted: boolean }[]) => ({
+    comment: comment('c1', null, 'hi', { reactions }),
+    children: [],
+  })
+  const allowed = ['👍', '🎉']
+
+  test('an interactive row offers its reactions as pressable chips and a picker of the allowed set', () => {
+    const html = renderCommentTree([row([{ emoji: '👍', count: 2, viewerReacted: true }])], {
+      reactionMode: 'interactive',
+      reactionEmoji: allowed,
+    })
+    expect(html).toContain('data-lc-reactions')
+    expect(html).toContain('data-action="react"')
+    expect(html).toContain('data-emoji="👍"')
+    expect(html).toContain('aria-pressed="true"')
+    expect(html).toContain('data-action="react-picker"')
+    // A reaction nobody holds is not shown until the picker opens.
+    expect(html).not.toContain('data-emoji="🎉"')
+  })
+
+  test('the picker shows the whole allowed set while it is open', () => {
+    const html = renderCommentTree([row([])], {
+      reactionMode: 'interactive',
+      reactionEmoji: allowed,
+      reactionPickers: new Set(['c1']),
+    })
+    expect(html).toContain('data-emoji="👍"')
+    expect(html).toContain('data-emoji="🎉"')
+  })
+
+  test('counts show without a way to change them, and a switch that is off renders nothing', () => {
+    const counts = renderCommentTree([row([{ emoji: '👍', count: 1, viewerReacted: false }])], {
+      reactionMode: 'counts',
+      reactionEmoji: allowed,
+    })
+    expect(counts).toContain('data-emoji="👍"')
+    expect(counts).not.toContain('data-action="react"')
+    expect(counts).not.toContain('data-action="react-picker"')
+    const off = renderCommentTree([row([{ emoji: '👍', count: 1, viewerReacted: false }])], {
+      reactionMode: 'off',
+      reactionEmoji: allowed,
+    })
+    expect(off).not.toContain('data-lc-reactions')
+  })
+
+  test('applyVotes merges a reaction patch without disturbing the score', () => {
+    const base = comment('c1', null, 'hi', { score: 3, viewerVote: 1 })
+    const [patched] = applyVotes([base], { c1: { reactions: [{ emoji: '🎉', count: 1, viewerReacted: true }] } })
+    expect(patched?.score).toBe(3)
+    expect(patched?.viewerVote).toBe(1)
+    expect(patched?.reactions).toEqual([{ emoji: '🎉', count: 1, viewerReacted: true }])
   })
 })

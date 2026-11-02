@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -13,7 +16,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -23,6 +26,12 @@ jobs:
       - run: bun run build
       - run: bun run pack:check
       - run: bun test
+      # Real-browser checks of the widgets. The step installs Chrome for Testing and passes its path to the checks.
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+      - run: bun run test:browser
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
 
   # Fails a pull request that changes a package without shipping a changeset, so the
   # fixed group cannot drift. A docs/examples-only pull request changes no package and
@@ -31,7 +40,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2

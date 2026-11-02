@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, useTemplateRef, watch } from 'vue'
-import { loadTurnstile, resolveTurnstileConfig, type TurnstileApi, type TurnstileOptions } from './lib/turnstile'
+import {
+  loadTurnstile,
+  resolveTurnstileConfig,
+  type TurnstileApi,
+  type TurnstileOptions,
+} from '@last-comments-widgets/client/enhance'
 
 const props = defineProps<{
   siteKey: string

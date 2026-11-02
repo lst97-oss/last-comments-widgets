@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_ANON_EDIT_WINDOW_MINUTES } from '@last-comments-widgets/client'
-import { canEditComment, resolveTurnstileConfig } from './types'
+import { canEditComment } from './types'
 
 describe('canEditComment', () => {
   const oldButInside = new Date(Date.now() - 6 * 60_000).toISOString()
@@ -31,33 +31,5 @@ describe('canEditComment', () => {
     expect(
       canEditComment({ userId: null, createdAt: expired }, undefined, { hasEditKey: true, anonWindowMinutes: 0 }),
     ).toBe(true)
-  })
-})
-
-describe('resolveTurnstileConfig', () => {
-  test('follows the widget light/dark mode unless the host overrides the theme', () => {
-    expect(resolveTurnstileConfig(true)).toEqual({ theme: 'dark', appearance: 'interaction-only' })
-    expect(resolveTurnstileConfig(false)).toEqual({ theme: 'light', appearance: 'interaction-only' })
-    expect(resolveTurnstileConfig(true, { theme: 'light' })).toEqual({ theme: 'light', appearance: 'interaction-only' })
-    expect(resolveTurnstileConfig(false, { theme: 'auto' })).toEqual({ theme: 'auto', appearance: 'interaction-only' })
-  })
-
-  test('shows the challenge only when needed by default, and a host can opt into the always-visible box', () => {
-    expect(resolveTurnstileConfig(false).appearance).toBe('interaction-only')
-    expect(resolveTurnstileConfig(false, { appearance: 'always' }).appearance).toBe('always')
-  })
-
-  test('forwards the Cloudflare design knobs and omits unset ones', () => {
-    expect(resolveTurnstileConfig(false, { size: 'compact', appearance: 'interaction-only', language: 'de' })).toEqual({
-      theme: 'light',
-      size: 'compact',
-      appearance: 'interaction-only',
-      language: 'de',
-    })
-    expect(resolveTurnstileConfig(true, { size: 'flexible' })).toEqual({
-      theme: 'dark',
-      appearance: 'interaction-only',
-      size: 'flexible',
-    })
   })
 })

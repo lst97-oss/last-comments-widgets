@@ -5,6 +5,7 @@
 import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked'
 import { IMAGE_SIZES, imageRenditions } from './images'
 import { DEFAULT_ANON_EDIT_WINDOW_MINUTES } from './settings'
+import { ApiError, parseRetryAfter, type Resilience, resilientFetch } from './transport'
 
 export type { CommentSettings, Gate, SettingsOverrides, SiteAccess } from './settings'
 export {
@@ -18,6 +19,7 @@ export {
   resetSettingsCache,
   resolveSettings,
 } from './settings'
+export { ApiError, type Resilience } from './transport'
 
 export type CommentStatus = 'visible' | 'hidden' | 'deleted'
 export type VoteValue = -1 | 1
@@ -36,6 +38,8 @@ export type Comment = {
   editedAt: string | null
   score: number
   viewerVote: VoteValue | null
+  // Emoji counts on this comment. Empty for a deleted one, and when reactions are off.
+  reactions: ReactionSummary[]
   // The author's role on this site, as the server resolved it. Null for guests and for signed-in
   // accounts that hold no role here.
   authorRole: SiteRole | null
@@ -45,21 +49,27 @@ export type Comment = {
   userBlocked?: boolean
 }
 
+// A comment as the wire sends it. A server that predates reactions sends no `reactions`.
+type WireComment = Omit<Comment, 'reactions'> & { reactions?: ReactionSummary[] }
+
 export type VoteSummary = { score: number; viewerVote: VoteValue | null }
+
+// One emoji on a page or a comment: how many visitors hold it, and whether the signed-in viewer does.
+export type ReactionSummary = { emoji: string; count: number; viewerReacted: boolean }
+
+// The page a reaction names, by its URL: the same way the comment list names it.
+export type PageRef = { url: string }
+
+// Servers before reactions send no `reactions` field; the widgets always see a list.
+function readComment(raw: WireComment): Comment {
+  return { ...raw, reactions: raw.reactions ?? [] }
+}
 
 export type ThreadNode = { comment: Comment; children: ThreadNode[] }
 
 // A role on one site, mirroring the server's site_role enum: `admin` manages the
 // site, `member` comments and nothing else.
 export type SiteRole = 'admin' | 'member'
-
-// Account badge for a comment's author, taken straight from the server's role:
-// `admin` for the site admin, `member` for a member. Guests and accounts with no
-// role get none.
-export type AccountBadge = SiteRole
-export function accountBadge(comment: Pick<Comment, 'authorRole'>): AccountBadge | null {
-  return comment.authorRole
-}
 
 // The viewer's role for the moderation UI. Only the site admin gets it; the server
 // authorizes every moderation call, so this value only gates UI.
@@ -87,6 +97,8 @@ export type ModerationComment = {
   // Vote state for the requesting moderator.
   score: number
   viewerVote: VoteValue | null
+  // Reaction counts, read-only in the dashboard. Absent from a server that predates reactions.
+  reactions?: ReactionSummary[]
   // The author's role on this site, mirroring the public comment wire field.
   authorRole: SiteRole | null
 }
@@ -138,22 +150,19 @@ export type ApiErrorCode =
   | 'SIGN_OUT_FAILED'
   | 'FORBIDDEN'
   | 'EDIT_WINDOW_EXPIRED'
-
-export class ApiError extends Error {
-  code: ApiErrorCode | string
-  status: number
-  constructor(code: ApiErrorCode | string, message: string, status: number) {
-    super(message)
-    this.name = 'ApiError'
-    this.code = code
-    this.status = status
-  }
-}
+  // Failures with no server code: the widget made them, from the transport or from an unreadable answer.
+  | 'NETWORK_ERROR'
+  | 'TIMEOUT'
+  | 'SERVICE_UNAVAILABLE'
+  | 'RATE_LIMITED'
+  | 'UNREADABLE_RESPONSE'
 
 export type ClientOptions = {
   baseUrl: string
   site: string
   fetchImpl?: typeof fetch
+  // Time limit and read retries for every call. The defaults suit a page; a test or a slow network can change them.
+  resilience?: Resilience
 }
 
 export type ListOptions = { url: string; limit?: number; offset?: number }
@@ -213,10 +222,19 @@ export function safeUrl(raw: string | null | undefined): string | undefined {
 }
 
 async function readEnvelope<T>(res: Response): Promise<T> {
-  const json = (await res.json()) as { data?: T; error?: { code: string; message: string } }
+  const hints = {
+    retryAfterMs: parseRetryAfter(res.headers.get('retry-after')),
+    requestId: res.headers.get('x-request-id') ?? undefined,
+  }
+  const json = (await res.json().catch(() => null)) as { data?: T; error?: { code: string; message: string } } | null
+  // A proxy's HTML error page or an empty body has no envelope. The status says what happened; the body's text never shows.
+  if (json === null) {
+    const code = res.status >= 500 ? 'SERVICE_UNAVAILABLE' : 'UNREADABLE_RESPONSE'
+    throw new ApiError(code, `request failed with ${res.status}`, res.status, hints)
+  }
   if (!res.ok || !('data' in json) || json.data === undefined) {
     const code = json.error?.code ?? 'VALIDATION_ERROR'
-    throw new ApiError(code, json.error?.message ?? `request failed with ${res.status}`, res.status)
+    throw new ApiError(code, json.error?.message ?? `request failed with ${res.status}`, res.status, hints)
   }
   return json.data
 }
@@ -233,7 +251,7 @@ export type WidgetSignInOptions = {
 // to their own sign-in page instead when the host passes `signInUrl`.
 export async function beginOAuthSignIn(options: WidgetSignInOptions): Promise<string> {
   const base = options.baseUrl.replace(/\/$/, '')
-  const res = await (options.fetchImpl ?? fetch)(`${base}/api/auth/sign-in/social`, {
+  const res = await resilientFetch(options.fetchImpl ?? fetch)(`${base}/api/auth/sign-in/social`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
@@ -305,7 +323,8 @@ export function takeSignInFailure(href: string): SignInFailure | null {
   if (url.searchParams.get(SIGN_IN_FAILED_PARAM) !== 'failed') return null
   const code = url.searchParams.get('error') ?? 'unknown'
   for (const key of [SIGN_IN_FAILED_PARAM, 'error', 'error_description']) url.searchParams.delete(key)
-  const copy = SIGN_IN_FAILURE_COPY[code] ?? SIGN_IN_FAILURE_FALLBACK
+  // Own keys only: a plain object also answers `constructor`, `__proto__` and `toString`.
+  const copy = Object.hasOwn(SIGN_IN_FAILURE_COPY, code) ? SIGN_IN_FAILURE_COPY[code] : SIGN_IN_FAILURE_FALLBACK
   return { info: { code, title: copy.title, message: copy.message, action: 'none' }, cleanHref: url.toString() }
 }
 
@@ -321,7 +340,9 @@ export async function fetchViewerSession(options: {
 }): Promise<ViewerSession | null> {
   const base = options.baseUrl.replace(/\/$/, '')
   try {
-    const res = await (options.fetchImpl ?? fetch)(`${base}/api/auth/get-session`, { credentials: 'include' })
+    const res = await resilientFetch(options.fetchImpl ?? fetch)(`${base}/api/auth/get-session`, {
+      credentials: 'include',
+    })
     if (!res.ok) return null
     const json = (await res.json()) as { user?: { id?: string; name?: string; image?: string | null } } | null
     const user = json?.user
@@ -335,7 +356,7 @@ export async function fetchViewerSession(options: {
 // Ends the API session (better-auth POST /api/auth/sign-out).
 export async function signOutViewerSession(options: { baseUrl: string; fetchImpl?: typeof fetch }): Promise<void> {
   const base = options.baseUrl.replace(/\/$/, '')
-  const res = await (options.fetchImpl ?? fetch)(`${base}/api/auth/sign-out`, {
+  const res = await resilientFetch(options.fetchImpl ?? fetch)(`${base}/api/auth/sign-out`, {
     method: 'POST',
     credentials: 'include',
   })
@@ -347,6 +368,11 @@ export type LastCommentsClient = {
   postComment: (input: PostInput) => Promise<Comment>
   castVote: (commentId: string, value: VoteValue) => Promise<VoteSummary>
   clearVote: (commentId: string) => Promise<VoteSummary>
+  castReaction: (commentId: string, emoji: string) => Promise<ReactionSummary[]>
+  clearReaction: (commentId: string, emoji: string) => Promise<ReactionSummary[]>
+  listPageReactions: (page: PageRef) => Promise<ReactionSummary[]>
+  castPageReaction: (page: PageRef, emoji: string) => Promise<ReactionSummary[]>
+  clearPageReaction: (page: PageRef, emoji: string) => Promise<ReactionSummary[]>
   editOwnComment: (input: EditInput) => Promise<Comment>
   deleteOwnComment: (commentId: string, editKey?: string) => Promise<Comment>
   listModeration: (input: ListModerationInput) => Promise<ModerationOverview>
@@ -359,7 +385,7 @@ export type LastCommentsClient = {
 }
 
 export function createClient(options: ClientOptions): LastCommentsClient {
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = resilientFetch(options.fetchImpl ?? fetch, options.resilience)
   const base = options.baseUrl.replace(/\/$/, '')
   const site = options.site
   const jsonHeaders = { 'content-type': 'application/json' }
@@ -370,8 +396,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     if (list.limit !== undefined) params.set('limit', String(list.limit))
     if (list.offset !== undefined) params.set('offset', String(list.offset))
     const res = await fetchImpl(`${base}/api/comments?${params}`, { credentials: 'include' })
-    const data = await readEnvelope<{ comments: Comment[] }>(res)
-    return data.comments
+    const data = await readEnvelope<{ comments: WireComment[] }>(res)
+    return data.comments.map(readComment)
   }
 
   async function postComment(input: PostInput): Promise<Comment> {
@@ -389,8 +415,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         ...(input.verificationToken !== undefined ? { verificationToken: input.verificationToken } : {}),
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   async function castVote(commentId: string, value: VoteValue): Promise<VoteSummary> {
@@ -414,6 +440,63 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     return data.vote
   }
 
+  // A reaction is one emoji per viewer. The server answers with the whole comment's counts, which the widget
+  // shows as they are, so no count is adjusted on the client.
+  async function castReaction(commentId: string, emoji: string): Promise<ReactionSummary[]> {
+    const res = await fetchImpl(`${base}/api/comments/reactions`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: jsonHeaders,
+      body: JSON.stringify({ site, commentId, emoji }),
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  async function clearReaction(commentId: string, emoji: string): Promise<ReactionSummary[]> {
+    const params = new URLSearchParams({ site, commentId, emoji })
+    const res = await fetchImpl(`${base}/api/comments/reactions?${params}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  // The page bar's counts. Read without a session, so a guest sees the bar and the counts.
+  async function listPageReactions(page: PageRef): Promise<ReactionSummary[]> {
+    const params = new URLSearchParams(pageQuery(page))
+    const res = await fetchImpl(`${base}/api/comments/page-reactions?${params}`, { credentials: 'include' })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  async function castPageReaction(page: PageRef, emoji: string): Promise<ReactionSummary[]> {
+    const res = await fetchImpl(`${base}/api/comments/page-reactions`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: jsonHeaders,
+      body: JSON.stringify({ ...pageQuery(page), emoji }),
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  async function clearPageReaction(page: PageRef, emoji: string): Promise<ReactionSummary[]> {
+    const params = new URLSearchParams({ ...pageQuery(page), emoji })
+    const res = await fetchImpl(`${base}/api/comments/page-reactions?${params}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+    const data = await readEnvelope<{ reactions: ReactionSummary[] }>(res)
+    return data.reactions
+  }
+
+  // The site and the page, as the page-reaction routes name them.
+  function pageQuery(page: PageRef): Record<string, string> {
+    return { site, url: normalizePageUrl(page.url) }
+  }
+
   async function editOwnComment(input: EditInput): Promise<Comment> {
     const res = await fetchImpl(`${base}/api/comments/${input.commentId}`, {
       method: 'PATCH',
@@ -425,8 +508,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         ...(input.editKey !== undefined ? { editKey: input.editKey } : {}),
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // A guest proves ownership with the edit key from create time, in a header so it stays out of the URL.
@@ -437,8 +520,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
       credentials: 'include',
       ...(editKey === undefined ? {} : { headers: { 'x-lc-edit-key': editKey } }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // Moderation is session-only and same-origin: the route sends no CORS
@@ -471,8 +554,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         bodyMarkdown: input.bodyMarkdown,
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // Same story as create: a moderator editing their own comment from a
@@ -489,8 +572,8 @@ export function createClient(options: ClientOptions): LastCommentsClient {
         bodyMarkdown: input.bodyMarkdown,
       }),
     })
-    const data = await readEnvelope<{ comment: Comment }>(res)
-    return data.comment
+    const data = await readEnvelope<{ comment: WireComment }>(res)
+    return readComment(data.comment)
   }
 
   // Voting from a dashboard: the public vote route is origin-gated, so
@@ -546,6 +629,11 @@ export function createClient(options: ClientOptions): LastCommentsClient {
     postComment,
     castVote,
     clearVote,
+    castReaction,
+    clearReaction,
+    listPageReactions,
+    castPageReaction,
+    clearPageReaction,
     editOwnComment,
     deleteOwnComment,
     listModeration,
@@ -704,18 +792,15 @@ export function renderMarkdown(source: string, options?: MarkdownOptions): strin
   return instance.parse(source) as string
 }
 
-export const DEFAULT_EDIT_WINDOW_MINUTES = 5
 // Returned by resolveEditWindow for anyone who does not own the comment.
 export const EDIT_WINDOW_CLOSED = -1
 
 // Mirror of the server edit windows. Invalid dates fail closed so widgets
 // never show an Edit button the server will reject.
 // null = unlimited; 0 = unlimited (legacy API); negative = always closed.
-export function isEditWindowOpen(
-  createdAtIso: string,
-  nowMs: number = Date.now(),
-  windowMinutes: number | null = DEFAULT_EDIT_WINDOW_MINUTES,
-): boolean {
+// Callers always pass the window from resolveEditWindow: there is no default,
+// so a missing value can never quietly pick a different window.
+export function isEditWindowOpen(createdAtIso: string, nowMs: number, windowMinutes: number | null): boolean {
   if (windowMinutes === null || windowMinutes === 0) return true
   if (windowMinutes < 0) return false
   const createdMs = Date.parse(createdAtIso)
@@ -833,6 +918,7 @@ export function moderationCommentToComment(row: ModerationComment): Comment {
     editedAt: null,
     score: row.score,
     viewerVote: row.viewerVote,
+    reactions: row.reactions ?? [],
     authorRole: row.authorRole,
     userBlocked: row.userBlocked,
   }
@@ -899,6 +985,10 @@ export const THEME_CSS_VARIABLES = {
   voteBackground: '--lc-vote-background',
   voteBorder: '--lc-vote-border',
   voteShadow: '--lc-vote-shadow',
+  reactionBackground: '--lc-reaction-background',
+  reactionBorder: '--lc-reaction-border',
+  reactionActiveBackground: '--lc-reaction-active-background',
+  reactionActiveBorder: '--lc-reaction-active-border',
   actionColor: '--lc-action-color',
   actionHoverColor: '--lc-action-hover-color',
   actionHoverBackground: '--lc-action-hover-background',
@@ -1047,6 +1137,14 @@ export type ErrorAction = 'retry' | 'sign-in' | 'none'
 export type ErrorInfo = { code: string | null; title: string; message: string; action: ErrorAction }
 
 type ErrorCopy = { title: string; message?: string; action?: ErrorAction; specific?: boolean }
+// Shared by every failure that never reached the server, so a timeout and a dropped connection read the same.
+const NETWORK_COPY: ErrorCopy = {
+  title: "Couldn't reach the comments service",
+  message: 'Check your connection and try again.',
+  action: 'retry',
+  specific: true,
+}
+
 const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
   VALIDATION_ERROR: { title: "That didn't work" },
   MALFORMED_JSON: {
@@ -1077,7 +1175,7 @@ const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
   },
   PAGE_LOCKED: {
     title: 'Comments are closed on this page',
-    message: 'New comments, replies and votes are disabled.',
+    message: 'New comments, replies, votes and reactions are disabled.',
     specific: true,
   },
   PARENT_NOT_FOUND: {
@@ -1119,19 +1217,33 @@ const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
     message: 'Copy your text if you need it, then reload the page.',
     specific: true,
   },
+  NETWORK_ERROR: NETWORK_COPY,
+  TIMEOUT: NETWORK_COPY,
+  SERVICE_UNAVAILABLE: {
+    title: 'The comments service is unavailable',
+    message: 'Try again in a moment.',
+    action: 'retry',
+    specific: true,
+  },
+  RATE_LIMITED: {
+    title: 'Too many requests',
+    message: 'Wait a moment, then try again.',
+    action: 'retry',
+    specific: true,
+  },
+  UNREADABLE_RESPONSE: {
+    title: 'The comments service sent an unreadable response',
+    message: 'Try again in a moment.',
+    action: 'retry',
+    specific: true,
+  },
 }
 
-const NETWORK_COPY: ErrorCopy = {
-  title: "Couldn't reach the comments service",
-  message: 'Check your connection and try again.',
-  action: 'retry',
-  specific: true,
-}
 // readEnvelope synthesises this when the API sends no error message.
 const SYNTHETIC_MESSAGE = /^request failed with \d+$/
 
-// What a gated visitor was refused: reading the thread, posting a comment, replying to one, or voting.
-export type SignInOperation = 'read' | 'write' | 'reply' | 'vote'
+// What a gated visitor was refused: reading the thread, posting a comment, replying to one, voting or reacting.
+export type SignInOperation = 'read' | 'write' | 'reply' | 'vote' | 'react'
 
 // The refusal a gated visitor gets: the error a server sends, so every path shows one sign-in state.
 export function signInRequiredError(operation: SignInOperation): ApiError {
@@ -1140,6 +1252,7 @@ export function signInRequiredError(operation: SignInOperation): ApiError {
     write: 'Sign in to comment on this site.',
     reply: 'Sign in to reply to this comment.',
     vote: 'Sign in to vote.',
+    react: 'Sign in to react.',
   }[operation]
   return new ApiError('UNAUTHENTICATED', message, 401)
 }
@@ -1148,6 +1261,13 @@ export function signInRequired(operation: SignInOperation): ErrorInfo {
   const error = signInRequiredError(operation)
   // The UNAUTHENTICATED copy is generic and would hide the per-operation line, so the refusal's own message wins.
   return describeError(error, { message: error.message })
+}
+
+// What a reader sees when a reaction does not save. A refused session gets the sign-in line, so every
+// port says the same thing for the same refusal.
+export function reactionFailure(err: unknown): ErrorInfo {
+  if (err instanceof ApiError && (err.code === 'UNAUTHENTICATED' || err.status === 401)) return signInRequired('react')
+  return describeError(err, { title: "Your reaction wasn't saved" })
 }
 
 export function describeError(error: unknown, overrides: { title?: string; message?: string } = {}): ErrorInfo {
@@ -1163,7 +1283,8 @@ export function describeError(error: unknown, overrides: { title?: string; messa
       overrides.message ??
       (copy?.specific ? (copy.message ?? usable) : (usable ?? copy?.message)) ??
       'Try again in a moment.',
-    action: copy?.action ?? (copy === undefined ? 'retry' : 'none'),
+    // An unknown failure is worth a retry unless the server said it is permanent (a 4xx the copy does not cover).
+    action: copy?.action ?? (copy === undefined && api?.retryable !== false ? 'retry' : 'none'),
   }
 }
 

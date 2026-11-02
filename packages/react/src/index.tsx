@@ -9,12 +9,12 @@
  */
 export type { ThemeVars, WidgetTheme } from '@last-comments-widgets/client'
 export { canModerate } from '@last-comments-widgets/client'
+export type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 export { CommentItem } from './CommentItem'
 export { Comments } from './Comments'
 export { CommentsTheme } from './CommentsTheme'
 export { CommentViewer, type CommentViewerProps } from './CommentViewer'
 export { canEditComment } from './editGate'
-export type { TurnstileOptions } from './lib/turnstile'
 export { ThreadGuides } from './ThreadGuides'
 export { type ThreadSort, ThreadSortToggle } from './ThreadSortToggle'
 export type { ActionMode, CommentsProps, Theme } from './types'

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { Comment, ThreadNode } from '@last-comments-widgets/client'
-import { applyVoteOverlay } from './types'
+import { applyCommentOverlay } from './types'
 
 function comment(id: string, parentId: string | null = null): Comment {
   return {
@@ -16,6 +16,7 @@ function comment(id: string, parentId: string | null = null): Comment {
     editedAt: null,
     score: 0,
     viewerVote: null,
+    reactions: [],
     authorRole: null,
   }
 }
@@ -29,9 +30,17 @@ const root = node(comment('root'), [child])
 const untouched = node(comment('other'))
 const tree = [root, untouched]
 
-describe('applyVoteOverlay', () => {
+describe('applyCommentOverlay', () => {
+  test('a reaction patch lands on its row and leaves the vote as it was', () => {
+    const reactions = [{ emoji: '👍', count: 1, viewerReacted: true }]
+    const result = applyCommentOverlay(tree, { child: { reactions } })
+    expect(result[0].children[0].comment.reactions).toEqual(reactions)
+    expect(result[0].children[0].comment.score).toBe(0)
+    expect(result[0].children[0].comment.viewerVote).toBeNull()
+  })
+
   test('patches the voted row and keeps untouched nodes by identity', () => {
-    const result = applyVoteOverlay(tree, { root: { score: 1, viewerVote: 1 } })
+    const result = applyCommentOverlay(tree, { root: { score: 1, viewerVote: 1 } })
     expect(result).not.toBe(tree)
     expect(result[0].comment.score).toBe(1)
     expect(result[0].comment.viewerVote).toBe(1)
@@ -42,7 +51,7 @@ describe('applyVoteOverlay', () => {
   })
 
   test('patches a nested row through the path only', () => {
-    const result = applyVoteOverlay(tree, { child: { score: -1, viewerVote: -1 } })
+    const result = applyCommentOverlay(tree, { child: { score: -1, viewerVote: -1 } })
     expect(result[0].children[0].comment.score).toBe(-1)
     expect(result[0].children[0]).not.toBe(child)
     expect(result[0]).not.toBe(root)
@@ -51,10 +60,10 @@ describe('applyVoteOverlay', () => {
   })
 
   test('empty overlay returns the input array', () => {
-    expect(applyVoteOverlay(tree, {})).toBe(tree)
+    expect(applyCommentOverlay(tree, {})).toBe(tree)
   })
 
   test('unknown ids are ignored', () => {
-    expect(applyVoteOverlay(tree, { missing: { score: 5, viewerVote: 1 } })).toBe(tree)
+    expect(applyCommentOverlay(tree, { missing: { score: 5, viewerVote: 1 } })).toBe(tree)
   })
 })

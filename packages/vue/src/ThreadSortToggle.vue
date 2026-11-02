@@ -14,7 +14,7 @@ const OPTIONS: { value: ThreadSort; label: string }[] = [
 </script>
 
 <template>
-  <div class="flex items-center gap-1" role="toolbar" aria-label="Sort comments">
+  <div class="flex items-center gap-1" role="group" aria-label="Sort comments">
     <span class="mr-1 text-xs text-muted-foreground">Sort</span>
     <button
       v-for="option in OPTIONS"

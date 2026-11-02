@@ -17,6 +17,7 @@ function node(id: string, children: ThreadNode[] = []): ThreadNode {
       editedAt: null,
       score: 0,
       viewerVote: null,
+      reactions: [],
       authorRole: null,
     },
     children,

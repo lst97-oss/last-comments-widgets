@@ -206,10 +206,12 @@ export function CommentForm({
       bodyMarkdown: body,
       verificationToken: token,
     })
+    // The server spends the challenge token before it checks the page or the parent, so a refused
+    // send needs a fresh challenge too, even though its draft stays.
+    turnstileRef.current?.reset()
     // `false` = the send failed: keep the draft so it can be retried. The head
     // composer remounts on success (key epoch); the edit/reply slots unmount.
     if (result === false) return
-    turnstileRef.current?.reset()
   }
 
   return (

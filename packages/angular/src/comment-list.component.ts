@@ -1,9 +1,8 @@
 import { CdkAccordion, CdkAccordionItem } from '@angular/cdk/accordion'
 import { CdkTrapFocus } from '@angular/cdk/a11y'
 import { CdkConnectedOverlay, type ConnectedPosition } from '@angular/cdk/overlay'
-import { Component, computed, input, output, signal } from '@angular/core'
+import { Component, computed, input, output, signal, viewChild } from '@angular/core'
 import {
-  accountBadge,
   type Comment,
   collectThreadParticipants,
   DEFAULT_ANON_EDIT_WINDOW_MINUTES,
@@ -42,10 +41,14 @@ import { ITEM_INITIAL, type ItemAction, type ItemState, itemReducer } from './it
 import { LcMarkdownEnhanceDirective } from './markdown-enhance.directive'
 import { LcSignInPromptComponent } from './sign-in-prompt.component'
 import { LcThreadGuidesComponent } from './thread-guides.component'
-import { canEditComment, type TurnstileOptions } from './types'
+import { LcReactionBarComponent, type ReactionEvent } from './reaction-bar.component'
+import { canEditComment, type ReactionMode, type TurnstileOptions } from './types'
 import { LcVoteButtonsComponent, type VoteEvent } from './vote-buttons.component'
 
 export type CommentSubmitHandler = (commentId: string, submit: CommentSubmit) => Promise<ErrorInfo | null>
+
+// A reaction the visitor made on one comment: the comment, the emoji, and whether the visitor already held it.
+export type ReactionRequest = ReactionEvent & { id: string }
 
 const MENU_ITEM_CLASS =
   "lc-action flex w-full cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
@@ -83,6 +86,7 @@ function initials(name: string): string {
     CdkTrapFocus,
     LcCommentFormComponent,
     LcMarkdownEnhanceDirective,
+    LcReactionBarComponent,
     LcVoteButtonsComponent,
     LucideBan,
     LucideChevronDown,
@@ -169,13 +173,13 @@ function initials(name: string): string {
             }
             <span [class]="avatarFallbackClass">{{ initialsLabel() }}</span>
           </span>
-          <span class="min-w-0 truncate font-medium" [class.lc-author-admin]="accountBadge(c) === 'admin'">{{
+          <span class="min-w-0 truncate font-medium" [class.lc-author-admin]="c.authorRole === 'admin'">{{
             c.authorName
           }}</span>
-          @if (accountBadge(c) === 'admin') {
+          @if (c.authorRole === 'admin') {
             <span [class]="adminBadgeClass">Admin</span>
           }
-          @if (accountBadge(c) === 'member') {
+          @if (c.authorRole === 'member') {
             <span [class]="memberBadgeClass">Member</span>
           }
           <!-- Moderation rows carry the block state; the public wire shape omits it. -->
@@ -396,6 +400,7 @@ function initials(name: string): string {
           @if (!readOnly() && !state.editing && writeAllowed() && replyTo() === c.id) {
             <div class="my-3">
               <lc-comment-form
+                #replyComposer
                 [guest]="guest()"
                 [turnstileSiteKey]="turnstileSiteKey()"
                 [dark]="dark()"
@@ -413,6 +418,15 @@ function initials(name: string): string {
               />
             </div>
           }
+          <lc-reaction-bar
+            label="Reactions"
+            [mode]="reactionView()"
+            [allowed]="reactionEmoji()"
+            [reactions]="c.reactions"
+            [pending]="(pendingReactions()[c.id] ?? false) || reactionsLocked()"
+            [picker]="true"
+            (react)="react.emit({ id: c.id, emoji: $event.emoji, viewerReacted: $event.viewerReacted })"
+          />
           @if (!readOnly()) {
             <div class="flex flex-wrap items-center gap-1 text-sm">
               @if (canReplyHere()) {
@@ -504,7 +518,12 @@ function initials(name: string): string {
                         [parentAuthorName]="c.authorName"
                         [editComment]="editComment()"
                         [replyComment]="replyComment()"
+                        [reactionMode]="reactionMode()"
+                        [reactionEmoji]="reactionEmoji()"
+                        [pendingReactions]="pendingReactions()"
+                        [reactionsLocked]="reactionsLocked()"
                         (vote)="vote.emit($event)"
+                        (react)="react.emit($event)"
                         (deleted)="deleted.emit($event)"
                         (moderate)="moderate.emit($event)"
                         (blockUser)="blockUser.emit($event)"
@@ -544,10 +563,20 @@ export class LcCommentItemComponent {
   readonly readOnly = input(false)
   readonly replyTo = input<string | null>(null)
   readonly parentAuthorName = input<string | undefined>(undefined)
+  // The reaction control: `off` hides it, `counts` shows the counts read-only, `interactive` lets a visitor react.
+  readonly reactionMode = input<ReactionMode>('off')
+  readonly reactionEmoji = input<string[]>([])
+  readonly pendingReactions = input<Record<string, boolean>>({})
+  readonly reactionsLocked = input(false)
+  protected readonly reactionView = computed<ReactionMode>(() => {
+    if (this.reactionMode() === 'off' || this.reactionEmoji().length === 0) return 'off'
+    return this.readOnly() ? 'counts' : this.reactionMode()
+  })
   // The host owns the API calls: the row only needs their outcome to settle.
   readonly editComment = input.required<CommentSubmitHandler>()
   readonly replyComment = input.required<CommentSubmitHandler>()
   readonly vote = output<VoteEvent>()
+  readonly react = output<ReactionRequest>()
   readonly deleted = output<string>()
   readonly moderate = output<{ comment: Comment; action: ModerationAction }>()
   readonly blockUser = output<{ comment: Comment; blocked: boolean }>()
@@ -558,7 +587,6 @@ export class LcCommentItemComponent {
   protected readonly avatarClass = AVATAR_CLASS
   protected readonly avatarFallbackClass = AVATAR_FALLBACK_CLASS
   protected readonly stackAvatarClass = STACK_AVATAR_CLASS
-  protected readonly accountBadge = accountBadge
   protected readonly adminBadgeClass = `${BADGE_CLASS} lc-admin-badge bg-primary text-primary-foreground`
   protected readonly memberBadgeClass = `${BADGE_CLASS} lc-member-badge bg-secondary text-secondary-foreground`
   protected readonly blockedBadgeClass = `${BADGE_CLASS} lc-blocked-badge border-border text-foreground`
@@ -700,12 +728,17 @@ export class LcCommentItemComponent {
     }
   }
 
+  readonly replyComposer = viewChild<LcCommentFormComponent>('replyComposer')
+
   protected async submitReply(submit: CommentSubmit): Promise<void> {
     // The in-flight lock: a second click must not post the same reply twice.
     if (this.itemState().replying) return
     this.dispatch({ type: 'reply/submit' })
     try {
-      this.dispatch({ type: 'reply/settle', error: await this.replyComment()(this.comment().comment.id, submit) })
+      const error = await this.replyComment()(this.comment().comment.id, submit)
+      // A refused reply has spent its challenge token; the draft stays for a retry with a fresh one.
+      if (error) this.replyComposer()?.resetChallenge()
+      this.dispatch({ type: 'reply/settle', error })
     } finally {
       this.dispatch({ type: 'replying/set', replying: false })
     }
@@ -741,7 +774,12 @@ export class LcCommentItemComponent {
           [replyTo]="replyTo()"
           [editComment]="editComment()"
           [replyComment]="replyComment()"
+          [reactionMode]="reactionMode()"
+          [reactionEmoji]="reactionEmoji()"
+          [pendingReactions]="pendingReactions()"
+          [reactionsLocked]="reactionsLocked()"
           (vote)="vote.emit($event)"
+          (react)="react.emit($event)"
           (deleted)="deleted.emit($event)"
           (moderate)="moderate.emit($event)"
           (blockUser)="blockUser.emit($event)"
@@ -775,7 +813,12 @@ export class LcCommentListComponent {
   readonly editComment = input.required<CommentSubmitHandler>()
   readonly replyComment = input.required<CommentSubmitHandler>()
   readonly measureKey = input('')
+  readonly reactionMode = input<ReactionMode>('off')
+  readonly reactionEmoji = input<string[]>([])
+  readonly pendingReactions = input<Record<string, boolean>>({})
+  readonly reactionsLocked = input(false)
   readonly vote = output<VoteEvent>()
+  readonly react = output<ReactionRequest>()
   readonly deleted = output<string>()
   readonly moderate = output<{ comment: Comment; action: ModerationAction }>()
   readonly blockUser = output<{ comment: Comment; blocked: boolean }>()

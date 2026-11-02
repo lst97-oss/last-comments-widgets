@@ -1,4 +1,5 @@
 import {
+  type Comment,
   type CommentSettings,
   EDIT_WINDOW_CLOSED,
   isEditWindowOpen,
@@ -9,7 +10,7 @@ import {
   type VoteValue,
   type WidgetTheme,
 } from '@last-comments-widgets/client'
-import type { TurnstileOptions } from './lib/turnstile'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 
 export { canModerate } from '@last-comments-widgets/client'
 
@@ -131,12 +132,18 @@ export function toggleVoteValue(current: VoteValue | null, next: VoteValue): 'cl
   return current === next ? 'clear' : next
 }
 
-export type VoteOverlay = Record<string, { score: number; viewerVote: VoteValue | null }>
+// What a vote or a reaction changes on one row. Both write one overlay, so one tree pass applies both.
+export type CommentPatch = Partial<Pick<Comment, 'score' | 'viewerVote' | 'reactions'>>
+export type CommentOverlay = Record<string, CommentPatch>
+
+// The reaction control's mode, as the React port: `off` hides it, `counts` shows it read-only,
+// `interactive` lets a signed-in visitor react.
+export type ReactionMode = 'off' | 'counts' | 'interactive'
 
 // Applies pending vote results to a built tree without rebuilding it. Untouched
 // nodes keep their identity, so only the voted row (and its ancestors' child
 // arrays) re-renders; an empty overlay returns the input array unchanged.
-export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): ThreadNode[] {
+export function applyCommentOverlay(nodes: ThreadNode[], overlay: CommentOverlay): ThreadNode[] {
   if (Object.keys(overlay).length === 0) return nodes
   let changed = false
   const apply = (node: ThreadNode): ThreadNode => {
@@ -146,7 +153,7 @@ export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): Thr
     if (!patch) return childrenChanged ? { ...node, children } : node
     changed = true
     return {
-      comment: { ...node.comment, score: patch.score, viewerVote: patch.viewerVote },
+      comment: { ...node.comment, ...patch },
       children: childrenChanged ? children : node.children,
     }
   }

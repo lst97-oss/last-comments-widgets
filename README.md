@@ -161,6 +161,8 @@ Vue uses `:theme-vars="brand"`; Angular uses `[themeVars]="brand"`; vanilla acce
 | `threadGuideDisplay`                                           | Reply guide line visibility: `block` (default) or `none` to hide it                                     |
 | `avatarRing`                                                   | Ring behind stacked reply avatars                                                                       |
 | `voteBackground`, `voteBorder`, `voteShadow`                   | Vote pill surface, border and shadow                                                                    |
+| `reactionBackground`, `reactionBorder`                         | Reaction chip surface and border                                                                        |
+| `reactionActiveBackground`, `reactionActiveBorder`             | Reaction chip the viewer holds (pressed): surface and border                                            |
 | `actionColor`, `actionHoverColor`, `actionHoverBackground`     | Reply/Edit/Delete and moderator action colors on hover                                                  |
 | `adminNameColor`, `adminBadgeBackground`, `adminBadgeForeground` | Site-admin name color and its `Admin` badge (default: destructive, with a soft destructive tint)      |
 | `memberBadgeBackground`, `memberBadgeForeground`               | `Member` badge for members of the site, `authorRole` `member` (default: secondary)                            |
@@ -217,8 +219,9 @@ The site's public policy comes from the comments service, not from the host page
 - `anonEditWindowMinutes`: how long a guest may edit a comment from the browser that posted it.
 - `turnstileSiteKey`: the public key for guest posting.
 - `features.votes`: whether voting is on. When it is off the arrows are hidden and the service refuses votes.
+- `features.pageReactions` and `features.commentReactions`: the emoji each switch allows. The page gets a bar of them, and each comment and reply gets reactions. An empty list means that switch is off and nothing shows. The two switches are independent, and a service that sends neither shows no reactions.
 
-A host can pass the same policy as one object in `settings` to skip the request. Any explicit prop (`bodyLimit`, `anonEditWindowMinutes`, `turnstileSiteKey`) still wins over it. When the policy cannot be read (a network failure, or an older service without the endpoint), the widget uses its built-in defaults: open access, 10,000 characters, a 10-minute edit window and no Turnstile key. The service enforces every rule either way, so the widget only shows the right state up front. A sign-in on a `login` or `private` site goes through `signInUrl`, as described below.
+A host can pass the same policy as one object in `settings` to skip the request. Pass `features` whole (`votes`, `pageReactions` and `commentReactions`), since the object replaces the served one. Any explicit prop (`bodyLimit`, `anonEditWindowMinutes`, `turnstileSiteKey`) still wins over it. When the policy cannot be read (a network failure, or an older service without the endpoint), the widget uses its built-in defaults: open access, 10,000 characters, a 10-minute edit window and no Turnstile key. The service enforces every rule either way, so the widget only shows the right state up front. A sign-in on a `login` or `private` site goes through `signInUrl`, as described below.
 
 ## Identity and sign-in
 
@@ -265,7 +268,7 @@ import { CommentViewer } from '@lst97-oss/last-comments-widgets/react'
 | `beginOAuthSignIn` · `fetchViewerSession` · `signOutViewerSession`                                                   | the flow behind the identity control                                                    |
 | `renderMarkdown` · `safeUrl`                                                                                         | markdown rendering (raw HTML stripped) and URL sanitising                               |
 | `themeVarsToStyle` · `THEME_CSS_VARIABLES`                                                                           | map `themeVars` onto the widget's CSS variables                                         |
-| `isEditWindowOpen` · `DEFAULT_EDIT_WINDOW_MINUTES` · `canModerate` · `moderationCommentToComment` · `sortThreadTree` | shared widget rules                                                                     |
+| `isEditWindowOpen` · `canModerate` · `moderationCommentToComment` · `sortThreadTree` | shared widget rules                                                                     |
 | `formatRelativeTime` · `collectThreadParticipants`                                                                   | Reddit-style short ages and the unique authors inside a reply subtree                   |
 | `foldReplySummary(children)`                                                                                         | reply total plus the moderator-only pinned/hidden/deleted breakdown of a reply group    |
 
@@ -314,9 +317,11 @@ The copy comes from `describeError(error, overrides?)` in `@lst97-oss/last-comme
 
 The rendered block carries `data-lc-error` and `data-error-code` (empty when the failure was not from the API) so you can style or assert on it.
 
+Every call has a time limit (15 seconds by default), so a stalled network ends as `TIMEOUT` instead of a spinner that never stops. A `GET` that fails before any answer, or answers `408`, `425`, `429`, `500`, `502`, `503` or `504`, is retried twice on a backoff that doubles, with jitter; a `Retry-After` the server sends is honored up to 5 seconds. Writes (posts, votes, reactions, edits, moderation) are never retried, because a repeat could save the same comment or vote twice. `ApiError.retryable` says whether a retry can help, and `ApiError.retryAfterMs` and `requestId` carry the server's hints. A proxy's HTML error page never shows a parser message: it reads as `SERVICE_UNAVAILABLE`, or `UNREADABLE_RESPONSE` below 500. Tune the limits with `resilience: { timeoutMs, retries, baseDelayMs }` on `createClient`.
+
 ## Error codes
 
-`VALIDATION_ERROR` `MALFORMED_JSON` `UNAUTHENTICATED` `ORIGIN_NOT_ALLOWED` `SITE_NOT_FOUND` `USER_BLOCKED` `PAGE_LOCKED` `PARENT_NOT_FOUND` `COMMENT_NOT_FOUND` `COMMENT_VERIFICATION_FAILED` `COMMENT_VERIFICATION_UNAVAILABLE` `FORBIDDEN` `EDIT_WINDOW_EXPIRED` `SIGN_IN_UNAVAILABLE` `SIGN_OUT_FAILED` — see `packages/client/src/index.ts` (`ApiError.code`).
+`VALIDATION_ERROR` `MALFORMED_JSON` `UNAUTHENTICATED` `ORIGIN_NOT_ALLOWED` `SITE_NOT_FOUND` `USER_BLOCKED` `PAGE_LOCKED` `PARENT_NOT_FOUND` `COMMENT_NOT_FOUND` `COMMENT_VERIFICATION_FAILED` `COMMENT_VERIFICATION_UNAVAILABLE` `FORBIDDEN` `EDIT_WINDOW_EXPIRED` `SIGN_IN_UNAVAILABLE` `SIGN_OUT_FAILED`, plus the widget's own transport codes `NETWORK_ERROR` `TIMEOUT` `SERVICE_UNAVAILABLE` `RATE_LIMITED` `UNREADABLE_RESPONSE` — see `packages/client/src/index.ts` (`ApiErrorCode`).
 
 ## Develop
 

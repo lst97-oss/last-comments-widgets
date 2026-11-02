@@ -9,6 +9,9 @@ const ROOT = `${import.meta.dir}/..`
 const OUT = `${ROOT}/packages/last-comments-widgets/dist`
 const CLIENT_SPECIFIER = '@last-comments-widgets/client'
 const CLIENT_TARGET = `${OUT}/client/index.js`
+// The client's `/enhance` entry (math, Mermaid, Turnstile loader): imported by the ports, never by consumers.
+const ENHANCE_SPECIFIER = `${CLIENT_SPECIFIER}/enhance`
+const ENHANCE_TARGET = `${OUT}/client/enhance.js`
 const SUBPATHS = ['client', 'react', 'vue', 'angular', 'vanilla']
 
 function segments(path: string) {
@@ -52,10 +55,12 @@ for (const file of new Glob('**/*.{js,mjs,d.ts}').scanSync({ cwd: OUT, onlyFiles
   const path = `${OUT}/${file}`
   const source = await Bun.file(path).text()
   if (!source.includes(CLIENT_SPECIFIER)) continue
-  const specifier = relativeSpecifier(path, CLIENT_TARGET)
+  // The subpath is rewritten first: the bare name is a prefix of it.
   const rewrittenSource = source
-    .replaceAll(`'${CLIENT_SPECIFIER}'`, `'${specifier}'`)
-    .replaceAll(`"${CLIENT_SPECIFIER}"`, `"${specifier}"`)
+    .replaceAll(`'${ENHANCE_SPECIFIER}'`, `'${relativeSpecifier(path, ENHANCE_TARGET)}'`)
+    .replaceAll(`"${ENHANCE_SPECIFIER}"`, `"${relativeSpecifier(path, ENHANCE_TARGET)}"`)
+    .replaceAll(`'${CLIENT_SPECIFIER}'`, `'${relativeSpecifier(path, CLIENT_TARGET)}'`)
+    .replaceAll(`"${CLIENT_SPECIFIER}"`, `"${relativeSpecifier(path, CLIENT_TARGET)}"`)
   await Bun.write(path, rewrittenSource)
   rewritten += 1
 }
@@ -87,6 +92,7 @@ if (!themeCss.includes('@scope')) problems.push('theme.css lost its @scope block
 
 const entries = [
   'client/index.js',
+  'client/enhance.js',
   'react/index.js',
   'react/styles.css',
   'vue/index.js',

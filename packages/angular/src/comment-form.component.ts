@@ -444,8 +444,13 @@ export class LcCommentFormComponent implements OnInit {
   // Clears inputs and resets the single-use Turnstile token.
   reset(): void {
     this.body.set('')
-    this.token.set(undefined)
     this.preview.set(false)
+    this.resetChallenge()
+  }
+
+  // Replaces the single-use Turnstile token and keeps the draft: a refused send has already spent its token.
+  resetChallenge(): void {
+    this.token.set(undefined)
     this.turnstile()?.reset()
   }
 }

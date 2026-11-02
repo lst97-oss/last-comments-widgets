@@ -1,5 +1,4 @@
 import {
-  accountBadge,
   type Comment,
   canDeleteComment,
   collectThreadParticipants,
@@ -34,6 +33,7 @@ import { CommentPlaceholder } from './CommentPlaceholder'
 import { canEditComment } from './editGate'
 import { cn, initials } from './lib/utils'
 import { Markdown } from './Markdown'
+import { CommentReactions, type ReactionMode } from './Reactions'
 import { SignInPrompt } from './SignInPrompt'
 import type { ActionMode } from './types'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from './ui/accordion'
@@ -42,6 +42,9 @@ import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from './ui/popover'
 import { VoteButtons } from './VoteButtons'
+
+const NO_REACTIONS: string[] = []
+const NO_PENDING: Record<string, boolean> = {}
 
 // One item owns three mutually-exclusive UI slots (editor, reply composer,
 // body) plus their pending/error flags, so those transitions live in a reducer
@@ -106,6 +109,13 @@ type CommentItemProps = {
   // The Sign in action for the reply prompt a signed-out visitor sees, wired like the list and composer prompts.
   signInProps?: { onSignIn?: () => void; signInHref?: string }
   pendingVotes: Record<string, boolean>
+  // The reaction control: `off` hides it, `counts` shows the counts read-only, `interactive` lets a visitor react.
+  reactionMode?: ReactionMode
+  // The site's allowed emoji. Empty means the switch is off.
+  reactionEmoji?: string[]
+  pendingReactions?: Record<string, boolean>
+  reactionsLocked?: boolean
+  onReact: (comment: Comment, emoji: string, viewerReacted: boolean) => void
   replyTo: string | null
   viewerUserId?: string
   viewerRole?: ViewerRole
@@ -386,7 +396,7 @@ function CommentHeader({
   onModerate,
   onBlockUser,
 }: CommentHeaderProps) {
-  const badge = accountBadge(comment)
+  const badge = comment.authorRole
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <Button
@@ -512,6 +522,11 @@ export function CommentItem({
   writeAllowed = true,
   signInProps,
   pendingVotes,
+  reactionMode = 'off',
+  reactionEmoji = NO_REACTIONS,
+  pendingReactions = NO_PENDING,
+  reactionsLocked = false,
+  onReact,
   replyTo,
   viewerUserId,
   viewerRole,
@@ -593,6 +608,11 @@ export function CommentItem({
                     node={child}
                     depth={depth + 1}
                     pendingVotes={pendingVotes}
+                    reactionMode={reactionMode}
+                    reactionEmoji={reactionEmoji}
+                    pendingReactions={pendingReactions}
+                    reactionsLocked={reactionsLocked}
+                    onReact={onReact}
                     replyTo={replyTo}
                     viewerUserId={viewerUserId}
                     viewerRole={viewerRole}
@@ -629,6 +649,9 @@ export function CommentItem({
         </AccordionItem>
       </Accordion>
     ) : null
+  // A read-only viewer sees the counts and no control; an off switch shows nothing.
+  const reactionView: ReactionMode =
+    reactionMode === 'off' || reactionEmoji.length === 0 ? 'off' : readOnly ? 'counts' : reactionMode
   if (placeholder) {
     return <CommentPlaceholder comment={comment} depth={depth} parentAuthorName={parentAuthorName} replies={replies} />
   }
@@ -755,6 +778,13 @@ export function CommentItem({
               />
             </div>
           ) : null}
+          <CommentReactions
+            comment={comment}
+            mode={reactionView}
+            allowed={reactionEmoji}
+            disabled={(pendingReactions[comment.id] ?? false) || reactionsLocked}
+            onReact={onReact}
+          />
           {!readOnly && (
             <div className="flex flex-wrap items-center gap-1 text-sm">
               {canReplyHere && (

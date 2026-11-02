@@ -1,5 +1,5 @@
+import { loadTurnstile, resolveTurnstileConfig, type TurnstileApi } from '@last-comments-widgets/client/enhance'
 import { type Ref, useCallback, useContext, useImperativeHandle, useRef } from 'react'
-import { loadTurnstile, resolveTurnstileConfig, type TurnstileApi } from './lib/turnstile'
 import { TurnstileConfigContext } from './TurnstileConfig'
 
 export type TurnstileInstance = {

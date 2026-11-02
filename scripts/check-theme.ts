@@ -53,7 +53,11 @@ const server = Bun.serve({
     )
   },
 })
-const browser = await chromium.launch({ channel: Bun.env.THEME_BROWSER_CHANNEL ?? 'chrome', headless: true })
+// CI passes the Chrome for Testing binary its setup step installed; locally the installed Chrome is used.
+const launch = Bun.env.CHROME_PATH
+  ? { executablePath: Bun.env.CHROME_PATH }
+  : { channel: Bun.env.THEME_BROWSER_CHANNEL ?? 'chrome' }
+const browser = await chromium.launch({ ...launch, headless: true })
 try {
   for (framework of frameworks) {
     const entry =

@@ -8,8 +8,8 @@ import {
   type VoteValue,
 } from '@last-comments-widgets/client'
 import CommentItem, { type CommentFormInput } from './CommentItem.vue'
-import type { TurnstileOptions } from './lib/turnstile'
-import { type ActionMode } from './types'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
+import { type ActionMode, type ReactionMode } from './types'
 
 defineProps<{
   nodes: ThreadNode[]
@@ -17,6 +17,10 @@ defineProps<{
   viewerUserId?: string
   viewerRole?: ViewerRole
   hideVotes?: boolean
+  reactionMode?: ReactionMode
+  reactionEmoji?: string[]
+  pendingReactions?: Record<string, boolean>
+  reactionsLocked?: boolean
   pendingModeration?: Record<string, boolean>
   anonWindowMinutes?: number
   hasEditKey?: boolean
@@ -35,6 +39,7 @@ defineProps<{
   signInHref?: string
   onSignIn?: () => void
   onVote: (commentId: string, value: VoteValue | 'clear') => void
+  onReact: (commentId: string, emoji: string, viewerReacted: boolean) => void
   onReply: (commentId: string) => void
   onEdit: (commentId: string, bodyMarkdown: string) => Promise<ErrorInfo | null>
   onDelete: (commentId: string) => Promise<void>
@@ -62,6 +67,10 @@ defineOptions({ name: 'CommentList' })
       :viewer-user-id="viewerUserId"
       :viewer-role="viewerRole"
       :hide-votes="hideVotes || (canModerate(viewerRole) && node.comment.status !== 'visible')"
+      :reaction-mode="reactionMode"
+      :reaction-emoji="reactionEmoji"
+      :pending-reactions="pendingReactions"
+      :reactions-locked="reactionsLocked"
       :pending-moderation="pendingModeration"
       :anon-window-minutes="anonWindowMinutes"
       :has-edit-key="hasEditKeys?.[node.comment.id] ?? hasEditKey ?? false"
@@ -77,6 +86,7 @@ defineOptions({ name: 'CommentList' })
       :sign-in-href="signInHref"
       :on-sign-in="onSignIn"
       :on-vote="onVote"
+      :on-react="onReact"
       :on-reply="onReply"
       :on-edit="onEdit"
       :on-delete="onDelete"

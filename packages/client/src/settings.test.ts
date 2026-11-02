@@ -25,8 +25,28 @@ describe('normalizeSettings', () => {
       bodyLimit: 500,
       anonEditWindowMinutes: 0,
       turnstileSiteKey: '0x-public',
-      features: { votes: false },
+      features: { votes: false, pageReactions: [], commentReactions: [] },
     })
+  })
+
+  test('reactions fail closed: a server that sends no lists, or a malformed one, shows no reaction UI', () => {
+    expect(normalizeSettings(served)?.features).toMatchObject({ pageReactions: [], commentReactions: [] })
+    expect(normalizeSettings({ ...served, features: { votes: true, pageReactions: 'all' } })?.features).toEqual({
+      votes: true,
+      pageReactions: [],
+      commentReactions: [],
+    })
+    expect(
+      normalizeSettings({ ...served, features: { votes: true, pageReactions: [], commentReactions: ['👍', 7, ''] } })
+        ?.features.commentReactions,
+    ).toEqual(['👍'])
+  })
+
+  test('the reaction lists pass through, each switch on its own', () => {
+    const emoji = ['👍', '❤️', '🎉']
+    const features = { votes: true, pageReactions: emoji, commentReactions: [] }
+    expect(normalizeSettings({ ...served, features })?.features).toEqual(features)
+    expect(DEFAULT_SETTINGS.features).toEqual({ votes: true, pageReactions: [], commentReactions: [] })
   })
 
   test('voting is on unless the document turns it off, and an older service that sends no flag keeps it on', () => {
@@ -89,7 +109,8 @@ describe('isCompleteSettings', () => {
 describe('the vote flag', () => {
   test('a host prop can turn voting off over the document', () => {
     const fetched = normalizeSettings({ ...served, features: { votes: true } })
-    expect(resolveSettings({}, { features: { votes: false } }, fetched).features.votes).toBe(false)
+    const supplied = { features: { votes: false, pageReactions: [], commentReactions: [] } }
+    expect(resolveSettings({}, supplied, fetched).features.votes).toBe(false)
   })
 })
 
@@ -176,6 +197,17 @@ describe('fetchCommentSettings', () => {
       throw new TypeError('network down')
     }) as unknown as typeof fetch
     expect(await fetchCommentSettings({ baseUrl: 'https://c.test', site: 's', fetchImpl: offline })).toBeNull()
+  })
+
+  test('a fetch that throws synchronously does not stick: the next read retries', async () => {
+    const broken = (() => {
+      throw new TypeError('fetch wrapper threw at once')
+    }) as unknown as typeof fetch
+    expect(await fetchCommentSettings({ baseUrl: 'https://c.test', site: 's', fetchImpl: broken })).toBeNull()
+    const working = fakeFetch({ data: { settings: served } })
+    expect(
+      (await fetchCommentSettings({ baseUrl: 'https://c.test', site: 's', fetchImpl: working.fetchImpl }))?.access,
+    ).toBe('login')
   })
 
   test('a malformed body resolves to null', async () => {

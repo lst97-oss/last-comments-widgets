@@ -1,65 +1,22 @@
 import {
+  type Comment,
   EDIT_WINDOW_CLOSED,
   isEditWindowOpen,
   resolveEditWindow,
   type ThreadNode,
   type ViewerRole,
-  type VoteValue,
   type WidgetTheme,
 } from '@last-comments-widgets/client'
+import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 
 export { canModerate } from '@last-comments-widgets/client'
+// The Turnstile option type is shared with every port (its resolver lives in the client's enhance entry).
+export type { TurnstileOptions }
 
 export type Theme = 'light' | 'dark' | 'system'
 
 // Comment action rendering: icon only, icon plus label, or label only.
 export type ActionMode = 'icon' | 'icon-text' | 'text'
-
-// Cloudflare draws the challenge itself inside a cross-origin iframe (in a
-// closed shadow root), so light/dark is the only design surface it exposes.
-// Background, border, radius and shadow of the widget box cannot be styled —
-// hosts can only theme the container around it.
-export type TurnstileWidgetTheme = 'auto' | 'light' | 'dark'
-export type TurnstileWidgetSize = 'normal' | 'compact' | 'flexible'
-export type TurnstileWidgetAppearance = 'always' | 'interaction-only'
-
-// TurnstileOptions are the Cloudflare render knobs the widget exposes to hosts.
-export type TurnstileOptions = {
-  theme?: TurnstileWidgetTheme
-  size?: TurnstileWidgetSize
-  appearance?: TurnstileWidgetAppearance
-  language?: string
-}
-
-export type TurnstileRenderConfig = {
-  theme: TurnstileWidgetTheme
-  size?: TurnstileWidgetSize
-  appearance?: TurnstileWidgetAppearance
-  language?: string
-}
-
-export type TurnstileRenderParams = TurnstileRenderConfig & {
-  sitekey: string
-  callback: (token: string) => void
-  'expired-callback': () => void
-  'error-callback': (code: string) => void
-}
-
-// Follow the widget's own light/dark mode by default so the challenge box
-// matches the theme it is embedded in instead of the OS preference; an explicit
-// host `theme` wins. Nothing else about the box is styleable.
-// The challenge stays out of the way by default: `interaction-only` shows the box
-// only when Cloudflare needs a human check, and the token still arrives silently
-// otherwise. A host opts back into the always-visible box with `appearance: 'always'`.
-export function resolveTurnstileConfig(dark: boolean, options?: TurnstileOptions): TurnstileRenderConfig {
-  const config: TurnstileRenderConfig = {
-    theme: options?.theme ?? (dark ? 'dark' : 'light'),
-    appearance: options?.appearance ?? 'interaction-only',
-  }
-  if (options?.size !== undefined) config.size = options.size
-  if (options?.language !== undefined) config.language = options.language
-  return config
-}
 
 export type CommentsOptions = {
   site: string
@@ -123,10 +80,16 @@ export function canEditComment(
   return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
 }
 
-export type VoteOverlay = Record<string, { score: number; viewerVote: VoteValue | null }>
+// What a vote or a reaction changes on one row. Both write one overlay (the name is kept for consumers that
+// import it), so one tree pass applies both.
+export type VoteOverlay = Record<string, Partial<Pick<Comment, 'score' | 'viewerVote' | 'reactions'>>>
 
-// Applies pending vote results to a built tree without rebuilding it. Untouched
-// nodes keep their identity, so only the voted row (and its ancestors' child
+// The reaction control's mode, as the other ports: `off` hides it, `counts` shows it read-only,
+// `interactive` lets a signed-in visitor react.
+export type ReactionMode = 'off' | 'counts' | 'interactive'
+
+// Applies pending vote and reaction results to a built tree without rebuilding it. Untouched
+// nodes keep their identity, so only the changed row (and its ancestors' child
 // arrays) re-renders; an empty overlay returns the input array unchanged.
 export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): ThreadNode[] {
   if (Object.keys(overlay).length === 0) return nodes
@@ -138,7 +101,7 @@ export function applyVoteOverlay(nodes: ThreadNode[], overlay: VoteOverlay): Thr
     if (!patch) return childrenChanged ? { ...node, children } : node
     changed = true
     return {
-      comment: { ...node.comment, score: patch.score, viewerVote: patch.viewerVote },
+      comment: { ...node.comment, ...patch },
       children: childrenChanged ? children : node.children,
     }
   }

@@ -284,6 +284,27 @@
       border-radius: var(--lc-control-radius, 9999px);
       box-shadow: var(--lc-vote-shadow, none);
     }
+    /* Reactions: one chip per emoji. A chip the viewer holds is pressed, and the count shows only above zero. */
+    .lc-reactions {
+      min-width: 0;
+    }
+    .lc-reaction {
+      min-height: 1.75rem;
+      padding-inline: 0.5rem;
+      gap: 0.25rem;
+      border: 1px solid var(--lc-reaction-border, var(--border));
+      border-radius: var(--lc-control-radius, 9999px);
+      background: var(--lc-reaction-background, transparent);
+      color: var(--foreground);
+    }
+    .lc-reaction[aria-pressed="true"] {
+      border-color: var(--lc-reaction-active-border, var(--primary));
+      background: var(--lc-reaction-active-background, var(--accent));
+    }
+    .lc-reaction-count {
+      color: var(--muted-foreground);
+      font-variant-numeric: tabular-nums;
+    }
     .lc-action,
     .lc-collapse {
       color: var(--lc-action-color, var(--muted-foreground));

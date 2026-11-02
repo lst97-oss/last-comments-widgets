@@ -19,7 +19,8 @@ export default defineConfig({
         'vue',
         '@lucide/vue',
         'reka-ui',
-        '@last-comments-widgets/client',
+        // The client and its `/enhance` entry: both stay runtime imports, resolved by the assembled package.
+        /^@last-comments-widgets\/client(\/|$)/,
         'clsx',
         'tailwind-merge',
         // Package and subpaths: KaTeX's stylesheet must stay a runtime import,
