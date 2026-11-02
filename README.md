@@ -317,9 +317,11 @@ The copy comes from `describeError(error, overrides?)` in `@lst97-oss/last-comme
 
 The rendered block carries `data-lc-error` and `data-error-code` (empty when the failure was not from the API) so you can style or assert on it.
 
+Every call has a time limit (15 seconds by default), so a stalled network ends as `TIMEOUT` instead of a spinner that never stops. A `GET` that fails before any answer, or answers `408`, `425`, `429`, `500`, `502`, `503` or `504`, is retried twice on a backoff that doubles, with jitter; a `Retry-After` the server sends is honored up to 5 seconds. Writes (posts, votes, reactions, edits, moderation) are never retried, because a repeat could save the same comment or vote twice. `ApiError.retryable` says whether a retry can help, and `ApiError.retryAfterMs` and `requestId` carry the server's hints. A proxy's HTML error page never shows a parser message: it reads as `SERVICE_UNAVAILABLE`, or `UNREADABLE_RESPONSE` below 500. Tune the limits with `resilience: { timeoutMs, retries, baseDelayMs }` on `createClient`.
+
 ## Error codes
 
-`VALIDATION_ERROR` `MALFORMED_JSON` `UNAUTHENTICATED` `ORIGIN_NOT_ALLOWED` `SITE_NOT_FOUND` `USER_BLOCKED` `PAGE_LOCKED` `PARENT_NOT_FOUND` `COMMENT_NOT_FOUND` `COMMENT_VERIFICATION_FAILED` `COMMENT_VERIFICATION_UNAVAILABLE` `FORBIDDEN` `EDIT_WINDOW_EXPIRED` `SIGN_IN_UNAVAILABLE` `SIGN_OUT_FAILED` — see `packages/client/src/index.ts` (`ApiError.code`).
+`VALIDATION_ERROR` `MALFORMED_JSON` `UNAUTHENTICATED` `ORIGIN_NOT_ALLOWED` `SITE_NOT_FOUND` `USER_BLOCKED` `PAGE_LOCKED` `PARENT_NOT_FOUND` `COMMENT_NOT_FOUND` `COMMENT_VERIFICATION_FAILED` `COMMENT_VERIFICATION_UNAVAILABLE` `FORBIDDEN` `EDIT_WINDOW_EXPIRED` `SIGN_IN_UNAVAILABLE` `SIGN_OUT_FAILED`, plus the widget's own transport codes `NETWORK_ERROR` `TIMEOUT` `SERVICE_UNAVAILABLE` `RATE_LIMITED` `UNREADABLE_RESPONSE` — see `packages/client/src/index.ts` (`ApiErrorCode`).
 
 ## Develop
 

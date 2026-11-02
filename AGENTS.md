@@ -45,7 +45,7 @@ Bare `bun check` runs the root aggregate `check` script; use `bun check --no-scr
 
 ## Architecture & Data Flow
 
-1. Widget → `@lst97-oss/last-comments-widgets/client` → `{site, baseUrl}` → JSON envelope `{ data }` / `{ error: { code, message } }` → `ApiError` → `describeError` → error block. **Never hardcode user-facing error copy in a widget**; add it to `ERROR_COPY` in the client.
+1. Widget → `@lst97-oss/last-comments-widgets/client` → `{site, baseUrl}` → `resilientFetch` (time limit; GET-only retry) → JSON envelope `{ data }` / `{ error: { code, message } }` → `ApiError` (`retryable`, `retryAfterMs`, `requestId`) → `describeError` → error block. **Never hardcode user-facing error copy in a widget**; add it to `ERROR_COPY` in the client. **Never add a second retry layer in a port**: the transport owns retries, and a port only renders what `describeError` returns.
 2. Session: `GET /api/auth/get-session` (tolerant: null when unreachable), sign-in `POST /api/auth/sign-in/social`, sign-out `POST /api/auth/sign-out`. Hosts may pass `viewerUserId` as the fallback identity.
 3. Identity invariant: the guest/anonymous composer posts with `credentials: 'omit'`; while the session probe is in flight the composer is disabled (skeleton chip) so a comment can never post with a guessed identity.
 4. Paging invariant: the list endpoint returns a **flat stream with no total**, ordered `createdAt asc`, and `buildCommentTree` promotes orphan replies to roots. Therefore a page is a **window over roots**, filled by `loadThreadWindow` (`pages: N`, `existing`) — never replace the list with a raw page (split threads render replies as phantom top-level comments) and never render the whole prefix (that is "load more", not pagination).

@@ -5,6 +5,7 @@
 import { Marked, type RendererObject, type TokenizerAndRendererExtension } from 'marked'
 import { IMAGE_SIZES, imageRenditions } from './images'
 import { DEFAULT_ANON_EDIT_WINDOW_MINUTES } from './settings'
+import { ApiError, parseRetryAfter, type Resilience, resilientFetch } from './transport'
 
 export type { CommentSettings, Gate, SettingsOverrides, SiteAccess } from './settings'
 export {
@@ -18,6 +19,7 @@ export {
   resetSettingsCache,
   resolveSettings,
 } from './settings'
+export { ApiError, type Resilience } from './transport'
 
 export type CommentStatus = 'visible' | 'hidden' | 'deleted'
 export type VoteValue = -1 | 1
@@ -148,22 +150,19 @@ export type ApiErrorCode =
   | 'SIGN_OUT_FAILED'
   | 'FORBIDDEN'
   | 'EDIT_WINDOW_EXPIRED'
-
-export class ApiError extends Error {
-  code: ApiErrorCode | string
-  status: number
-  constructor(code: ApiErrorCode | string, message: string, status: number) {
-    super(message)
-    this.name = 'ApiError'
-    this.code = code
-    this.status = status
-  }
-}
+  // Failures with no server code: the widget made them, from the transport or from an unreadable answer.
+  | 'NETWORK_ERROR'
+  | 'TIMEOUT'
+  | 'SERVICE_UNAVAILABLE'
+  | 'RATE_LIMITED'
+  | 'UNREADABLE_RESPONSE'
 
 export type ClientOptions = {
   baseUrl: string
   site: string
   fetchImpl?: typeof fetch
+  // Time limit and read retries for every call. The defaults suit a page; a test or a slow network can change them.
+  resilience?: Resilience
 }
 
 export type ListOptions = { url: string; limit?: number; offset?: number }
@@ -223,10 +222,19 @@ export function safeUrl(raw: string | null | undefined): string | undefined {
 }
 
 async function readEnvelope<T>(res: Response): Promise<T> {
-  const json = (await res.json()) as { data?: T; error?: { code: string; message: string } }
+  const hints = {
+    retryAfterMs: parseRetryAfter(res.headers.get('retry-after')),
+    requestId: res.headers.get('x-request-id') ?? undefined,
+  }
+  const json = (await res.json().catch(() => null)) as { data?: T; error?: { code: string; message: string } } | null
+  // A proxy's HTML error page or an empty body has no envelope. The status says what happened; the body's text never shows.
+  if (json === null) {
+    const code = res.status >= 500 ? 'SERVICE_UNAVAILABLE' : 'UNREADABLE_RESPONSE'
+    throw new ApiError(code, `request failed with ${res.status}`, res.status, hints)
+  }
   if (!res.ok || !('data' in json) || json.data === undefined) {
     const code = json.error?.code ?? 'VALIDATION_ERROR'
-    throw new ApiError(code, json.error?.message ?? `request failed with ${res.status}`, res.status)
+    throw new ApiError(code, json.error?.message ?? `request failed with ${res.status}`, res.status, hints)
   }
   return json.data
 }
@@ -243,7 +251,7 @@ export type WidgetSignInOptions = {
 // to their own sign-in page instead when the host passes `signInUrl`.
 export async function beginOAuthSignIn(options: WidgetSignInOptions): Promise<string> {
   const base = options.baseUrl.replace(/\/$/, '')
-  const res = await (options.fetchImpl ?? fetch)(`${base}/api/auth/sign-in/social`, {
+  const res = await resilientFetch(options.fetchImpl ?? fetch)(`${base}/api/auth/sign-in/social`, {
     method: 'POST',
     credentials: 'include',
     headers: { 'content-type': 'application/json' },
@@ -332,7 +340,9 @@ export async function fetchViewerSession(options: {
 }): Promise<ViewerSession | null> {
   const base = options.baseUrl.replace(/\/$/, '')
   try {
-    const res = await (options.fetchImpl ?? fetch)(`${base}/api/auth/get-session`, { credentials: 'include' })
+    const res = await resilientFetch(options.fetchImpl ?? fetch)(`${base}/api/auth/get-session`, {
+      credentials: 'include',
+    })
     if (!res.ok) return null
     const json = (await res.json()) as { user?: { id?: string; name?: string; image?: string | null } } | null
     const user = json?.user
@@ -346,7 +356,7 @@ export async function fetchViewerSession(options: {
 // Ends the API session (better-auth POST /api/auth/sign-out).
 export async function signOutViewerSession(options: { baseUrl: string; fetchImpl?: typeof fetch }): Promise<void> {
   const base = options.baseUrl.replace(/\/$/, '')
-  const res = await (options.fetchImpl ?? fetch)(`${base}/api/auth/sign-out`, {
+  const res = await resilientFetch(options.fetchImpl ?? fetch)(`${base}/api/auth/sign-out`, {
     method: 'POST',
     credentials: 'include',
   })
@@ -375,7 +385,7 @@ export type LastCommentsClient = {
 }
 
 export function createClient(options: ClientOptions): LastCommentsClient {
-  const fetchImpl = options.fetchImpl ?? fetch
+  const fetchImpl = resilientFetch(options.fetchImpl ?? fetch, options.resilience)
   const base = options.baseUrl.replace(/\/$/, '')
   const site = options.site
   const jsonHeaders = { 'content-type': 'application/json' }
@@ -1127,6 +1137,14 @@ export type ErrorAction = 'retry' | 'sign-in' | 'none'
 export type ErrorInfo = { code: string | null; title: string; message: string; action: ErrorAction }
 
 type ErrorCopy = { title: string; message?: string; action?: ErrorAction; specific?: boolean }
+// Shared by every failure that never reached the server, so a timeout and a dropped connection read the same.
+const NETWORK_COPY: ErrorCopy = {
+  title: "Couldn't reach the comments service",
+  message: 'Check your connection and try again.',
+  action: 'retry',
+  specific: true,
+}
+
 const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
   VALIDATION_ERROR: { title: "That didn't work" },
   MALFORMED_JSON: {
@@ -1199,14 +1217,28 @@ const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
     message: 'Copy your text if you need it, then reload the page.',
     specific: true,
   },
+  NETWORK_ERROR: NETWORK_COPY,
+  TIMEOUT: NETWORK_COPY,
+  SERVICE_UNAVAILABLE: {
+    title: 'The comments service is unavailable',
+    message: 'Try again in a moment.',
+    action: 'retry',
+    specific: true,
+  },
+  RATE_LIMITED: {
+    title: 'Too many requests',
+    message: 'Wait a moment, then try again.',
+    action: 'retry',
+    specific: true,
+  },
+  UNREADABLE_RESPONSE: {
+    title: 'The comments service sent an unreadable response',
+    message: 'Try again in a moment.',
+    action: 'retry',
+    specific: true,
+  },
 }
 
-const NETWORK_COPY: ErrorCopy = {
-  title: "Couldn't reach the comments service",
-  message: 'Check your connection and try again.',
-  action: 'retry',
-  specific: true,
-}
 // readEnvelope synthesises this when the API sends no error message.
 const SYNTHETIC_MESSAGE = /^request failed with \d+$/
 
@@ -1251,7 +1283,8 @@ export function describeError(error: unknown, overrides: { title?: string; messa
       overrides.message ??
       (copy?.specific ? (copy.message ?? usable) : (usable ?? copy?.message)) ??
       'Try again in a moment.',
-    action: copy?.action ?? (copy === undefined ? 'retry' : 'none'),
+    // An unknown failure is worth a retry unless the server said it is permanent (a 4xx the copy does not cover).
+    action: copy?.action ?? (copy === undefined && api?.retryable !== false ? 'retry' : 'none'),
   }
 }
 
