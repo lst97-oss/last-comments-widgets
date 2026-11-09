@@ -3,33 +3,7 @@
 import type { ThreadGuideItem } from '@last-comments-widgets/client'
 import { buildThreadGuidePath } from '@last-comments-widgets/client'
 
-type ObserverCtor = typeof IntersectionObserver
-
-// One-shot viewport gate shared by the list and the viewer; split out so the
-// three branches are testable without a DOM.
-export function observeInView(
-  element: Element | null,
-  lazy: boolean,
-  observerCtor: ObserverCtor | undefined,
-  onEnter: () => void,
-): (() => void) | undefined {
-  if (!lazy || !observerCtor) {
-    onEnter()
-    return
-  }
-  if (!element) return
-  const observer = new observerCtor(
-    (entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        onEnter()
-        observer.disconnect()
-      }
-    },
-    { rootMargin: '200px' },
-  )
-  observer.observe(element)
-  return () => observer.disconnect()
-}
+export { observeInView } from '@last-comments-widgets/client/enhance'
 
 // Reply panels clip their contents while they fold, so measurement follows them.
 export const PANEL_SELECTOR = '[data-slot="accordion-content"]'

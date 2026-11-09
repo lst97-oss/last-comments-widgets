@@ -1,10 +1,12 @@
 import {
   type Comment,
   canDeleteComment,
+  canEditComment,
   collectThreadParticipants,
   DEFAULT_BODY_LIMIT,
   type ErrorInfo,
   formatRelativeTime,
+  initials,
   type ModerationAction,
   safeUrl,
   signInRequired,
@@ -30,8 +32,7 @@ import {
 import { type ComponentProps, memo, type ReactNode, useReducer, useRef, useState } from 'react'
 import { CommentForm, type CommentFormInput } from './CommentForm'
 import { CommentPlaceholder } from './CommentPlaceholder'
-import { canEditComment } from './editGate'
-import { cn, initials } from './lib/utils'
+import { cn } from './lib/utils'
 import { Markdown } from './Markdown'
 import { CommentReactions, type ReactionMode } from './Reactions'
 import { SignInPrompt } from './SignInPrompt'

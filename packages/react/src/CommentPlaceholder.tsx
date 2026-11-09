@@ -1,6 +1,6 @@
-import { type Comment, formatRelativeTime } from '@last-comments-widgets/client'
+import { type Comment, formatRelativeTime, initials } from '@last-comments-widgets/client'
 import type { ReactNode } from 'react'
-import { cn, initials } from './lib/utils'
+import { cn } from './lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar'
 
 // Removed comments read as placeholders in the normal view: a deleted row is

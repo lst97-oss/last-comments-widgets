@@ -1,15 +1,8 @@
-import {
-  type Comment,
-  EDIT_WINDOW_CLOSED,
-  isEditWindowOpen,
-  resolveEditWindow,
-  type ThreadNode,
-  type ViewerRole,
-  type WidgetTheme,
-} from '@last-comments-widgets/client'
+import { type Comment, type ThreadNode, type ViewerRole, type WidgetTheme } from '@last-comments-widgets/client'
 import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 
 export { canModerate } from '@last-comments-widgets/client'
+export { canEditComment, type EditGateOptions } from '@last-comments-widgets/client'
 // The Turnstile option type is shared with every port (its resolver lives in the client's enhance entry).
 export type { TurnstileOptions }
 
@@ -31,6 +24,7 @@ export type CommentsOptions = {
   limit?: number
   theme?: Theme
   signInUrl?: string
+  onSignInClick?: () => void
   viewerUserId?: string
   viewerRole?: ViewerRole
   // Guest-authored comments may be edited for this many minutes from this
@@ -44,7 +38,7 @@ export type CommentsOptions = {
   math?: boolean
   // Render ```mermaid fences as diagrams (lazy; off by default).
   mermaid?: boolean
-  // Syntax-highlight fenced code (lazy; on by default; React only until the ports are migrated).
+  // Syntax-highlight fenced code (lazy; on by default).
   codeHighlight?: boolean
   themeVars?: WidgetTheme
   fetchImpl?: typeof fetch
@@ -54,30 +48,6 @@ export function resolvePageUrl(explicit: string | undefined): string {
   if (explicit) return explicit
   if (typeof window !== 'undefined') return window.location.href
   throw new Error('pageUrl is required outside the browser')
-}
-
-export type EditGateOptions = {
-  // Window for guest-authored comments; signed-in owners have no window.
-  anonWindowMinutes?: number
-  // A guest owns the comment only while this browser still holds its edit key.
-  hasEditKey?: boolean
-}
-
-// Signed-in authors edit any time; guest authors only inside the anonymous
-// window while this browser still holds the key issued at creation.
-export function canEditComment(
-  comment: { userId?: string | null; createdAt: string },
-  viewerUserId?: string,
-  options: EditGateOptions = {},
-): boolean {
-  const windowMinutes = resolveEditWindow({
-    commentUserId: comment.userId,
-    viewerUserId,
-    hasEditKey: options.hasEditKey,
-    ...(options.anonWindowMinutes === undefined ? {} : { anonymousWindowMinutes: options.anonWindowMinutes }),
-  })
-  if (windowMinutes === EDIT_WINDOW_CLOSED) return false
-  return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
 }
 
 // What a vote or a reaction changes on one row. Both write one overlay (the name is kept for consumers that

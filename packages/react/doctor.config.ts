@@ -35,7 +35,7 @@ export default {
         // fire every grammar request at once. Math and diagram upgrades await a
         // lazy import and then render each placeholder in order for the same
         // reason.
-        files: ['src/lib/codeBlock.ts', 'lib/codeBlock.ts', 'src/lib/math.ts', 'src/lib/mermaid.ts'],
+        files: ['src/lib/math.ts', 'src/lib/mermaid.ts'],
         rules: ['react-doctor/async-await-in-loop'],
       },
       {

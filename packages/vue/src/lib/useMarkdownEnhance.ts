@@ -1,7 +1,7 @@
-import { enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
+import { enhanceCodeBlocks, enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
 import { onBeforeUnmount, onMounted, type Ref, watch } from 'vue'
 
-type EnhanceFlags = { math: () => boolean; mermaid: () => boolean }
+type EnhanceFlags = { math: () => boolean; mermaid: () => boolean; codeHighlight: () => boolean }
 
 // This port bundles KaTeX's stylesheet; the import stays here so the bundle that owns the CSS requests it.
 const loadKatexStyles = () => import('katex/dist/katex.min.css')
@@ -18,6 +18,7 @@ export function useMarkdownEnhance(el: Ref<HTMLElement | null>, html: Ref<string
     const node = el.value
     if (!node) return
     const cleanups = [
+      ...(flags.codeHighlight() ? [enhanceCodeBlocks(node)] : []),
       ...(flags.mermaid() ? [enhanceMermaid(node)] : []),
       ...(flags.math() ? [enhanceMath(node, { loadStyles: loadKatexStyles })] : []),
     ]
@@ -30,7 +31,7 @@ export function useMarkdownEnhance(el: Ref<HTMLElement | null>, html: Ref<string
   onMounted(run)
   // The element changes when a row swaps its editor for the body (or back) with
   // the same html, so the ref is watched alongside the rendered string.
-  watch([el, html, flags.math, flags.mermaid], run, { flush: 'post' })
+  watch([el, html, flags.math, flags.mermaid, flags.codeHighlight], run, { flush: 'post' })
   onBeforeUnmount(() => {
     cleanup?.()
     cleanup = null

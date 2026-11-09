@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { canEditComment } from './editGate'
+import { canEditComment } from '@last-comments-widgets/client'
 
 const own = (minutesAgo: number, userId: string | null = 'u1') => ({
   userId,

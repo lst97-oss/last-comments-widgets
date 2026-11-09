@@ -1,8 +1,7 @@
 type ObserverCtor = typeof IntersectionObserver
 
-// One-shot viewport gate shared by both roots. Split from the components so the
-// three branches (no lazy, no observer, observe until intersecting) are
-// testable without a DOM.
+// One-shot viewport gate shared by all four ports. Split out so the three branches (no lazy, no observer,
+// observe until intersecting) are testable without a DOM.
 export function observeInView(
   element: Element | null,
   lazy: boolean,

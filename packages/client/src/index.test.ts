@@ -18,15 +18,20 @@ import {
   forgetEditKey,
   formatRelativeTime,
   getEditKey,
+  initials,
+  insertCodeBlock,
   isEditWindowOpen,
   listCommentsPage,
+  loadModerationWindow,
   loadThreadWindow,
   type ModerationComment,
   moderationCommentToComment,
   normalizePageUrl,
+  postFailure,
   reactionFailure,
   renderMarkdown,
   resolveEditWindow,
+  resolveModerationThread,
   safeUrl,
   saveEditKey,
   signInFailureUrl,
@@ -851,6 +856,129 @@ describe('themeVarsToStyle', () => {
   })
 })
 
+describe('resolveModerationThread', () => {
+  const page = (id: string, canonicalUrl: string, isLocked: boolean) => ({
+    id,
+    canonicalUrl,
+    pageKey: null,
+    title: null,
+    isLocked,
+    total: 0,
+    visible: 0,
+    hidden: 0,
+    latestAt: null,
+  })
+  const overviewFetch = (pages: unknown[]) =>
+    (async () =>
+      Response.json({
+        data: { sites: [], pages, comments: [], total: 0, isInstanceAdmin: true },
+      })) as unknown as typeof fetch
+  const resolve = (fetchImpl: typeof fetch, input: { url: string; pageId?: string }) =>
+    resolveModerationThread({
+      client: createClient({ baseUrl: 'https://api.test', site: 'demo', fetchImpl }),
+      ...input,
+    })
+
+  test('finds the page by URL and carries its lock state', async () => {
+    const thread = await resolve(overviewFetch([page('p1', 'https://x.test/a', true)]), {
+      url: 'https://x.test/a#top',
+    })
+    expect(thread).toEqual({ threadPageId: 'p1', pageLock: { pageId: 'p1', locked: true } })
+  })
+
+  test('a URL missing from the capped page list is PAGE_NOT_LISTED, never an empty thread', async () => {
+    const failure = await resolve(overviewFetch([]), { url: 'https://x.test/old' }).catch((err: unknown) => err)
+    expect(failure).toBeInstanceOf(ApiError)
+    expect((failure as ApiError).code).toBe('PAGE_NOT_LISTED')
+    expect(describeError(failure).title).toBe('Moderation cannot find this page')
+  })
+
+  test('a host pageId is used as given, even when the list does not hold it', async () => {
+    const thread = await resolve(overviewFetch([]), { url: 'https://x.test/old', pageId: 'p9' })
+    expect(thread).toEqual({ threadPageId: 'p9', pageLock: null })
+  })
+})
+
+describe('loadModerationWindow', () => {
+  type Row = { id: string; parentId: string | null }
+  // A stub of GET /api/moderation: serves the rows by offset and limit, and reports the exact total.
+  const served = (rows: Row[]) =>
+    (async (url: string | URL | Request) => {
+      const params = new URL(String(url)).searchParams
+      const offset = Number(params.get('offset') ?? 0)
+      const limit = Number(params.get('limit') ?? 20)
+      const slice = rows.slice(offset, offset + limit).map((row) => ({
+        id: row.id,
+        pageId: 'p1',
+        parentId: row.parentId,
+        userId: null,
+        authorName: 'a',
+        bodyMarkdown: row.id,
+        status: 'visible',
+        pinnedAt: null,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        pageUrl: 'https://x.test/a',
+        pageLocked: false,
+        userBlocked: false,
+        score: 0,
+        viewerVote: null,
+        authorRole: null,
+      }))
+      return Response.json({
+        data: { sites: [], pages: [], comments: slice, total: rows.length, isInstanceAdmin: true },
+      })
+    }) as unknown as typeof fetch
+
+  test('counts replies against the window and fills whole threads', async () => {
+    const rows: Row[] = [
+      { id: 'a', parentId: null },
+      { id: 'a1', parentId: 'a' },
+      { id: 'b', parentId: null },
+      { id: 'c', parentId: null },
+    ]
+    const client = createClient({ baseUrl: 'https://api.test', site: 'demo', fetchImpl: served(rows) })
+    const window = await loadModerationWindow({ client, pageId: 'p1', limit: 2, pages: 1 })
+    expect(window.comments.map((c) => c.id)).toEqual(['a', 'a1', 'b', 'c'])
+    expect(window.hasMore).toBe(false)
+  })
+
+  test('stops at the end of the stream instead of re-requesting', async () => {
+    const client = createClient({
+      baseUrl: 'https://api.test',
+      site: 'demo',
+      fetchImpl: served([{ id: 'a', parentId: null }]),
+    })
+    const window = await loadModerationWindow({ client, pageId: 'p1', limit: 5, pages: 3 })
+    expect(window.comments.map((c) => c.id)).toEqual(['a'])
+    expect(window.hasMore).toBe(false)
+  })
+})
+
+describe('postFailure', () => {
+  test('a post the server never answered may already be saved, so the copy says to check first', () => {
+    const info = postFailure(new ApiError('TIMEOUT', 'slow', 0), "Your comment wasn't posted")
+    expect(info.title).toBe("Your comment wasn't posted")
+    expect(info.message).toContain('may already be posted')
+    expect(info.action).toBe('none')
+  })
+
+  test('a server answer keeps the normal copy', () => {
+    const error = new ApiError('VALIDATION_ERROR', 'bad body', 400)
+    expect(postFailure(error, "Your comment wasn't posted")).toEqual(
+      describeError(error, { title: "Your comment wasn't posted" }),
+    )
+  })
+})
+
+describe('initials', () => {
+  test('takes up to two word initials, uppercased', () => {
+    expect(initials('Ada Lovelace')).toBe('AL')
+    expect(initials('ada')).toBe('A')
+    expect(initials('  x   y   z ')).toBe('XY')
+    expect(initials('   ')).toBe('')
+  })
+})
+
 describe('fetchViewerThreads', () => {
   test('groups flat list with orphans at root', async () => {
     const parent = comment({ id: 'p', bodyMarkdown: 'parent' })
@@ -1449,5 +1577,19 @@ describe('reactionFailure', () => {
   test('an unknown failure says the reaction did not save; a code with its own copy keeps that copy', () => {
     expect(reactionFailure(new ApiError('SOMETHING_NEW', 'boom', 500)).title).toBe("Your reaction wasn't saved")
     expect(reactionFailure(new ApiError('PAGE_LOCKED', 'locked', 423)).title).toBe('Comments are closed on this page')
+  })
+})
+
+describe('insertCodeBlock', () => {
+  test('fences a selection that starts the body and selects the language word', () => {
+    expect(insertCodeBlock('a', 0, 1)).toEqual({ value: '```language\na\n```', start: 3, end: 11 })
+  })
+
+  test('fences an empty caret after text on its own lines, with placeholder code', () => {
+    expect(insertCodeBlock('x', 1, 1)).toEqual({ value: 'x\n```language\ncode\n```', start: 5, end: 13 })
+  })
+
+  test('keeps the fence on its own lines on both sides of a mid-line caret', () => {
+    expect(insertCodeBlock('ab', 1, 1)).toEqual({ value: 'a\n```language\ncode\n```\nb', start: 5, end: 13 })
   })
 })

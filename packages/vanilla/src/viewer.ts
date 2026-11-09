@@ -65,6 +65,7 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
   applyTheme()
   const viewerMath = options.math ?? false
   const viewerMermaid = options.mermaid ?? false
+  const viewerCodeHighlight = options.codeHighlight ?? true
   let viewerCleanup: (() => void) | null = null
 
   function currentTree(): ThreadNode[] {
@@ -102,8 +103,12 @@ export function renderCommentViewer(el: HTMLElement, options: ViewerOptions): Wi
     viewerCleanup?.()
     viewerCleanup = null
     el.innerHTML = `<section aria-label="Comments" class="grid gap-4">${body}${sortBar}${list}${pending}${pager}${attributionMarkup()}</section>`
-    if (viewerMath || viewerMermaid) {
-      viewerCleanup = runMarkdownEnhancers(el, { math: viewerMath, mermaid: viewerMermaid })
+    if (viewerMath || viewerMermaid || viewerCodeHighlight) {
+      viewerCleanup = runMarkdownEnhancers(el, {
+        math: viewerMath,
+        mermaid: viewerMermaid,
+        codeHighlight: viewerCodeHighlight,
+      })
     }
     const threadList = el.querySelector<HTMLElement>('[data-lc-thread-list]')
     if (threadList) guides = renderGuides(threadList)

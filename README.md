@@ -262,7 +262,7 @@ import { CommentViewer } from '@lst97-oss/last-comments-widgets/react'
 | `createClient({ site, baseUrl, fetchImpl })`                                                                         | list, post, edit and delete comments, vote, and run moderation calls                    |
 | `listCommentsPage({ …, offset, limit })`                                                                             | one page of rows plus `hasMore` (probes one extra row; the API returns no total)        |
 | `loadThreadWindow({ …, pages, existing })`                                                                           | rows accumulated until N whole threads are present — the loader behind the widget pager |
-| `fetchViewerThreads({ … })`                                                                                          | one-shot fetch of the flat stream                                                       |
+| `fetchViewerThreads({ … })`                                                                                          | one-shot fetch, grouped into threads                                                    |
 | `buildCommentTree(rows)`                                                                                             | group that stream into thread nodes (orphan replies become roots)                       |
 | `describeError(error, overrides?)`                                                                                   | the title/message/action copy every widget renders                                      |
 | `beginOAuthSignIn` · `fetchViewerSession` · `signOutViewerSession`                                                   | the flow behind the identity control                                                    |

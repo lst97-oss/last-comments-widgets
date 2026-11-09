@@ -1,24 +1,9 @@
 // Item and widget state, the reducer that moves it, and the vote overlay.
 
 import type { Comment, ErrorInfo, ReactionSummary, ThreadSort, VoteValue } from '@last-comments-widgets/client'
-import { EDIT_WINDOW_CLOSED, isEditWindowOpen, resolveEditWindow } from '@last-comments-widgets/client'
 
-// Mirror of the React editGate: signed-in owners edit any time; a guest owns the
-// comment only while this browser still holds its key, inside the anon window.
-export function canEditComment(
-  comment: { userId?: string | null; createdAt: string },
-  viewerUserId?: string,
-  options: { anonWindowMinutes?: number; hasEditKey?: boolean } = {},
-): boolean {
-  const windowMinutes = resolveEditWindow({
-    commentUserId: comment.userId,
-    viewerUserId,
-    hasEditKey: options.hasEditKey,
-    ...(options.anonWindowMinutes === undefined ? {} : { anonymousWindowMinutes: options.anonWindowMinutes }),
-  })
-  if (windowMinutes === EDIT_WINDOW_CLOSED) return false
-  return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
-}
+// The edit rule is shared with every port: the client's canEditComment.
+export { canEditComment, type EditGateOptions } from '@last-comments-widgets/client'
 
 // One row owns three mutually-exclusive UI slots (editor, reply composer,
 // body) plus their pending/error flags — the same item state as React.

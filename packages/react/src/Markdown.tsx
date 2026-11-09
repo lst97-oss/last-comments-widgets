@@ -1,7 +1,6 @@
 import { renderMarkdown } from '@last-comments-widgets/client'
-import { enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
+import { enhanceCodeBlocks, enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
 import { type ReactNode, useCallback, useMemo } from 'react'
-import { enhanceCodeBlocks } from './lib/codeBlock'
 
 // This port bundles KaTeX's stylesheet; the import stays here so the bundle that owns the CSS requests it.
 const loadKatexStyles = () => import('katex/dist/katex.min.css')
