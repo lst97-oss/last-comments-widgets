@@ -1,5 +1,34 @@
 # @lst97-oss/last-comments-widgets
 
+## 0.8.0
+
+### Minor Changes
+
+- 533bd78: Vue, Angular and the plain-HTML widget now match the React widget on the same features and styles.
+  
+  - Fenced code blocks are syntax-highlighted in every widget. The Shiki upgrade moved into the shared client (`/enhance`); `codeHighlight` (`data-lc-no-code-highlight` on plain HTML) turns it off. Vue, Angular and plain HTML now load `shiki` for it, so install `shiki` next to the widget as React already requires; plain HTML maps it in its import map.
+  - The composer has the same toolbar in every widget: Inline code and a new Code block action.
+  - A moderator sees the "Comment as" identity control in every widget, as in React.
+  - Vote buttons are disabled while a vote is in flight.
+  - `onSignInClick` replaces the OAuth start in the sign-in prompts in Vue, Angular and plain HTML, as it already did in React. The Vue `sign-in` event was declared but never emitted, so it is removed; use `onSignInClick`.
+  - The editor of an own comment has a Cancel button in every widget.
+  - Locked and blocked pages in Vue show the shared error block, as in React, instead of a separate panel.
+  - Vue exports `CommentsTheme` and Angular exports `LcCommentsThemeComponent`, the scope wrapper for composed pieces, matching React's `CommentsTheme`.
+- ef31afb: Loading placeholders are now a faint tint of `mutedForeground` instead of `muted`, which was barely visible on a light card. The new `themeVars` key `skeletonBackground` sets the placeholder fill directly, so a host can retint them without retinting composers or code blocks.
+
+### Patch Changes
+
+- ed30402: Fixes from the repo audit.
+  
+  - Plain-HTML widget: a vote can be taken back again. After a vote, the second click on the same arrow used to send the same vote, so it stayed until the page reloaded.
+  - Moderation: a page that is not in the site's newest 100 pages no longer shows an empty thread with no message. The widget shows "Moderation cannot find this page", and a host can pass `pageId` to moderate it. Vue's moderation view also fills each page with whole threads, as the other ports already did.
+  - Plain-HTML widget: `data-lc-limit` must be a whole number of 1 or more. A value such as `ten` used to empty the widget with "No comments yet".
+  - A post that the server never answered (a timeout or a dropped connection) now says the comment may already be posted, and to check the thread before posting again.
+  - The peer ranges for `@angular/cdk`, `@lucide/angular` and `vue` are caret ranges, so hosts on another patch version can install the package.
+  - Code blocks keep their highlighted markup for up to 200 blocks, so repaints do not highlight them again.
+  - `canEditComment`, `initials` and the viewport observer each have one copy, in the client, and every port uses it. The public exports of each port are unchanged.
+  - The client package adds `canEditComment`, `initials`, `postFailure`, `resolveModerationThread` and `loadModerationWindow` for hosts that build their own UI. `PAGE_NOT_LISTED` is a new value of `ApiErrorCode`.
+
 ## 0.7.0
 
 ### Minor Changes
