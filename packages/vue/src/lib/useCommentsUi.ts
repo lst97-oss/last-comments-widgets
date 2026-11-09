@@ -14,11 +14,10 @@ export function useCommentsUi() {
   const lockPending = ref(false)
   const identityPending = ref(false)
   const identityError = ref<{ info: ErrorInfo; retry: () => void } | null>(null)
-  const unauthenticated = ref(false)
 
   function clearError() {
     actionError.value = null
   }
 
-  return { pendingModeration, actionError, lockPending, identityPending, identityError, unauthenticated, clearError }
+  return { pendingModeration, actionError, lockPending, identityPending, identityError, clearError }
 }

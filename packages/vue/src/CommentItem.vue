@@ -42,6 +42,8 @@ const props = defineProps<{
   viewerUserId?: string
   viewerRole?: ViewerRole
   hideVotes?: boolean
+  // Vote requests in flight: both buttons of the row wait for the answer.
+  pendingVotes?: Record<string, boolean>
   // The reaction control: `off` hides it, `counts` shows the counts read-only, `interactive` lets a visitor react.
   reactionMode?: ReactionMode
   // The site's allowed emoji. Empty means the switch is off.
@@ -98,7 +100,11 @@ function dispatch(action: ItemAction) {
 
 const rendered = computed(() => renderMarkdown(comment.value.bodyMarkdown, { math: math.value }))
 const bodyEl = useTemplateRef<HTMLElement>('bodyEl')
-useMarkdownEnhance(bodyEl, rendered, { math: () => math.value, mermaid: () => mermaid.value })
+useMarkdownEnhance(bodyEl, rendered, {
+  math: () => math.value,
+  mermaid: () => mermaid.value,
+  codeHighlight: () => codeHighlight.value,
+})
 const moderationPending = computed(() => props.pendingModeration?.[comment.value.id] ?? false)
 // Reply is offered on every visible comment. A signed-out visitor on a login site gets the sign-in prompt
 // in place of the composer, so the gate sits behind the click.
@@ -271,7 +277,12 @@ function toggleReply() {
         />
         <span v-if="!props.hideVotes" class="ml-auto">
           <span v-if="props.readOnly" class="text-sm text-muted-foreground">{{ comment.score }}</span>
-          <VoteButtons v-else :comment="comment" :on-vote="props.onVote" />
+          <VoteButtons
+            v-else
+            :comment="comment"
+            :pending="props.pendingVotes?.[comment.id] ?? false"
+            :on-vote="props.onVote"
+          />
         </span>
       </div>
       <div
@@ -425,6 +436,7 @@ function toggleReply() {
               :viewer-user-id="props.viewerUserId"
               :viewer-role="props.viewerRole"
               :hide-votes="props.hideVotes"
+              :pending-votes="props.pendingVotes"
               :reaction-mode="props.reactionMode"
               :reaction-emoji="props.reactionEmoji"
               :pending-reactions="props.pendingReactions"

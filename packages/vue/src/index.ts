@@ -8,6 +8,7 @@
  */
 export type { ThemeVars, WidgetTheme } from '@last-comments-widgets/client'
 export { default as CommentForm } from './CommentForm.vue'
+export { default as CommentsTheme } from './CommentsTheme.vue'
 export { default as CommentItem } from './CommentItem.vue'
 export { default as Comments } from './Comments.vue'
 export { default as CommentViewer } from './CommentViewer.vue'

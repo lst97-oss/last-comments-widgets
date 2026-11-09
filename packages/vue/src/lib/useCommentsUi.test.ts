@@ -17,11 +17,9 @@ describe('useCommentsUi', () => {
     const ui = useCommentsUi()
     ui.actionError.value = describeError(new Error('boom'))
     ui.lockPending.value = true
-    ui.unauthenticated.value = true
     ui.clearError()
     expect(ui.actionError.value).toBeNull()
     expect(ui.lockPending.value).toBe(true)
-    expect(ui.unauthenticated.value).toBe(true)
     expect(ui.pendingModeration.value).toEqual({})
   })
 })

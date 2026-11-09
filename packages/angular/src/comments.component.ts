@@ -186,110 +186,102 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
           (submitted)="onTopLevelSubmit($event)"
           (signIn)="signInFromError()"
         >
-          <!-- One root node per block: NG8011 refuses to match the [lcSignIn] slot otherwise.
-             Moderators post as themselves through the moderation endpoint, so the
-             anonymous/account switcher does not apply and the block stays empty. -->
+          <!-- One root node per block: NG8011 refuses to match the [lcSignIn] slot otherwise. -->
           <div lcSignIn class="flex min-w-0 items-center gap-2 text-sm">
-            @if (!moderator()) {
-              <span class="text-xs text-muted-foreground">Comment as</span>
-              <button
-                #identityOrigin
-                type="button"
-                aria-haspopup="menu"
-                [attr.aria-expanded]="identityOpen()"
-                [disabled]="sessionLoading() || signInPending() || signOutPending()"
-                (click)="identityOpen.set(!identityOpen())"
-                [class]="identityTriggerClass"
-              >
-                @if (sessionLoading()) {
-                  <span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
-                } @else {
-                  <span class="label max-w-[10rem] truncate">{{ identityLabel() }}</span>
-                }
-                <svg lucideChevronDown aria-hidden="true"></svg>
-              </button>
-              <ng-template
-                cdkConnectedOverlay
-                [cdkConnectedOverlayOrigin]="identityOrigin"
-                [cdkConnectedOverlayOpen]="identityOpen()"
-                [cdkConnectedOverlayPositions]="identityPositions"
-                (detach)="identityOpen.set(false)"
-                (overlayOutsideClick)="identityOpen.set(false)"
-              >
-                <div role="menu" [class]="identityMenuClass">
-                  <div role="group">
-                    @if (policy().access === 'open') {
-                      <div
-                        role="menuitemradio"
-                        tabindex="-1"
-                        [attr.aria-checked]="commentAs() === 'anonymous'"
-                        (click)="selectIdentity('anonymous')"
-                        (keydown.enter)="selectIdentity('anonymous')"
-                        (keydown.space)="selectIdentity('anonymous'); $event.preventDefault()"
-                        [class]="identityRadioClass"
-                      >
-                        <span [class]="identityIndicatorClass">
-                          @if (commentAs() === 'anonymous') {
-                            <svg lucideCheck aria-hidden="true"></svg>
-                          }
-                        </span>
-                        Anonymous
-                      </div>
-                    }
-                    @if (signedIn()) {
-                      <div
-                        role="menuitemradio"
-                        tabindex="-1"
-                        [attr.aria-checked]="commentAs() === 'account'"
-                        (click)="selectIdentity('account')"
-                        (keydown.enter)="selectIdentity('account')"
-                        (keydown.space)="selectIdentity('account'); $event.preventDefault()"
-                        [class]="identityRadioClass"
-                      >
-                        <span [class]="identityIndicatorClass">
-                          @if (commentAs() === 'account') {
-                            <svg lucideCheck aria-hidden="true"></svg>
-                          }
-                        </span>
-                        {{ identityName() }} (you)
-                      </div>
-                    } @else if (safeSignInUrl(); as signInHref) {
-                      <a
-                        role="menuitem"
-                        [href]="signInHref"
-                        (click)="identityOpen.set(false)"
-                        [class]="identityItemClass"
-                        >Sign in…</a
-                      >
-                    } @else {
-                      <div
-                        role="menuitem"
-                        tabindex="-1"
-                        (click)="startOAuthSignIn()"
-                        (keydown.enter)="startOAuthSignIn()"
-                        (keydown.space)="startOAuthSignIn(); $event.preventDefault()"
-                        [class]="identityItemClass"
-                      >
-                        Sign in…
-                      </div>
-                    }
-                  </div>
-                  @if (session() !== null) {
-                    <div role="separator" class="-mx-1 my-1 h-px bg-border"></div>
+            <span class="text-xs text-muted-foreground">Comment as</span>
+            <button
+              #identityOrigin
+              type="button"
+              aria-haspopup="menu"
+              [attr.aria-expanded]="identityOpen()"
+              [disabled]="sessionLoading() || signInPending() || signOutPending()"
+              (click)="identityOpen.set(!identityOpen())"
+              [class]="identityTriggerClass"
+            >
+              @if (sessionLoading()) {
+                <span class="block h-4 w-16 animate-pulse rounded bg-muted"></span>
+              } @else {
+                <span class="label max-w-[10rem] truncate">{{ identityLabel() }}</span>
+              }
+              <svg lucideChevronDown aria-hidden="true"></svg>
+            </button>
+            <ng-template
+              cdkConnectedOverlay
+              [cdkConnectedOverlayOrigin]="identityOrigin"
+              [cdkConnectedOverlayOpen]="identityOpen()"
+              [cdkConnectedOverlayPositions]="identityPositions"
+              (detach)="identityOpen.set(false)"
+              (overlayOutsideClick)="identityOpen.set(false)"
+            >
+              <div role="menu" [class]="identityMenuClass">
+                <div role="group">
+                  @if (policy().access === 'open') {
+                    <div
+                      role="menuitemradio"
+                      tabindex="-1"
+                      [attr.aria-checked]="commentAs() === 'anonymous'"
+                      (click)="selectIdentity('anonymous')"
+                      (keydown.enter)="selectIdentity('anonymous')"
+                      (keydown.space)="selectIdentity('anonymous'); $event.preventDefault()"
+                      [class]="identityRadioClass"
+                    >
+                      <span [class]="identityIndicatorClass">
+                        @if (commentAs() === 'anonymous') {
+                          <svg lucideCheck aria-hidden="true"></svg>
+                        }
+                      </span>
+                      Anonymous
+                    </div>
+                  }
+                  @if (signedIn()) {
+                    <div
+                      role="menuitemradio"
+                      tabindex="-1"
+                      [attr.aria-checked]="commentAs() === 'account'"
+                      (click)="selectIdentity('account')"
+                      (keydown.enter)="selectIdentity('account')"
+                      (keydown.space)="selectIdentity('account'); $event.preventDefault()"
+                      [class]="identityRadioClass"
+                    >
+                      <span [class]="identityIndicatorClass">
+                        @if (commentAs() === 'account') {
+                          <svg lucideCheck aria-hidden="true"></svg>
+                        }
+                      </span>
+                      {{ identityName() }} (you)
+                    </div>
+                  } @else if (safeSignInUrl(); as signInHref) {
+                    <a role="menuitem" [href]="signInHref" (click)="identityOpen.set(false)" [class]="identityItemClass"
+                      >Sign in…</a
+                    >
+                  } @else {
                     <div
                       role="menuitem"
                       tabindex="-1"
-                      (click)="signOut()"
-                      (keydown.enter)="signOut()"
-                      (keydown.space)="signOut(); $event.preventDefault()"
+                      (click)="startOAuthSignIn()"
+                      (keydown.enter)="startOAuthSignIn()"
+                      (keydown.space)="startOAuthSignIn(); $event.preventDefault()"
                       [class]="identityItemClass"
                     >
-                      Sign out
+                      Sign in…
                     </div>
                   }
                 </div>
-              </ng-template>
-            }
+                @if (session() !== null) {
+                  <div role="separator" class="-mx-1 my-1 h-px bg-border"></div>
+                  <div
+                    role="menuitem"
+                    tabindex="-1"
+                    (click)="signOut()"
+                    (keydown.enter)="signOut()"
+                    (keydown.space)="signOut(); $event.preventDefault()"
+                    [class]="identityItemClass"
+                  >
+                    Sign out
+                  </div>
+                }
+              </div>
+            </ng-template>
           </div>
           @if (signInError(); as identityFailure) {
             <lc-comment-error
@@ -309,14 +301,16 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
           (signIn)="signInFromError()"
         />
       }
-      <lc-reaction-bar
-        label="Reactions to this page"
-        [mode]="pageReactionMode()"
-        [allowed]="policy().features.pageReactions"
-        [reactions]="pageReactions()"
-        [pending]="(pendingReactions()['page'] ?? false) || reactionsLocked()"
-        (react)="onPageReact($event)"
-      />
+      @if (pageReactionMode() !== 'off') {
+        <lc-reaction-bar
+          label="Reactions to this page"
+          [mode]="pageReactionMode()"
+          [allowed]="policy().features.pageReactions"
+          [reactions]="pageReactions()"
+          [pending]="(pendingReactions()['page'] ?? false) || reactionsLocked()"
+          (react)="onPageReact($event)"
+        />
+      }
       @if (status() !== 'error' && roots().length > 0) {
         <lc-thread-sort-toggle [value]="sort()" (sortChange)="changeSort($event)" />
       }
@@ -356,6 +350,7 @@ const IDENTITY_INDICATOR_CLASS = 'pointer-events-none absolute right-2 flex item
           [reactionMode]="commentReactionMode()"
           [reactionEmoji]="policy().features.commentReactions"
           [pendingReactions]="pendingReactions()"
+          [pendingVotes]="pendingVotes()"
           [reactionsLocked]="reactionsLocked()"
           [pendingModeration]="pendingModeration()"
           [writeAllowed]="writeAllowed()"
@@ -469,8 +464,10 @@ export class LcCommentsComponent {
   math = input(false)
   /** Render ```mermaid fences as diagrams (lazy; off by default). */
   mermaid = input(false)
-  /** Syntax highlighting for fenced code (lazy; on by default; React only today). */
+  /** Syntax highlighting for fenced code (lazy; on by default). */
   codeHighlight = input(true)
+  /** Replaces that sign-in action with the host's own (for example, open a modal). */
+  onSignInClick = input<(() => void) | undefined>(undefined)
   /** Fires before the widget starts the OAuth flow; `signInUrl` navigates instead. */
   signIn = output<void>()
   /**
@@ -646,6 +643,8 @@ export class LcCommentsComponent {
   readonly reactionsLocked = computed(() => Boolean(this.pageLock()?.locked))
   readonly pageReactions = signal<ReactionSummary[]>([])
   readonly pendingReactions = signal<Record<string, boolean>>({})
+  // Vote requests in flight, by comment id: both buttons of a row wait for the answer.
+  readonly pendingVotes = signal<Record<string, boolean>>({})
   // Finished page presses, so a page read that started before one is dropped.
   #pageWrites = 0
 
@@ -826,8 +825,13 @@ export class LcCommentsComponent {
     }
   }
 
-  // The error block's sign-in action: the identity menu's fallback chain.
+  // The error block's sign-in action: the host's `onSignInClick` replaces the flow, else the sign-in page or OAuth.
   signInFromError(): void {
+    const onSignInClick = this.onSignInClick()
+    if (onSignInClick) {
+      onSignInClick()
+      return
+    }
     const href = this.safeSignInUrl()
     if (href) window.location.assign(href)
     else {
@@ -909,6 +913,9 @@ export class LcCommentsComponent {
             pageId: threadPageId,
             bodyMarkdown,
             ...(parentId ? { parentId } : {}),
+            // The "Comment as" choice applies to moderator posts too, as in React and Vue.
+            anonymous: this.guest(),
+            ...(this.guest() && input.authorName ? { authorName: input.authorName } : {}),
           })
         : await this.client().postComment({
             url: this.url(),
@@ -1010,6 +1017,7 @@ export class LcCommentsComponent {
       this.actionError.set(signInRequired('vote'))
       return
     }
+    this.pendingVotes.set({ ...this.pendingVotes(), [event.id]: true })
     try {
       // Moderators vote through the moderation endpoint: the public vote route
       // checks the site's origin allow-list, which a dashboard origin is not on.
@@ -1028,6 +1036,8 @@ export class LcCommentsComponent {
     } catch (err) {
       this.actionError.set(describeError(err, { title: "Your vote wasn't saved" }))
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
+    } finally {
+      this.pendingVotes.set({ ...this.pendingVotes(), [event.id]: false })
     }
   }
 

@@ -12,6 +12,7 @@ export { type CommentSubmit, LcCommentFormComponent } from './comment-form.compo
 export { type CommentSubmitHandler, LcCommentItemComponent, LcCommentListComponent } from './comment-list.component'
 export { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 export { LcCommentViewerComponent } from './comment-viewer.component'
+export { LcCommentsThemeComponent } from './comments-theme.component'
 export { LcCommentsComponent } from './comments.component'
 export { LcMarkdownEnhanceDirective } from './markdown-enhance.directive'
 export { LcThreadGuidesComponent } from './thread-guides.component'

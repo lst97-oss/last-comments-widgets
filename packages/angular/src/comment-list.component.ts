@@ -9,6 +9,7 @@ import {
   DEFAULT_BODY_LIMIT,
   type ErrorInfo,
   foldReplySummary,
+  initials,
   formatRelativeTime,
   canDeleteComment,
   getEditKey,
@@ -63,16 +64,6 @@ const AVATAR_CLASS =
 const STACK_AVATAR_CLASS = `${AVATAR_CLASS} ring-2 ring-background`
 const AVATAR_FALLBACK_CLASS =
   'flex size-full items-center justify-center rounded-full bg-muted text-sm text-muted-foreground group-data-[size=sm]/avatar:text-xs'
-
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
-}
 
 // One comment row with its reply group. Header order, badges, menu and collapse
 // summary all follow the React reference; body HTML comes only from the shared
@@ -318,7 +309,7 @@ function initials(name: string): string {
               @if (readOnly()) {
                 <span class="text-sm text-muted-foreground">{{ c.score }}</span>
               } @else {
-                <lc-vote-buttons [comment]="c" (vote)="vote.emit($event)" />
+                <lc-vote-buttons [comment]="c" [pending]="pendingVotes()[c.id] ?? false" (vote)="vote.emit($event)" />
               }
             </span>
           }
@@ -521,6 +512,7 @@ function initials(name: string): string {
                         [reactionMode]="reactionMode()"
                         [reactionEmoji]="reactionEmoji()"
                         [pendingReactions]="pendingReactions()"
+                        [pendingVotes]="pendingVotes()"
                         [reactionsLocked]="reactionsLocked()"
                         (vote)="vote.emit($event)"
                         (react)="react.emit($event)"
@@ -567,6 +559,8 @@ export class LcCommentItemComponent {
   readonly reactionMode = input<ReactionMode>('off')
   readonly reactionEmoji = input<string[]>([])
   readonly pendingReactions = input<Record<string, boolean>>({})
+  // Vote requests in flight, by comment id: both buttons of a row wait for the answer.
+  readonly pendingVotes = input<Record<string, boolean>>({})
   readonly reactionsLocked = input(false)
   protected readonly reactionView = computed<ReactionMode>(() => {
     if (this.reactionMode() === 'off' || this.reactionEmoji().length === 0) return 'off'
@@ -777,6 +771,7 @@ export class LcCommentItemComponent {
           [reactionMode]="reactionMode()"
           [reactionEmoji]="reactionEmoji()"
           [pendingReactions]="pendingReactions()"
+          [pendingVotes]="pendingVotes()"
           [reactionsLocked]="reactionsLocked()"
           (vote)="vote.emit($event)"
           (react)="react.emit($event)"
@@ -816,6 +811,8 @@ export class LcCommentListComponent {
   readonly reactionMode = input<ReactionMode>('off')
   readonly reactionEmoji = input<string[]>([])
   readonly pendingReactions = input<Record<string, boolean>>({})
+  // Vote requests in flight, by comment id: both buttons of a row wait for the answer.
+  readonly pendingVotes = input<Record<string, boolean>>({})
   readonly reactionsLocked = input(false)
   readonly vote = output<VoteEvent>()
   readonly react = output<ReactionRequest>()

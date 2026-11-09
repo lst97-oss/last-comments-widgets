@@ -63,7 +63,7 @@ const {
     })
     return { comments: result.comments, hasMore: result.hasMore }
   },
-  failure: (err) => ({ status: 'error' as const, info: describeError(err) }),
+  failure: (err) => describeError(err),
 })
 
 const dark = useTheme(() => props.theme)
