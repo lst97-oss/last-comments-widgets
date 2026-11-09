@@ -39,13 +39,12 @@ export function parseThemeAttrs(attrs: [string, string][]): WidgetTheme | undefi
   return { vars: vars as ThemeVars, dark: dark as ThemeVars }
 }
 
-// Host attributes are untrusted: an unparsable number leaves the option unset
-// so the documented default applies.
-function readNumber(node: HTMLElement, attr: string, parse: (raw: string) => number): number | undefined {
-  const raw = node.getAttribute(attr)
+// Host attributes are untrusted: text that is not a number at or above `min` leaves the option unset, so the
+// documented default applies.
+export function parseHostNumber(raw: string | null, parse: (raw: string) => number, min: number): number | undefined {
   if (raw === null) return undefined
   const value = parse(raw)
-  return Number.isFinite(value) && value >= 0 ? value : undefined
+  return Number.isFinite(value) && value >= min ? value : undefined
 }
 
 function readActionMode(node: HTMLElement): ActionMode | undefined {
@@ -83,8 +82,8 @@ function readTurnstileOptions(node: HTMLElement): TurnstileOptions | undefined {
  * `data-lc-turnstile-appearance`, `data-lc-turnstile-language`, and the theme
  * tokens `data-lc-theme-var-*` / `data-lc-theme-dark-var-*`.
  * `site` and `turnstile` may also be set once on the `<script>` tag. Invalid
- * values are ignored. `pageId`, `settings`, `fetchImpl` and `onModerated` have
- * no attribute — call the mount functions for those.
+ * values are ignored. `pageId`, `settings`, `fetchImpl`, `onModerated` and
+ * `onSignInClick` have no attribute — call the mount functions for those.
  */
 export function autoMount() {
   if (typeof document === 'undefined') return
@@ -93,7 +92,6 @@ export function autoMount() {
     const site = node.getAttribute('data-lc-site') ?? document.currentScript?.getAttribute('data-lc-site') ?? ''
     const baseUrl = node.getAttribute('data-lc-base-url') ?? ''
     if (!site || !baseUrl) continue
-    const limitRaw = node.getAttribute('data-lc-limit')
     const viewerRoleAttr = node.getAttribute('data-lc-viewer-role')
     node.setAttribute('data-lc-mounted', 'true')
     mountComments(node, {
@@ -105,14 +103,18 @@ export function autoMount() {
         document.currentScript?.getAttribute('data-lc-turnstile') ??
         undefined,
       turnstileOptions: readTurnstileOptions(node),
-      limit: limitRaw ? Number(limitRaw) : undefined,
+      limit: parseHostNumber(node.getAttribute('data-lc-limit'), Number.parseInt, 1),
       theme: (node.getAttribute('data-lc-theme') as Theme | null) ?? undefined,
       signInUrl: node.getAttribute('data-lc-sign-in-url') ?? undefined,
       viewerUserId: node.getAttribute('data-lc-viewer-user-id') ?? undefined,
       viewerRole: viewerRoleAttr === 'admin' ? viewerRoleAttr : undefined,
-      anonEditWindowMinutes: readNumber(node, 'data-lc-anon-edit-window-minutes', Number.parseFloat),
+      anonEditWindowMinutes: parseHostNumber(
+        node.getAttribute('data-lc-anon-edit-window-minutes'),
+        Number.parseFloat,
+        0,
+      ),
       actionMode: readActionMode(node),
-      bodyLimit: readNumber(node, 'data-lc-body-limit', Number.parseInt),
+      bodyLimit: parseHostNumber(node.getAttribute('data-lc-body-limit'), Number.parseInt, 0),
       lazy: node.hasAttribute('data-lc-lazy'),
       math: node.hasAttribute('data-lc-math'),
       mermaid: node.hasAttribute('data-lc-mermaid'),
@@ -126,13 +128,12 @@ export function autoMount() {
     const site = node.getAttribute('data-lc-site') ?? document.currentScript?.getAttribute('data-lc-site') ?? ''
     const baseUrl = node.getAttribute('data-lc-base-url') ?? ''
     if (!site || !baseUrl) continue
-    const limitRaw = node.getAttribute('data-lc-limit')
     node.setAttribute('data-lc-mounted', 'true')
     renderCommentViewer(node, {
       site,
       baseUrl,
       pageUrl: node.getAttribute('data-lc-page-url') ?? undefined,
-      limit: limitRaw ? Number(limitRaw) : undefined,
+      limit: parseHostNumber(node.getAttribute('data-lc-limit'), Number.parseInt, 1),
       theme: (node.getAttribute('data-lc-theme') as Theme | null) ?? undefined,
       signInUrl: node.getAttribute('data-lc-sign-in-url') ?? undefined,
       lazy: node.hasAttribute('data-lc-lazy'),

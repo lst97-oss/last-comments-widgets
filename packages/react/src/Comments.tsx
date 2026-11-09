@@ -14,12 +14,13 @@ import {
   gateFor,
   getEditKey,
   isCompleteSettings,
+  loadModerationWindow,
   loadThreadWindow,
   type ModerationAction,
-  moderationCommentToComment,
-  normalizePageUrl,
+  postFailure,
   type ReactionSummary,
   reactionFailure,
+  resolveModerationThread,
   resolveSettings,
   safeUrl,
   saveEditKey,
@@ -292,43 +293,16 @@ export function Comments({
     setActionError(null)
     try {
       if (moderator) {
-        // Resolve this page from the site's page list, then read its thread
-        // including hidden/deleted rows. A host-supplied `pageId` wins: the
-        // page list is capped, so a URL match can miss.
-        const overview = await client.listModeration({ limit: 1 })
+        // The page is found in the site's page list (an unlisted URL throws PAGE_NOT_LISTED, shown below),
+        // then its thread is read with hidden and deleted rows.
+        const thread = await resolveModerationThread({ client, url, pageId })
         if (seq !== loadSeq.current) return
-        const normalized = normalizePageUrl(url)
-        const match = pageId
-          ? (overview.pages.find((entry) => entry.id === pageId) ?? null)
-          : (overview.pages.find((entry) => normalizePageUrl(entry.canonicalUrl) === normalized) ?? null)
-        const threadId = pageId ?? match?.id ?? null
-        // Unknown lock state stays unknown: the lock bar is hidden rather than
-        // claiming the thread is open.
-        setPageLock(match ? { pageId: match.id, locked: match.isLocked } : null)
-        setModerationPageId(threadId)
-        if (!threadId) {
-          setComments([])
-          setHasMore(false)
-          setLoadEpoch((epoch) => epoch + 1)
-          setStatus('ready')
-          return
-        }
-        const moderationPage = await client.listModeration({ pageId: threadId, limit, offset: 0 })
+        setPageLock(thread.pageLock)
+        setModerationPageId(thread.threadPageId)
+        const window = await loadModerationWindow({ client, pageId: thread.threadPageId, limit, pages: 1 })
         if (seq !== loadSeq.current) return
-        let rows = moderationPage.comments.map(moderationCommentToComment)
-        let more = rows.length < moderationPage.total
-        // Replies consume rows, so one limit-row fetch can yield fewer than
-        // `limit` roots: fill window 1 before rendering it.
-        while (more && buildCommentTree(rows).length < limit) {
-          const next = await client.listModeration({ pageId: threadId, limit, offset: rows.length })
-          if (seq !== loadSeq.current) return
-          const batch = next.comments.map(moderationCommentToComment)
-          if (batch.length === 0) break
-          rows = [...rows, ...batch]
-          more = rows.length < next.total
-        }
-        setComments(rows)
-        setHasMore(more)
+        setComments(window.comments)
+        setHasMore(window.hasMore)
         setLoadEpoch((epoch) => epoch + 1)
         setStatus('ready')
         return
@@ -590,7 +564,7 @@ export function Comments({
       if (moderator) onModerated?.()
       return true
     } catch (err) {
-      setFormError(describeError(err, { title: postTitle }))
+      setFormError(postFailure(err, postTitle))
       return false
     } finally {
       postingRef.current = false
@@ -615,7 +589,7 @@ export function Comments({
         if (moderator) onModerated?.()
         return null
       } catch (err) {
-        return describeError(err, { title: "Your reply wasn't posted" })
+        return postFailure(err, "Your reply wasn't posted")
       }
     },
     [moderator, onModerated, postOne, showPosted, status],
@@ -783,65 +757,31 @@ export function Comments({
   // included until more rows load: the list endpoint has no per-thread query.
   const pageRoots = roots.slice((currentPage - 1) * limit, currentPage * limit)
 
-  const loadNextModeration = useCallback(
-    async (offset: number): Promise<{ rows: Comment[]; hasMore: boolean } | null> => {
-      setLoadingPage(true)
-      try {
-        const next = await client.listModeration({ pageId: moderationPageId ?? undefined, limit, offset })
-        const rows = next.comments.map(moderationCommentToComment)
-        const more = offset + rows.length < next.total
-        setComments((prev) => [...prev, ...rows])
-        setHasMore(more)
-        return { rows, hasMore: more }
-      } catch (err) {
-        setListError(moderationError(err, 'Failed to load more comments'))
-        setStatus('error')
-        return null
-      } finally {
-        setLoadingPage(false)
-      }
-    },
-    [client, limit, moderationPageId],
-  )
-
   const goNext = useCallback(async () => {
     const target = currentPage + 1
-    if (moderator) {
-      // A page is a window over roots (threads): fill the destination window,
-      // not the one being left, or the new page comes up short.
-      let rows = comments
-      let more = hasMore
-      while (more && buildCommentTree(rows).length < target * limit) {
-        const next = await loadNextModeration(rows.length)
-        if (!next) return
-        if (next.rows.length === 0) break
-        rows = [...rows, ...next.rows]
-        more = next.hasMore
-      }
-      setPage(target)
-      return
-    }
+    // A moderator page with no thread has nothing to load.
+    if (moderator && !moderationPageId) return
     setLoadingPage(true)
     try {
-      const window = await loadThreadWindow({
-        site,
-        baseUrl,
-        pageUrl: url,
-        limit,
-        fetchImpl,
-        pages: target,
-        existing: comments,
-      })
+      // A page is a window over roots, so the destination window is filled before it is shown.
+      const window =
+        moderator && moderationPageId
+          ? await loadModerationWindow({ client, pageId: moderationPageId, limit, pages: target, existing: comments })
+          : await loadThreadWindow({ site, baseUrl, pageUrl: url, limit, fetchImpl, pages: target, existing: comments })
       setComments(window.comments)
       setHasMore(window.hasMore)
       setPage(target)
     } catch (err) {
-      setListError(describeError(err, { title: 'Failed to load more comments' }))
+      setListError(
+        moderator
+          ? moderationError(err, 'Failed to load more comments')
+          : describeError(err, { title: 'Failed to load more comments' }),
+      )
       setStatus('error')
     } finally {
       setLoadingPage(false)
     }
-  }, [comments, currentPage, fetchImpl, hasMore, limit, loadNextModeration, moderator, site, baseUrl, url])
+  }, [client, comments, currentPage, fetchImpl, limit, moderationPageId, moderator, site, baseUrl, url])
 
   const goPrev = useCallback(() => setPage(currentPage - 1), [currentPage])
   const goNextClick = useCallback(() => void goNext(), [goNext])

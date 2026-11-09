@@ -25,11 +25,12 @@ import {
   resolveSettings,
   signInRequired,
   getEditKey,
+  loadModerationWindow,
   loadThreadWindow,
+  postFailure,
   reactionFailure,
+  resolveModerationThread,
   type ModerationAction,
-  moderationCommentToComment,
-  normalizePageUrl,
   safeUrl,
   saveEditKey,
   signOutViewerSession,
@@ -124,27 +125,21 @@ const {
   transform: (nodes) => sortCommentRoots(applyCommentOverlay(nodes, overlay.value), sort.value),
   load: async ({ reset, pages, existing }) => {
     if (moderator.value) {
-      // A host-supplied `pageId` wins over the URL match: the page list is
-      // capped, so a match can miss on a busy site.
-      const overview = await client.value.listModeration({ limit: 1 })
-      const normalized = normalizePageUrl(pageUrl.value)
-      const match = props.pageId
-        ? (overview.pages.find((page) => page.id === props.pageId) ?? null)
-        : (overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized) ?? null)
-      const threadId = props.pageId ?? match?.id ?? null
-      // Unknown lock state stays unknown: the lock bar is hidden rather than
-      // claiming the thread is open.
-      pageLock.value = match ? { pageId: match.id, locked: match.isLocked } : null
-      threadPageId.value = threadId
-      if (!threadId) return { comments: reset ? [] : existing, hasMore: false }
-      const result = await client.value.listModeration({
-        pageId: threadId,
+      // A reload looks the thread up again; load-more reuses it. An unlisted URL throws PAGE_NOT_LISTED.
+      if (reset || threadPageId.value === null) {
+        const thread = await resolveModerationThread({ client: client.value, url: pageUrl.value, pageId: props.pageId })
+        pageLock.value = thread.pageLock
+        threadPageId.value = thread.threadPageId
+      }
+      const pageId = threadPageId.value
+      if (pageId === null) return { comments: [], hasMore: false }
+      return loadModerationWindow({
+        client: client.value,
+        pageId,
         limit: props.limit ?? 20,
-        offset: reset ? 0 : existing.length,
+        pages,
+        existing: reset ? [] : existing,
       })
-      const rows = result.comments.map(moderationCommentToComment)
-      const merged = reset ? rows : [...existing, ...rows]
-      return { comments: merged, hasMore: merged.length < result.total }
     }
     // Fill the WINDOW BEING RENDERED, not the page being left: replies consume
     // rows, so one `limit`-row fetch yields fewer than `limit` threads.
@@ -328,7 +323,7 @@ async function submitReply(
     if (moderator.value) emit('moderated')
     return null
   } catch (err) {
-    return describeError(err, { title: "Your reply wasn't posted" })
+    return postFailure(err, "Your reply wasn't posted")
   }
 }
 

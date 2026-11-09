@@ -23,6 +23,7 @@ import {
   canModerate,
   createClient,
   describeError,
+  postFailure,
   type ErrorInfo,
   type CommentSettings,
   fetchCommentSettings,
@@ -31,15 +32,15 @@ import {
   isCompleteSettings,
   resolveSettings,
   reactionFailure,
+  resolveModerationThread,
   signInRequired,
   signInRequiredError,
   forgetEditKey,
   getEditKey,
   type LastCommentsClient,
+  loadModerationWindow,
   loadThreadWindow,
   type ModerationAction,
-  moderationCommentToComment,
-  normalizePageUrl,
   safeUrl,
   saveEditKey,
   signOutViewerSession,
@@ -571,7 +572,7 @@ export class LcCommentsComponent {
         readAllowed: this.readGate() === 'allow',
       }
     },
-    loader: ({ params, abortSignal }) => this.#load(params, abortSignal),
+    loader: ({ params }) => this.#load(params),
   })
   readonly status = computed<Status>(() => {
     const status = this.root.status()
@@ -735,7 +736,7 @@ export class LcCommentsComponent {
     })
   }
 
-  async #load(params: LoadParams, abortSignal: AbortSignal): Promise<RootLoad> {
+  async #load(params: LoadParams): Promise<RootLoad> {
     // A gated visitor gets the refusal the server would send, before any list request.
     if (!params.readAllowed) throw signInRequiredError('read')
     const client = createClient({ baseUrl: params.baseUrl, site: params.site, fetchImpl: params.fetchImpl })
@@ -753,33 +754,16 @@ export class LcCommentsComponent {
       })
       return { comments: window.comments, hasMore: window.hasMore, pageLock: null, threadPageId: null }
     }
-    // Resolve this page from the site's page list, then read its thread
-    // including hidden/deleted rows. A host-supplied `pageId` wins: the page
-    // list is capped, so a URL match can miss.
-    const overview = await client.listModeration({ limit: 1 })
-    const normalized = normalizePageUrl(pageUrl)
-    const match = params.pageId
-      ? (overview.pages.find((page) => page.id === params.pageId) ?? null)
-      : (overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized) ?? null)
-    const threadPageId = params.pageId ?? match?.id ?? null
-    // Unknown lock state stays unknown: the lock bar is hidden rather than
-    // claiming the thread is open.
-    const pageLock = match ? { pageId: match.id, locked: match.isLocked } : null
-    if (!threadPageId) return { comments: [], hasMore: false, pageLock, threadPageId: null }
-    const page = await client.listModeration({ pageId: threadPageId, limit: params.limit, offset: 0 })
-    const rows = page.comments.map(moderationCommentToComment)
-    let hasMore = rows.length < page.total
-    // Replies consume rows, so one limit-row fetch can yield fewer than `limit`
-    // roots: fill window 1 before rendering it.
-    while (hasMore && buildCommentTree(rows).length < params.limit) {
-      if (abortSignal.aborted) break
-      const next = await client.listModeration({ pageId: threadPageId, limit: params.limit, offset: rows.length })
-      const batch = next.comments.map(moderationCommentToComment)
-      if (batch.length === 0) break
-      rows.push(...batch)
-      hasMore = rows.length < next.total
+    // The page is found in the site's page list (an unlisted URL throws PAGE_NOT_LISTED, which the error
+    // block shows), then its thread is read with hidden and deleted rows.
+    const thread = await resolveModerationThread({ client, url: pageUrl, pageId: params.pageId })
+    const window = await loadModerationWindow({ client, pageId: thread.threadPageId, limit: params.limit, pages: 1 })
+    return {
+      comments: window.comments,
+      hasMore: window.hasMore,
+      pageLock: thread.pageLock,
+      threadPageId: thread.threadPageId,
     }
-    return { comments: rows, hasMore, pageLock, threadPageId }
   }
 
   client(): LastCommentsClient {
@@ -874,7 +858,18 @@ export class LcCommentsComponent {
       // Fill the window being ENTERED, not the one being left: a fetch returns
       // `limit` rows but a page shows `limit` roots, and replies eat rows.
       if (this.moderator()) {
-        await this.#fillModerationWindow((page + 1) * limit)
+        const threadPageId = this.threadPageId()
+        if (threadPageId) {
+          const window = await loadModerationWindow({
+            client: this.client(),
+            pageId: threadPageId,
+            limit,
+            pages: page + 1,
+            existing: this.comments(),
+          })
+          this.comments.set(window.comments)
+          this.hasMore.set(window.hasMore)
+        }
       } else {
         const window = await loadThreadWindow({
           site: this.site(),
@@ -893,27 +888,6 @@ export class LcCommentsComponent {
       this.actionError.set(describeError(err, { title: 'Failed to load more comments' }))
     } finally {
       this.loadingPage.set(false)
-    }
-  }
-
-  // Moderation rows come from listModeration, which loadThreadWindow cannot
-  // read; keep its own loop. Fetches `limit`-row batches until `target` roots
-  // are loaded or the stream ends, recomputing roots on every pass.
-  async #fillModerationWindow(target: number): Promise<void> {
-    const limit = this.limit()
-    const threadPageId = this.threadPageId()
-    while (this.roots().length < target && this.hasMore()) {
-      const before = this.comments().length
-      const next = await this.client().listModeration({ pageId: threadPageId ?? undefined, limit, offset: before })
-      const rows = next.comments.map(moderationCommentToComment)
-      this.comments.set([...this.comments(), ...rows])
-      this.hasMore.set(this.comments().length < next.total)
-      // A page that added no rows can never fill the window: stop instead of
-      // re-requesting the same offset forever.
-      if (this.comments().length === before) {
-        this.hasMore.set(false)
-        break
-      }
     }
   }
 
@@ -974,7 +948,7 @@ export class LcCommentsComponent {
       this.composer()?.reset()
       if (this.moderator()) this.moderated.emit()
     } catch (err) {
-      this.formError.set(describeError(err, { title: "Your comment wasn't posted" }))
+      this.formError.set(postFailure(err, "Your comment wasn't posted"))
       // A refused post has spent its challenge token; the draft stays for a retry with a fresh one.
       this.composer()?.resetChallenge()
       if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') this.signIn.emit()
@@ -997,7 +971,7 @@ export class LcCommentsComponent {
       if (this.moderator()) this.moderated.emit()
       return null
     } catch (err) {
-      return describeError(err, { title: "Your reply wasn't posted" })
+      return postFailure(err, "Your reply wasn't posted")
     }
   }
 
