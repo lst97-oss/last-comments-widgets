@@ -1,9 +1,6 @@
 import {
   type Comment,
   type CommentSettings,
-  EDIT_WINDOW_CLOSED,
-  isEditWindowOpen,
-  resolveEditWindow,
   type ThreadNode,
   type ViewerOptions,
   type ViewerRole,
@@ -13,6 +10,7 @@ import {
 import type { TurnstileOptions } from '@last-comments-widgets/client/enhance'
 
 export { canModerate } from '@last-comments-widgets/client'
+export { canEditComment, type EditGateOptions } from '@last-comments-widgets/client'
 
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -65,6 +63,8 @@ export type CommentsProps = {
    * starts the API's OAuth flow in place.
    */
   signInUrl?: string
+  /** Replaces that sign-in action with the host's own (for example, open a modal). */
+  onSignInClick?: () => void
   /** Fallback viewer identity when the session probe cannot answer (no same-origin proxy). */
   viewerUserId?: string
   /** `'admin'` turns on the moderation UI; the server authorizes every call. */
@@ -84,7 +84,7 @@ export type CommentsProps = {
   math?: boolean
   /** Render ```mermaid fences as diagrams (lazy; off by default). */
   mermaid?: boolean
-  /** Syntax-highlight fenced code (lazy; on by default; React only until the ports are migrated). */
+  /** Syntax-highlight fenced code (lazy; on by default). */
   codeHighlight?: boolean
   /** Custom fetch, e.g. one that rewrites requests to a same-origin proxy. */
   fetchImpl?: typeof fetch
@@ -100,32 +100,10 @@ export type CommentViewerProps = ViewerOptions & {
 
 export type Commentupdater = (id: string, patch: { score?: number; viewerVote?: VoteValue | null }) => void
 
-export type EditGateOptions = {
-  // Window for guest-authored comments; signed-in owners have no window.
-  anonWindowMinutes?: number
-  // A guest owns the comment only while this browser still holds its edit key.
-  hasEditKey?: boolean
-}
-
 export function resolvePageUrl(explicit: string | undefined): string {
   if (explicit) return explicit
   if (typeof window !== 'undefined') return window.location.href
   throw new Error('pageUrl is required outside the browser')
-}
-
-export function canEditComment(
-  comment: { userId?: string | null; createdAt: string },
-  viewerUserId?: string,
-  options: EditGateOptions = {},
-): boolean {
-  const windowMinutes = resolveEditWindow({
-    commentUserId: comment.userId,
-    viewerUserId,
-    hasEditKey: options.hasEditKey,
-    ...(options.anonWindowMinutes === undefined ? {} : { anonymousWindowMinutes: options.anonWindowMinutes }),
-  })
-  if (windowMinutes === EDIT_WINDOW_CLOSED) return false
-  return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
 }
 
 export function toggleVoteValue(current: VoteValue | null, next: VoteValue): 'clear' | VoteValue {

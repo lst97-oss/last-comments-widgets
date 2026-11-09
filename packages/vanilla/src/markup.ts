@@ -16,6 +16,7 @@ import {
   foldReplySummary,
   formatRelativeTime,
   getEditKey,
+  initials,
   renderMarkdown,
   type SignInOperation,
   safeUrl,
@@ -199,9 +200,9 @@ export function voteButtonClass(active: boolean): string {
   return `${BTN} ${BTN_SM} ${active ? BTN_PRIMARY : BTN_GHOST}`
 }
 
-function voteButton(comment: Comment, value: VoteValue, label: string, glyph: string): string {
+function voteButton(comment: Comment, value: VoteValue, label: string, glyph: string, pending: boolean): string {
   const active = comment.viewerVote === value
-  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}" class="${voteButtonClass(active)}">${icon(glyph, 'size-3.5')}</button>`
+  return `<button type="button" data-action="vote" data-comment-id="${escapeHtml(comment.id)}" data-value="${value}" aria-pressed="${active}" aria-label="${label}"${pending ? ' disabled' : ''} class="${voteButtonClass(active)}">${icon(glyph, 'size-3.5')}</button>`
 }
 
 // Reactions: `off` renders nothing; `counts` shows the chips without a way to change them; `interactive` lets a
@@ -307,16 +308,6 @@ function replyStack(children: ThreadNode[]): string {
   return `<div data-slot="avatar-group" class="lc-reply-stack flex -space-x-2 [&>*]:ring-2 [&>*]:ring-background">${discs}${count}</div>`
 }
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase()
-}
-
 // Pure text transforms so bun test covers the toolbar without a browser.
 export function insertWrap(
   value: string,
@@ -378,6 +369,8 @@ export type CommentNodeOptions = {
   reactionsLocked?: boolean
   pendingReactions?: ReadonlySet<string>
   reactionPickers?: ReadonlySet<string>
+  // Rows whose vote is in flight: both of their buttons are disabled until the answer, as in React.
+  pendingVotes?: ReadonlySet<string>
   parentAuthorName?: string
 }
 
@@ -575,11 +568,12 @@ export function renderCommentNode(node: ThreadNode, depth: number, options: Comm
   // Negative net score collapses in every sort mode; 0 stays expanded.
   const collapsed = collapsedOverride ?? comment.score < 0
   const parts = commentParts(comment, options.math ?? false)
+  const pending = options.pendingVotes?.has(comment.id) ?? false
   const score = readOnly
     ? `<span class="text-sm text-muted-foreground">${escapeHtml(String(comment.score))}</span>`
-    : `${voteButton(comment, 1, 'Upvote', 'arrow-up')}
+    : `${voteButton(comment, 1, 'Upvote', 'arrow-up', pending)}
       <span class="min-w-6 text-center text-sm text-muted-foreground" aria-live="polite">${escapeHtml(String(comment.score))}</span>
-      ${voteButton(comment, -1, 'Downvote', 'arrow-down')}`
+      ${voteButton(comment, -1, 'Downvote', 'arrow-down', pending)}`
   const flags = [
     comment.editedAt
       ? `<span class="text-xs text-muted-foreground" title="${escapeHtml(new Date(comment.editedAt).toLocaleString())}">edited</span>`
@@ -730,12 +724,12 @@ export function renderForm(opts: {
   const header = opts.parentId
     ? `<div class="mb-2 flex items-center justify-between text-xs text-muted-foreground">
       <span>Replying to this comment</span>
-      <button type="button" data-action="cancel-reply" class="rounded px-2 py-1 text-sm text-muted-foreground hover:bg-accent">Cancel</button>
+      <button type="button" data-action="cancel-reply" class="${BTN} ${BTN_SM} ${BTN_GHOST}">Cancel</button>
     </div>`
     : ''
   const cancel =
     !opts.parentId && opts.cancelLabel
-      ? `<button type="button" data-action="cancel-edit" class="rounded border border-border px-2 py-1 text-sm text-muted-foreground">${escapeHtml(opts.cancelLabel)}</button>`
+      ? `<button type="button" data-action="cancel-edit" ${opts.pending ? 'disabled' : ''} class="${BTN} ${BTN_SM} ${BTN_OUTLINE}">${escapeHtml(opts.cancelLabel)}</button>`
       : ''
   const submitLabel = escapeHtml(opts.submitLabel ?? (opts.parentId ? 'Post reply' : 'Post comment'))
   return `<form data-lc-form="${escapeHtml(opts.formId)}" class="lc-composer rounded-xl border border-border p-3">
@@ -750,7 +744,8 @@ export function renderForm(opts: {
         <button type="button" data-action="md-bold" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Bold" aria-label="Bold">${icon('bold')}</button>
         <button type="button" data-action="md-italic" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Italic" aria-label="Italic">${icon('italic')}</button>
         <button type="button" data-action="md-quote" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Quote" aria-label="Quote">${icon('quote')}</button>
-        <button type="button" data-action="md-code" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Code" aria-label="Code">${icon('code')}</button>
+        <button type="button" data-action="md-code" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Inline code" aria-label="Inline code">${icon('code')}</button>
+        <button type="button" data-action="md-code-block" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Code block" aria-label="Code block">${icon('code-xml')}</button>
         <button type="button" data-action="md-link" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Link" aria-label="Link">${icon('link')}</button>
         <button type="button" data-action="md-bullet" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Bullet list" aria-label="Bullet list">${icon('list')}</button>
         <button type="button" data-action="md-ordered" class="${BTN} ${BTN_ICON_SM} ${BTN_GHOST}" title="Numbered list" aria-label="Numbered list">${icon('list-ordered')}</button>

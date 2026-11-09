@@ -15,6 +15,7 @@ export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: 
         type="button"
         [attr.aria-pressed]="comment().viewerVote === 1"
         aria-label="Upvote"
+        [disabled]="pending()"
         (click)="cast(1)"
         [class]="comment().viewerVote === 1 ? activeClass : idleClass"
       >
@@ -25,6 +26,7 @@ export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: 
         type="button"
         [attr.aria-pressed]="comment().viewerVote === -1"
         aria-label="Downvote"
+        [disabled]="pending()"
         (click)="cast(-1)"
         [class]="comment().viewerVote === -1 ? activeClass : idleClass"
       >
@@ -35,6 +37,8 @@ export type VoteEvent = { id: string; value: VoteValue } | { id: string; clear: 
 })
 export class LcVoteButtonsComponent {
   readonly comment = input.required<Comment>()
+  // A vote is in flight: both buttons wait for the answer, as in React.
+  readonly pending = input(false)
   readonly vote = output<VoteEvent>()
   protected readonly activeClass = buttonClass('default', 'sm')
   protected readonly idleClass = buttonClass('ghost', 'sm')

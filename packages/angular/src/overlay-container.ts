@@ -13,8 +13,8 @@ export class LcWidgetOverlayContainer extends OverlayContainer {
     const container = this._containerElement
     if (!container) return
     const host = this.#host.nativeElement
-    // A root component owns its `.lc-comments` div; a bare list sits inside one.
-    const root = host.closest('.lc-comments') ?? host.querySelector('.lc-comments')
+    // A root component owns its `.lc-comments` div; a bare list sits inside one, or inside a `.lc-theme` scope.
+    const root = host.closest('.lc-comments, .lc-theme') ?? host.querySelector('.lc-comments, .lc-theme')
     if (root) root.appendChild(container)
   }
 }

@@ -17,6 +17,7 @@ defineProps<{
   viewerUserId?: string
   viewerRole?: ViewerRole
   hideVotes?: boolean
+  pendingVotes?: Record<string, boolean>
   reactionMode?: ReactionMode
   reactionEmoji?: string[]
   pendingReactions?: Record<string, boolean>
@@ -67,6 +68,7 @@ defineOptions({ name: 'CommentList' })
       :viewer-user-id="viewerUserId"
       :viewer-role="viewerRole"
       :hide-votes="hideVotes || (canModerate(viewerRole) && node.comment.status !== 'visible')"
+      :pending-votes="pendingVotes"
       :reaction-mode="reactionMode"
       :reaction-emoji="reactionEmoji"
       :pending-reactions="pendingReactions"

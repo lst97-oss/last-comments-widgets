@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { observeInView } from './observe-in-view'
+import { observeInView } from './in-view'
 
 type Entry = { isIntersecting: boolean }
 
@@ -20,6 +20,7 @@ function fakeObserver() {
     }
     disconnect() {
       state.disconnected += 1
+      // Like the real observer: no callbacks after disconnect.
       state.callback = undefined
     }
   }

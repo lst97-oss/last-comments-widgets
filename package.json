@@ -30,10 +30,11 @@
     "test:reactions": "bun run build && bun scripts/check-reactions.ts",
     "test:posting": "bun run build && bun scripts/check-posting.ts",
     "test:svg": "bun run build && bun scripts/check-svg.ts",
-    "test:browser": "bun run build && bun scripts/check-theme.ts && bun scripts/check-settings.ts && bun scripts/check-reactions.ts && bun scripts/check-posting.ts && bun scripts/check-svg.ts"
+    "test:votes": "bun run build && bun scripts/check-votes.ts",
+    "test:browser": "bun run build && bun scripts/check-theme.ts && bun scripts/check-settings.ts && bun scripts/check-reactions.ts && bun scripts/check-posting.ts && bun scripts/check-svg.ts && bun scripts/check-votes.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.4",
+    "@biomejs/biome": "^2.6.6",
     "@changesets/cli": "^3.0.3",
     "@eslint/js": "^10.0.1",
     "angular-eslint": "^22.6.0",
@@ -46,6 +47,6 @@
     "react-doctor": "^0.9.22",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vue-eslint-parser": "^10.4.1"
+    "vue-eslint-parser": "^10.4.2"
   }
 }

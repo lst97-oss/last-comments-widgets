@@ -1,6 +1,6 @@
 import type { ElementRef } from '@angular/core'
 import { Component, computed, input, type OnInit, output, signal, viewChild } from '@angular/core'
-import { DEFAULT_BODY_LIMIT, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
+import { DEFAULT_BODY_LIMIT, type ErrorInfo, insertCodeBlock, renderMarkdown } from '@last-comments-widgets/client'
 import { buttonClass } from './button-classes'
 import { LcCommentErrorComponent } from './comment-error.component'
 import { LcMarkdownEnhanceDirective } from './markdown-enhance.directive'
@@ -152,8 +152,31 @@ let formSeq = 0
           <button
             type="button"
             (click)="wrap('\`', '\`', 'code')"
-            title="Code"
-            aria-label="Code"
+            title="Inline code"
+            aria-label="Inline code"
+            [class]="toolbarClass"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-4 w-4"
+            >
+              <path d="m16 18 6-6-6-6" />
+              <path d="m8 6-6 6 6 6" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            (click)="codeBlockAtCaret()"
+            title="Code block"
+            aria-label="Code block"
             [class]="toolbarClass"
           >
             <svg
@@ -398,6 +421,21 @@ export class LcCommentFormComponent implements OnInit {
       queueMicrotask(() => {
         el.focus()
         el.setSelectionRange(caret, caret)
+      })
+    }
+  }
+
+  // The "Code block" action: fences the selection (or a placeholder) and selects the language word.
+  codeBlockAtCaret(): void {
+    const el = this.box()?.nativeElement
+    const current = this.body()
+    const next = insertCodeBlock(current, el?.selectionStart ?? current.length, el?.selectionEnd ?? current.length)
+    this.body.set(next.value)
+    if (el) {
+      // After the frame: the textarea shows the new body only once Angular has rendered it.
+      requestAnimationFrame(() => {
+        el.focus()
+        el.setSelectionRange(next.start, next.end)
       })
     }
   }

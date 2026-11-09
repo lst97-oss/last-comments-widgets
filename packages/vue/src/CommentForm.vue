@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { DEFAULT_BODY_LIMIT, describeError, type ErrorInfo, renderMarkdown } from '@last-comments-widgets/client'
-import { Bold, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from '@lucide/vue'
+import {
+  DEFAULT_BODY_LIMIT,
+  postFailure,
+  type ErrorInfo,
+  insertCodeBlock,
+  renderMarkdown,
+} from '@last-comments-widgets/client'
+import { Bold, Code, CodeXml, Eye, Italic, Link2, List, ListOrdered, PenLine, Quote } from '@lucide/vue'
 import { computed, nextTick, ref, useId, useTemplateRef } from 'vue'
 import CommentError from './CommentError.vue'
 import Turnstile from './Turnstile.vue'
@@ -111,11 +117,24 @@ function wrapLine(prefix: string, placeholder = 'text') {
   }, placeholder)
 }
 
+// The "Code block" action: fences the selection (or a placeholder) and selects the language word.
+function codeBlockAtCaret() {
+  const el = textareaEl.value
+  if (!el) return
+  const next = insertCodeBlock(body.value, el.selectionStart ?? body.value.length, el.selectionEnd ?? body.value.length)
+  body.value = next.value
+  void nextTick(() => {
+    el.focus()
+    el.setSelectionRange(next.start, next.end)
+  })
+}
+
 const tools = [
   { label: 'Bold', icon: Bold, run: () => wrapSelection('**', '**', 'bold') },
   { label: 'Italic', icon: Italic, run: () => wrapSelection('*', '*', 'italic') },
   { label: 'Quote', icon: Quote, run: () => wrapLine('> ', 'quote') },
-  { label: 'Code', icon: CodeXml, run: () => wrapSelection('`', '`', 'code') },
+  { label: 'Inline code', icon: Code, run: () => wrapSelection('`', '`', 'code') },
+  { label: 'Code block', icon: CodeXml, run: codeBlockAtCaret },
   { label: 'Link', icon: Link2, run: () => wrapSelection('[', '](url)', 'link') },
   { label: 'Bullet list', icon: List, run: () => wrapLine('- ', 'item') },
   { label: 'Numbered list', icon: ListOrdered, run: () => wrapLine('1. ', 'item') },
@@ -130,6 +149,7 @@ const previewEl = useTemplateRef<HTMLElement>('previewEl')
 useMarkdownEnhance(previewEl, previewHtml, {
   math: () => props.math ?? false,
   mermaid: () => props.mermaid ?? false,
+  codeHighlight: () => props.codeHighlight ?? true,
 })
 
 async function submit() {
@@ -158,7 +178,7 @@ async function submit() {
   } catch (err) {
     token.value = ''
     turnstile.value?.reset()
-    formError.value = describeError(err, { title: props.errorTitle ?? "Your comment wasn't posted" })
+    formError.value = postFailure(err, props.errorTitle ?? "Your comment wasn't posted")
   } finally {
     busy.value = false
   }
@@ -269,6 +289,16 @@ async function submit() {
         <p class="hidden text-xs text-muted-foreground sm:block">
           Styling with <span class="font-medium text-primary">Markdown</span> is supported
         </p>
+        <!-- The reply form cancels from its header; a standalone editor needs this button. -->
+        <button
+          v-if="!props.parentId && props.onCancelReply"
+          type="button"
+          :class="buttonClass('outline', 'sm')"
+          :disabled="pending"
+          @click="props.onCancelReply()"
+        >
+          Cancel
+        </button>
         <button type="submit" :disabled="submitDisabled" :class="buttonClass()">
           {{ pending ? 'Posting…' : (props.submitLabel ?? (props.parentId ? 'Post reply' : 'Post comment')) }}
         </button>

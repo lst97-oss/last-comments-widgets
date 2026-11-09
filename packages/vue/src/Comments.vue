@@ -25,11 +25,12 @@ import {
   resolveSettings,
   signInRequired,
   getEditKey,
+  loadModerationWindow,
   loadThreadWindow,
+  postFailure,
   reactionFailure,
+  resolveModerationThread,
   type ModerationAction,
-  moderationCommentToComment,
-  normalizePageUrl,
   safeUrl,
   saveEditKey,
   signOutViewerSession,
@@ -75,18 +76,12 @@ const props = withDefaults(defineProps<CommentsProps>(), {
   codeHighlight: true,
   actionMode: 'icon-text',
 })
-const emit = defineEmits<{ 'sign-in': []; moderated: [] }>()
-
-// Locked and blocked are terminal states, not notices, but their copy still comes
-// from the one error table: the empty message makes describeError use code copy.
-const LOCKED_COPY = describeError(new ApiError('PAGE_LOCKED', '', 409))
-const BLOCKED_COPY = describeError(new ApiError('USER_BLOCKED', '', 403))
+const emit = defineEmits<{ moderated: [] }>()
 
 const replyTo = ref<string | null>(null)
 const sort = ref<ThreadSort>('newest')
 const dark = useTheme(() => props.theme)
-const { pendingModeration, actionError, lockPending, identityPending, identityError, unauthenticated, clearError } =
-  useCommentsUi()
+const { pendingModeration, actionError, lockPending, identityPending, identityError, clearError } = useCommentsUi()
 const pageLock = ref<{ pageId: string; locked: boolean } | null>(null)
 // Thread the moderator UI is pointed at: the `pageId` prop, or the page the URL
 // matched. Rows and moderator posts both address it.
@@ -96,6 +91,8 @@ const sessionStatus = ref<'loading' | 'ready'>('loading')
 const formError = ref<ErrorInfo | null>(null)
 const commentAs = ref<'account' | 'anonymous'>('account')
 const identityOpen = ref(false)
+// Vote requests in flight, by comment id: both buttons of a row wait for the answer.
+const pendingVotes = ref<Record<string, boolean>>({})
 
 const rootStyle = computed(() => themeVarsToStyle(props.themeVars, dark.value))
 const client = computed(() => createClient({ baseUrl: props.baseUrl, site: props.site, fetchImpl: props.fetchImpl }))
@@ -124,27 +121,21 @@ const {
   transform: (nodes) => sortCommentRoots(applyCommentOverlay(nodes, overlay.value), sort.value),
   load: async ({ reset, pages, existing }) => {
     if (moderator.value) {
-      // A host-supplied `pageId` wins over the URL match: the page list is
-      // capped, so a match can miss on a busy site.
-      const overview = await client.value.listModeration({ limit: 1 })
-      const normalized = normalizePageUrl(pageUrl.value)
-      const match = props.pageId
-        ? (overview.pages.find((page) => page.id === props.pageId) ?? null)
-        : (overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized) ?? null)
-      const threadId = props.pageId ?? match?.id ?? null
-      // Unknown lock state stays unknown: the lock bar is hidden rather than
-      // claiming the thread is open.
-      pageLock.value = match ? { pageId: match.id, locked: match.isLocked } : null
-      threadPageId.value = threadId
-      if (!threadId) return { comments: reset ? [] : existing, hasMore: false }
-      const result = await client.value.listModeration({
-        pageId: threadId,
+      // A reload looks the thread up again; load-more reuses it. An unlisted URL throws PAGE_NOT_LISTED.
+      if (reset || threadPageId.value === null) {
+        const thread = await resolveModerationThread({ client: client.value, url: pageUrl.value, pageId: props.pageId })
+        pageLock.value = thread.pageLock
+        threadPageId.value = thread.threadPageId
+      }
+      const pageId = threadPageId.value
+      if (pageId === null) return { comments: [], hasMore: false }
+      return loadModerationWindow({
+        client: client.value,
+        pageId,
         limit: props.limit ?? 20,
-        offset: reset ? 0 : existing.length,
+        pages,
+        existing: reset ? [] : existing,
       })
-      const rows = result.comments.map(moderationCommentToComment)
-      const merged = reset ? rows : [...existing, ...rows]
-      return { comments: merged, hasMore: merged.length < result.total }
     }
     // Fill the WINDOW BEING RENDERED, not the page being left: replies consume
     // rows, so one `limit`-row fetch yields fewer than `limit` threads.
@@ -161,20 +152,8 @@ const {
     })
     return { comments: result.comments, hasMore: result.hasMore }
   },
-  failure: (err) => {
-    // Locked/blocked stay states, not notices: they replace the list entirely.
-    const code = err instanceof ApiError ? err.code : undefined
-    if (code === 'PAGE_LOCKED') return { status: 'locked' as const, info: describeError(err) }
-    if (code === 'USER_BLOCKED') return { status: 'blocked' as const, info: describeError(err) }
-    return {
-      status: 'error' as const,
-      info: moderator.value ? moderationError(err, 'Moderation is unavailable') : describeError(err),
-    }
-  },
-  onBeforeLoad: (reset) => {
-    if (reset) unauthenticated.value = false
-    clearError()
-  },
+  failure: (err) => (moderator.value ? moderationError(err, 'Failed to load comments') : describeError(err)),
+  onBeforeLoad: () => clearError(),
   onLoaded: (reset) => {
     // A committed reload supersedes every pending vote patch.
     if (reset) overlay.value = {}
@@ -205,8 +184,9 @@ const writeAllowed = computed(() => gateFor(policy.value.access, 'write', gateSi
 // A locked site waits for the identity probe before it asks anyone to sign in.
 const sessionPending = computed(() => sessionStatus.value === 'loading' && policy.value.access !== 'open')
 const showComposer = computed(() => !settingsReady.value || sessionPending.value || writeAllowed.value)
-// One vote prompt, whichever path refused the vote: a guest's click, or the server's 401.
-const votePromptOpen = computed(() => actionError.value?.action === 'sign-in' || unauthenticated.value)
+// The host's `onSignInClick` replaces the OAuth start in the error and prompt blocks, as React does.
+// The identity menu keeps its own sign-in link or OAuth start.
+const signInTarget = computed(() => (props.onSignInClick ? undefined : signInUrl.value))
 const guest = computed(() => !signedIn.value || (commentAs.value === 'anonymous' && policy.value.access === 'open'))
 const identityLabel = computed(() =>
   commentAs.value === 'anonymous' || !signedIn.value ? 'Anonymous' : session.value?.name || 'Your account',
@@ -301,10 +281,7 @@ async function submit(input: { authorName: string; bodyMarkdown: string; verific
     if (moderator.value) emit('moderated')
     return true
   } catch (err) {
-    if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') unauthenticated.value = true
-    else if (err instanceof ApiError && err.code === 'PAGE_LOCKED') status.value = 'locked'
-    else if (err instanceof ApiError && err.code === 'USER_BLOCKED') status.value = 'blocked'
-    else formError.value = describeError(err, { title: "Your comment wasn't posted" })
+    formError.value = postFailure(err, "Your comment wasn't posted")
     return false
   }
 }
@@ -328,7 +305,7 @@ async function submitReply(
     if (moderator.value) emit('moderated')
     return null
   } catch (err) {
-    return describeError(err, { title: "Your reply wasn't posted" })
+    return postFailure(err, "Your reply wasn't posted")
   }
 }
 
@@ -344,6 +321,7 @@ async function vote(commentId: string, value: VoteValue | 'clear') {
     actionError.value = signInRequired('vote')
     return
   }
+  pendingVotes.value = setPending(pendingVotes.value, commentId, true)
   try {
     // Moderators vote through the moderation endpoint: the public vote route
     // checks the site's origin allow-list, which a dashboard origin is not on.
@@ -354,12 +332,9 @@ async function vote(commentId: string, value: VoteValue | 'clear') {
         : await client.value.castVote(commentId, value)
     updateComment(commentId, { score: summary.score, viewerVote: summary.viewerVote })
   } catch (err) {
-    // The sign-in panel is the affordance for an anonymous voter, not a notice.
-    if (err instanceof ApiError && (err.code === 'UNAUTHENTICATED' || err.status === 401)) {
-      unauthenticated.value = true
-    } else {
-      actionError.value = describeError(err, { title: "Your vote wasn't saved" })
-    }
+    actionError.value = describeError(err, { title: "Your vote wasn't saved" })
+  } finally {
+    pendingVotes.value = setPending(pendingVotes.value, commentId, false)
   }
 }
 
@@ -561,6 +536,11 @@ async function startSignIn() {
   }
 }
 
+function requestSignIn() {
+  if (props.onSignInClick) props.onSignInClick()
+  else void startSignIn()
+}
+
 // A sign-in the provider rejected returns here with a failure marker. Explain it
 // once in the identity control, then drop the marker so a reload does not repeat it.
 onMounted(() => {
@@ -676,18 +656,18 @@ defineExpose({ refresh })
     </div>
 
     <SignInPrompt
-      v-if="votePromptOpen"
-      :info="actionError?.action === 'sign-in' ? actionError : signInRequired('vote')"
+      v-if="actionError?.action === 'sign-in'"
+      :info="actionError"
       context="vote"
-      :sign-in-href="signInUrl"
-      @sign-in="startSignIn"
+      :sign-in-href="signInTarget"
+      @sign-in="requestSignIn"
     />
     <CommentError
       v-else-if="actionError"
       :info="actionError"
-      :sign-in-href="signInUrl"
+      :sign-in-href="signInTarget"
       @retry="refresh"
-      @sign-in="startSignIn"
+      @sign-in="requestSignIn"
     />
 
     <!-- A private site shows one sign-in card, in the list slot below: no composer card here. -->
@@ -705,12 +685,11 @@ defineExpose({ refresh })
       :mermaid="props.mermaid"
       :code-highlight="props.codeHighlight"
       :on-submit="submit"
-      :sign-in-href="signInUrl"
-      :on-sign-in="startSignIn"
+      :sign-in-href="signInTarget"
+      :on-sign-in="requestSignIn"
     >
       <template #signIn>
         <IdentityMenu
-          v-if="!moderator"
           :comment-as="commentAs"
           :signed-in="signedIn"
           :session="session"
@@ -732,8 +711,8 @@ defineExpose({ refresh })
       v-else-if="readGate !== 'sign-in'"
       :info="signInRequired('write')"
       context="write"
-      :sign-in-href="signInUrl"
-      @sign-in="startSignIn"
+      :sign-in-href="signInTarget"
+      @sign-in="requestSignIn"
     />
 
     <ReactionBar
@@ -757,32 +736,16 @@ defineExpose({ refresh })
         v-if="errorInfo?.action === 'sign-in'"
         :info="errorInfo"
         context="read"
-        :sign-in-href="signInUrl"
-        @sign-in="startSignIn"
+        :sign-in-href="signInTarget"
+        @sign-in="requestSignIn"
       />
       <CommentError
         v-else-if="errorInfo"
         :info="errorInfo"
-        :sign-in-href="signInUrl"
+        :sign-in-href="signInTarget"
         @retry="refresh"
-        @sign-in="startSignIn"
+        @sign-in="requestSignIn"
       />
-    </div>
-
-    <div
-      v-else-if="status === 'locked'"
-      class="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground"
-    >
-      <p class="font-medium">{{ LOCKED_COPY.title }}</p>
-      <p class="mt-1">{{ LOCKED_COPY.message }}</p>
-    </div>
-
-    <div
-      v-else-if="status === 'blocked'"
-      class="rounded-lg border border-border bg-card p-5 text-sm text-muted-foreground"
-    >
-      <p class="font-medium">{{ BLOCKED_COPY.title }}</p>
-      <p class="mt-1">{{ BLOCKED_COPY.message }}</p>
     </div>
 
     <template v-else>
@@ -814,8 +777,7 @@ defineExpose({ refresh })
           :code-highlight="props.codeHighlight"
           :reply-to="replyTo"
           :dark="dark"
-          :sign-in-href="signInUrl"
-          :on-sign-in="startSignIn"
+          :pending-votes="pendingVotes"
           :on-vote="vote"
           :on-react="react"
           :on-reply="startReply"
@@ -829,10 +791,11 @@ defineExpose({ refresh })
           :on-moderate="moderate"
           :on-block-user="blockUser"
           :write-allowed="writeAllowed"
+          :sign-in-href="signInTarget"
+          :on-sign-in="requestSignIn"
         >
           <template #signIn>
             <IdentityMenu
-              v-if="!moderator"
               :comment-as="commentAs"
               :signed-in="signedIn"
               :session="session"

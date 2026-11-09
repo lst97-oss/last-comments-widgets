@@ -25,6 +25,7 @@ export const branded: WidgetTheme = {
     borderWidth: '3px',
     avatarRadius: '5px',
     skeletonRadius: '9px',
+    skeletonBackground: 'rgb(12 34 56)',
     menuZIndex: '37',
     threadIndent: '13px',
     actionColor: 'rgb(11 22 33)',

@@ -7,12 +7,8 @@ export type ThreadWindowLoad = {
   existing: Comment[]
 }
 
-export type ThreadWindowFailure<S extends string> = { status: S; info: ErrorInfo }
-
-// Status variants the window can end in. A plain union (no generic member) so
-// Vue's `ref`/`UnwrapRef` keeps it intact.
-export type ThreadWindowFailureStatus = 'error' | 'locked' | 'blocked'
-export type ThreadWindowStatus = 'loading' | 'ready' | ThreadWindowFailureStatus
+// A failed window shows the one error block; the widget never turns a code into its own state.
+export type ThreadWindowStatus = 'loading' | 'ready' | 'error'
 
 // Explicit return type: the inferred one leaks Vue's internal `IfAny` through
 // the generic and breaks the declaration emit (`TS2883`).
@@ -36,10 +32,10 @@ export interface ThreadWindowState {
 // Thread-window state shared by the composer and the read-only viewer: rows are
 // the cache, a page is a window over roots (replies consume rows, so a raw row
 // page would split threads).
-export function useThreadWindow<S extends ThreadWindowFailureStatus = 'error'>(config: {
+export function useThreadWindow(config: {
   limit: () => number
   load: (input: ThreadWindowLoad) => Promise<{ comments: Comment[]; hasMore: boolean }>
-  failure: (error: unknown) => ThreadWindowFailure<S>
+  failure: (error: unknown) => ErrorInfo
   // Overlays (pending votes) merge here so the cached base tree stays intact.
   transform?: (nodes: ThreadNode[]) => ThreadNode[]
   onBeforeLoad?: (reset: boolean) => void
@@ -81,9 +77,8 @@ export function useThreadWindow<S extends ThreadWindowFailureStatus = 'error'>(c
       return true
     } catch (err) {
       if (seq !== loadSeq) return false
-      const failure = config.failure(err)
-      status.value = failure.status
-      errorInfo.value = failure.info
+      status.value = 'error'
+      errorInfo.value = config.failure(err)
       return false
     }
   }

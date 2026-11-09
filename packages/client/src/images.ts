@@ -7,7 +7,7 @@ export const IMAGE_SIZES = '(max-width: 40rem) 100vw, 40rem'
 
 type Resizer = {
   matches(url: URL): boolean
-  resize(url: URL, width: number): URL | null
+  resize(url: URL, width: number): URL
 }
 
 const RASTER_FILE = /\.(jpe?g|png|gif|webp)$/i
@@ -67,9 +67,8 @@ export function imageRenditions(href: string): { src: string; srcset: string } |
   const resizer = resizers.find((candidate) => candidate.matches(url))
   if (!resizer) return null
   const candidates = RENDITION_WIDTHS.map((width) => ({ width, url: resizer.resize(url, width) }))
-  if (candidates.some((candidate) => candidate.url === null)) return null
   return {
-    src: candidates[0]?.url?.href ?? href,
-    srcset: candidates.map((candidate) => `${candidate.url?.href} ${candidate.width}w`).join(', '),
+    src: candidates[0]?.url.href ?? href,
+    srcset: candidates.map((candidate) => `${candidate.url.href} ${candidate.width}w`).join(', '),
   }
 }

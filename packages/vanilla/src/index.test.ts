@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { buildCommentTree, type Comment, renderMarkdown } from '@last-comments-widgets/client'
+import { parseHostNumber } from './auto-mount'
 import {
   actionsMenuMarkup,
   applyVotes,
@@ -812,5 +813,19 @@ describe('reactions markup', () => {
     expect(patched?.score).toBe(3)
     expect(patched?.viewerVote).toBe(1)
     expect(patched?.reactions).toEqual([{ emoji: '🎉', count: 1, viewerReacted: true }])
+  })
+})
+
+describe('parseHostNumber', () => {
+  test('a whole number at or above the minimum is read, anything else leaves the option unset', () => {
+    expect(parseHostNumber('25', Number.parseInt, 1)).toBe(25)
+    expect(parseHostNumber('ten', Number.parseInt, 1)).toBeUndefined()
+    expect(parseHostNumber('0', Number.parseInt, 1)).toBeUndefined()
+    expect(parseHostNumber('-3', Number.parseInt, 1)).toBeUndefined()
+    expect(parseHostNumber(null, Number.parseInt, 1)).toBeUndefined()
+  })
+
+  test('a zero minute edit window is a real value, not a missing one', () => {
+    expect(parseHostNumber('0', Number.parseFloat, 0)).toBe(0)
   })
 })

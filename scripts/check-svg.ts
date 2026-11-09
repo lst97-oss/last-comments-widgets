@@ -12,7 +12,7 @@ const built = await Bun.build({
   entrypoints: [`${root}packages/client/src/enhance.ts`],
   target: 'browser',
   format: 'esm',
-  external: ['katex', 'mermaid'],
+  external: ['katex', 'mermaid', 'shiki'],
 })
 if (!built.success) throw new AggregateError(built.logs, 'Could not build the enhance entry')
 const output = built.outputs[0]

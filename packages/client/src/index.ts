@@ -156,6 +156,8 @@ export type ApiErrorCode =
   | 'SERVICE_UNAVAILABLE'
   | 'RATE_LIMITED'
   | 'UNREADABLE_RESPONSE'
+  // The moderation view could not find the page in the site's (capped) page list.
+  | 'PAGE_NOT_LISTED'
 
 export type ClientOptions = {
   baseUrl: string
@@ -883,6 +885,29 @@ export function forgetEditKey(commentId: string): void {
   } catch {}
 }
 
+export type EditGateOptions = {
+  // Window for guest-authored comments; signed-in owners have no window.
+  anonWindowMinutes?: number
+  // A guest owns the comment only while this browser still holds its edit key.
+  hasEditKey?: boolean
+}
+
+// UI gate for the Edit action; the server enforces the same rule on every write.
+export function canEditComment(
+  comment: { userId?: string | null; createdAt: string },
+  viewerUserId?: string,
+  options: EditGateOptions = {},
+): boolean {
+  const windowMinutes = resolveEditWindow({
+    commentUserId: comment.userId,
+    viewerUserId,
+    hasEditKey: options.hasEditKey,
+    ...(options.anonWindowMinutes === undefined ? {} : { anonymousWindowMinutes: options.anonWindowMinutes }),
+  })
+  if (windowMinutes === EDIT_WINDOW_CLOSED) return false
+  return isEditWindowOpen(comment.createdAt, Date.now(), windowMinutes)
+}
+
 // Who may delete: a signed-in author their own comment, or a guest the edit key they were issued at
 // create time. The server checks the same rule; this only decides what the menu offers.
 export function canDeleteComment(
@@ -923,6 +948,52 @@ export function moderationCommentToComment(row: ModerationComment): Comment {
     userBlocked: row.userBlocked,
   }
 }
+// The moderation thread: the page a URL (or the host's `pageId`) names, and its lock state when the list has it.
+export type ModerationThread = { threadPageId: string; pageLock: { pageId: string; locked: boolean } | null }
+
+// Finds the page in the site's page list. The list holds only the newest pages, so an unlisted URL is
+// PAGE_NOT_LISTED, never an empty thread. A host's `pageId` is used as given, listed or not.
+export async function resolveModerationThread(options: {
+  client: LastCommentsClient
+  url: string
+  pageId?: string
+}): Promise<ModerationThread> {
+  const normalized = normalizePageUrl(options.url)
+  const overview = await options.client.listModeration({ limit: 1 })
+  const match = options.pageId
+    ? overview.pages.find((page) => page.id === options.pageId)
+    : overview.pages.find((page) => normalizePageUrl(page.canonicalUrl) === normalized)
+  const threadPageId = options.pageId ?? match?.id
+  if (!threadPageId) throw new ApiError('PAGE_NOT_LISTED', 'This page is not in the moderation list.', 404)
+  return { threadPageId, pageLock: match ? { pageId: match.id, locked: match.isLocked } : null }
+}
+
+// The moderator's loadThreadWindow: rows include hidden and deleted comments and `total` is exact. Fetches
+// until `pages` windows of WHOLE threads are present or the stream ends, so replies never fill a page alone.
+export async function loadModerationWindow(options: {
+  client: LastCommentsClient
+  pageId: string
+  limit: number
+  pages: number
+  existing?: Comment[]
+}): Promise<ThreadWindow> {
+  const limit = Math.min(Math.max(options.limit, 1), 100)
+  const target = Math.max(options.pages, 1) * limit
+  const comments = [...(options.existing ?? [])]
+  let hasMore = true
+  const threads = () => comments.reduce((count, comment) => (comment.parentId === null ? count + 1 : count), 0)
+  while (threads() < target && hasMore) {
+    const page = await options.client.listModeration({ pageId: options.pageId, limit, offset: comments.length })
+    if (page.comments.length === 0) {
+      hasMore = false
+      break
+    }
+    comments.push(...page.comments.map(moderationCommentToComment))
+    hasMore = comments.length < page.total
+  }
+  return { comments, hasMore }
+}
+
 // Per-instance theme overrides. Keys map to the semantic tokens in
 // packages/theme/theme.css; values pass through verbatim as CSS.
 export const THEME_CSS_VARIABLES = {
@@ -982,6 +1053,7 @@ export const THEME_CSS_VARIABLES = {
   avatarRing: '--lc-avatar-ring',
   avatarRadius: '--lc-avatar-radius',
   skeletonRadius: '--lc-skeleton-radius',
+  skeletonBackground: '--lc-skeleton-background',
   voteBackground: '--lc-vote-background',
   voteBorder: '--lc-vote-border',
   voteShadow: '--lc-vote-shadow',
@@ -1083,6 +1155,17 @@ export function formatRelativeTime(iso: string, nowMs: number = Date.now()): str
   const months = Math.round(days / 30)
   if (months < 12) return `${months}mo ago`
   return `${Math.round(months / 12)}y ago`
+}
+
+// Up to two letters for an avatar fallback: "Ada Lovelace" -> "AL", "ada" -> "A".
+export function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase()
 }
 
 export type ThreadParticipant = { key: string; name: string; avatarUrl?: string | null }
@@ -1237,6 +1320,12 @@ const ERROR_COPY: Record<ApiErrorCode, ErrorCopy> = {
     action: 'retry',
     specific: true,
   },
+  PAGE_NOT_LISTED: {
+    title: 'Moderation cannot find this page',
+    message:
+      "Only the site's 100 most recently active pages are listed here. Pass the page's id as pageId to moderate it.",
+    specific: true,
+  },
 }
 
 // readEnvelope synthesises this when the API sends no error message.
@@ -1286,6 +1375,20 @@ export function describeError(error: unknown, overrides: { title?: string; messa
     // An unknown failure is worth a retry unless the server said it is permanent (a 4xx the copy does not cover).
     action: copy?.action ?? (copy === undefined && api?.retryable !== false ? 'retry' : 'none'),
   }
+}
+
+// A post that got no answer may already be saved. Saying so stops the reader from posting the same text twice.
+export function postFailure(error: unknown, title: string): ErrorInfo {
+  if (error instanceof ApiError && error.status === 0) {
+    return {
+      code: error.code,
+      title,
+      message:
+        'The server did not answer, so your comment may already be posted. Check the thread before you post again.',
+      action: 'none',
+    }
+  }
+  return describeError(error, { title })
 }
 
 function copyFor(copy: ErrorCopy): { title: string; message: string; action: ErrorAction } {
@@ -1374,7 +1477,7 @@ export type ViewerOptions = {
   fetchImpl?: typeof fetch
 }
 
-// Fetches the flat list and groups it for rendering. Empty pageUrl falls
+// Fetches the flat list and groups it into threads for rendering. Empty pageUrl falls
 // back to the current location; without one it throws like listComments.
 export async function fetchViewerThreads(options: ViewerOptions): Promise<ThreadNode[]> {
   const pageUrl = options.pageUrl ?? (typeof window !== 'undefined' ? window.location.href : '')
@@ -1387,4 +1490,25 @@ export async function fetchViewerThreads(options: ViewerOptions): Promise<Thread
     ...(options.limit !== undefined ? { limit: options.limit } : {}),
   })
   return buildCommentTree(flat)
+}
+
+// The "Code block" composer action, shared by all four ports so they insert the same text: a fenced
+// block on its own lines, with the language word selected so it can be typed over.
+export function insertCodeBlock(
+  value: string,
+  start: number,
+  end: number,
+): { value: string; start: number; end: number } {
+  const selected = value.slice(start, end) || 'code'
+  // Keep the fence on its own lines when the caret sits mid-line.
+  const leading = start > 0 && value[start - 1] !== '\n' ? '\n' : ''
+  const trailing = end < value.length && value[end] !== '\n' ? '\n' : ''
+  const fence = '```'
+  const language = 'language'
+  const languageStart = start + leading.length + fence.length
+  return {
+    value: `${value.slice(0, start)}${leading}${fence}${language}\n${selected}\n${fence}${trailing}${value.slice(end)}`,
+    start: languageStart,
+    end: languageStart + language.length,
+  }
 }

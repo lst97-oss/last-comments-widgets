@@ -34,7 +34,7 @@ import { LcCommentErrorComponent } from './comment-error.component'
 import { LcCommentSkeletonsComponent } from './comment-skeletons.component'
 import { LcCommentListComponent, type CommentSubmitHandler } from './comment-list.component'
 import { LcSignInPromptComponent } from './sign-in-prompt.component'
-import { observeInView } from './observe-in-view'
+import { observeInView } from '@last-comments-widgets/client/enhance'
 import { prefersDark, subscribeSystemTheme } from './theme-media'
 import { threadSignature } from './thread-guides'
 import { LcThreadSortToggleComponent } from './thread-sort-toggle.component'
@@ -170,7 +170,7 @@ export class LcCommentViewerComponent {
   math = input(false)
   /** Render ```mermaid fences as diagrams (lazy; off by default). */
   mermaid = input(false)
-  /** Syntax highlighting for fenced code (lazy; on by default; React only today). */
+  /** Syntax highlighting for fenced code (lazy; on by default). */
   codeHighlight = input(true)
 
   readonly noop = noopAsync

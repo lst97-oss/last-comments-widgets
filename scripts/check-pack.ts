@@ -123,6 +123,14 @@ for (const dir of PUBLISHED) {
       problems.push(`${manifest.name}: peer ${name} must be optional`)
     }
   }
+  // A host on any other version of a peer fails to install against an exact or tilde range (npm's ERESOLVE).
+  for (const [name, range] of Object.entries(manifest.peerDependencies ?? {})) {
+    if (!range.startsWith('^') && !range.startsWith('>=')) {
+      problems.push(
+        `${manifest.name}: peer ${name} is "${range}"; use a caret (^) range so other patch versions install`,
+      )
+    }
+  }
 }
 
 if (problems.length > 0) {

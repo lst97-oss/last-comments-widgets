@@ -71,6 +71,21 @@ function buildCodeBlockChrome(lang: string, source: string, highlighted: HTMLPre
   return wrapper
 }
 
+// Highlighted markup, keyed by language and source. A repaint re-runs every block on the page, and Shiki is the slow part.
+const HIGHLIGHT_CACHE_LIMIT = 200
+const highlightCache = new Map<string, string>()
+
+// Stores a value and drops the oldest entries past `limit`, so a long-lived page cannot grow the cache without bound.
+export function rememberBounded<V>(cache: Map<string, V>, key: string, value: V, limit: number): void {
+  cache.delete(key)
+  cache.set(key, value)
+  while (cache.size > limit) {
+    const oldest = cache.keys().next().value
+    if (oldest === undefined) break
+    cache.delete(oldest)
+  }
+}
+
 function clearPending(pre: HTMLPreElement) {
   pre.removeAttribute('data-shiki')
   pre.removeAttribute('aria-busy')
@@ -113,7 +128,12 @@ export function enhanceCodeBlocks(root: ParentNode): () => void {
         continue
       }
       try {
-        const html = await codeToHtml(source, { lang, themes: CODE_THEMES, defaultColor: false })
+        const key = `${lang}\n${source}`
+        let html = highlightCache.get(key)
+        if (html === undefined) {
+          html = await codeToHtml(source, { lang, themes: CODE_THEMES, defaultColor: false })
+          rememberBounded(highlightCache, key, html, HIGHLIGHT_CACHE_LIMIT)
+        }
         if (cancelled) return
         const template = document.createElement('template')
         template.innerHTML = html.trim()

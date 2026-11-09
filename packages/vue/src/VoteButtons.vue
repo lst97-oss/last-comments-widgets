@@ -6,6 +6,8 @@ import { toggleVoteValue } from './types'
 
 const props = defineProps<{
   comment: Comment
+  // A vote is in flight: both buttons wait for the answer, as in React.
+  pending?: boolean
   onVote: (commentId: string, value: VoteValue | 'clear') => void
 }>()
 
@@ -17,6 +19,7 @@ defineOptions({ name: 'VoteButtons' })
     <button
       type="button"
       :class="buttonClass(props.comment.viewerVote === 1 ? 'default' : 'ghost', 'sm')"
+      :disabled="props.pending"
       :aria-pressed="props.comment.viewerVote === 1"
       aria-label="Upvote"
       @click="props.onVote(props.comment.id, toggleVoteValue(props.comment.viewerVote, 1))"
@@ -27,6 +30,7 @@ defineOptions({ name: 'VoteButtons' })
     <button
       type="button"
       :class="buttonClass(props.comment.viewerVote === -1 ? 'default' : 'ghost', 'sm')"
+      :disabled="props.pending"
       :aria-pressed="props.comment.viewerVote === -1"
       aria-label="Downvote"
       @click="props.onVote(props.comment.id, toggleVoteValue(props.comment.viewerVote, -1))"

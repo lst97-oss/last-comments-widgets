@@ -47,6 +47,8 @@ export type MountOptions = {
    * starts the API's OAuth flow in place.
    */
   signInUrl?: string
+  /** Replaces that sign-in action with the host's own (for example, open a modal). */
+  onSignInClick?: () => void
   /** Fallback viewer identity when the session probe cannot answer (no same-origin proxy). */
   viewerUserId?: string
   /** `'admin'` turns on the moderation UI; the server authorizes every call. */
@@ -66,7 +68,7 @@ export type MountOptions = {
   math?: boolean
   /** Render ```mermaid fences as diagrams (lazy; off by default). */
   mermaid?: boolean
-  /** Syntax highlighting for fenced code (on by default; the React bundle is the only one that highlights today). */
+  /** Syntax highlighting for fenced code (lazy; on by default). */
   codeHighlight?: boolean
   /** Custom fetch, e.g. one that rewrites requests to a same-origin proxy. */
   fetchImpl?: typeof fetch

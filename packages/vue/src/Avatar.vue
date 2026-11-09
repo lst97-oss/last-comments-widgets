@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { safeUrl } from '@last-comments-widgets/client'
+import { initials, safeUrl } from '@last-comments-widgets/client'
 import { computed } from 'vue'
 
 const props = defineProps<{ name: string; src?: string | null; size?: 'default' | 'sm' | 'lg' }>()
@@ -8,15 +8,7 @@ const avatarSize = computed(() => props.size ?? 'sm')
 defineOptions({ name: 'LcAvatar' })
 
 const avatarUrl = computed(() => safeUrl(props.src))
-const initials = computed(() =>
-  props.name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase(),
-)
+const initialsLabel = computed(() => initials(props.name))
 </script>
 
 <template>
@@ -40,7 +32,7 @@ const initials = computed(() =>
       data-slot="avatar-fallback"
       class="flex size-full items-center justify-center rounded-full bg-muted text-sm text-muted-foreground group-data-[size=sm]/avatar:text-xs"
     >
-      {{ initials }}
+      {{ initialsLabel }}
     </span>
   </span>
 </template>

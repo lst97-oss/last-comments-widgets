@@ -30,7 +30,7 @@
   },
   "scripts": {
     "check": "bun check --no-script && bun run lint && bun fmt --check",
-    "build": "bunx tsup src/index.ts src/enhance.ts --format esm --clean --dts --target es2025 --out-dir dist --external katex --external mermaid",
+    "build": "bunx tsup src/index.ts src/enhance.ts --format esm --clean --dts --target es2025 --out-dir dist --external katex --external mermaid --external shiki",
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --error-on-warnings --write .",
     "format": "bun fmt",
@@ -43,6 +43,7 @@
   "devDependencies": {
     "katex": "^0.19.1",
     "mermaid": "^12.2.0",
+    "shiki": "^4.5.0",
     "tsup": "^9.0.0",
     "typescript": "^6.0.3"
   }

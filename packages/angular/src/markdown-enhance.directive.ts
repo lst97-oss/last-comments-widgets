@@ -1,5 +1,5 @@
 import { afterRenderEffect, DestroyRef, Directive, ElementRef, inject, input } from '@angular/core'
-import { enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
+import { enhanceCodeBlocks, enhanceMath, enhanceMermaid } from '@last-comments-widgets/client/enhance'
 
 // Hooks the shared post-paint upgrades onto whichever element holds rendered
 // markdown. `[lcMarkdownEnhance]` is the html trigger: when Angular rewrites
@@ -15,14 +15,25 @@ export class LcMarkdownEnhanceDirective {
   private readonly host = inject(ElementRef<HTMLElement>)
   private readonly destroyRef = inject(DestroyRef)
   private cleanup: (() => void) | null = null
-  private last: { html: string; math: boolean; mermaid: boolean } | null = null
+  private last: { html: string; math: boolean; mermaid: boolean; codeHighlight: boolean } | null = null
 
   constructor() {
     afterRenderEffect(() => {
-      const next = { html: this.lcMarkdownEnhance(), math: this.math(), mermaid: this.mermaid() }
+      const next = {
+        html: this.lcMarkdownEnhance(),
+        math: this.math(),
+        mermaid: this.mermaid(),
+        codeHighlight: this.codeHighlight(),
+      }
       const previous = this.last
       this.last = next
-      if (previous && previous.html === next.html && previous.math === next.math && previous.mermaid === next.mermaid)
+      if (
+        previous &&
+        previous.html === next.html &&
+        previous.math === next.math &&
+        previous.mermaid === next.mermaid &&
+        previous.codeHighlight === next.codeHighlight
+      )
         return
       this.run()
     })
@@ -37,8 +48,11 @@ export class LcMarkdownEnhanceDirective {
     this.cleanup = null
     const node = this.host.nativeElement
     if (!node) return
-    // `codeHighlight` is API parity only: Shiki lives in the React bundle today.
-    const cleanups = [...(this.mermaid() ? [enhanceMermaid(node)] : []), ...(this.math() ? [enhanceMath(node)] : [])]
+    const cleanups = [
+      ...(this.codeHighlight() ? [enhanceCodeBlocks(node)] : []),
+      ...(this.mermaid() ? [enhanceMermaid(node)] : []),
+      ...(this.math() ? [enhanceMath(node)] : []),
+    ]
     if (cleanups.length === 0) return
     this.cleanup = () => {
       for (const dispose of cleanups) dispose()

@@ -27,12 +27,14 @@ import {
   forgetEditKey,
   gateFor,
   getEditKey,
+  insertCodeBlock,
   isCompleteSettings,
+  loadModerationWindow,
   loadThreadWindow,
-  moderationCommentToComment,
-  normalizePageUrl,
+  postFailure,
   reactionFailure,
   renderMarkdown,
+  resolveModerationThread,
   resolveSettings,
   safeUrl,
   saveEditKey,
@@ -42,6 +44,7 @@ import {
   takeSignInFailure,
 } from '@last-comments-widgets/client'
 import {
+  enhanceCodeBlocks,
   enhanceMath,
   enhanceMermaid,
   loadTurnstile,
@@ -81,7 +84,7 @@ import { applyVotes, canEditComment, ITEM_INITIAL, transition, UI_INITIAL, type 
 import { setupTheme } from './theme'
 import type { MountOptions, WidgetHandle } from './types'
 
-type MarkdownEnhanceFlags = { math?: boolean; mermaid?: boolean }
+type MarkdownEnhanceFlags = { math?: boolean; mermaid?: boolean; codeHighlight?: boolean }
 
 // This port bundles KaTeX's stylesheet; the import stays here so the bundle that owns the CSS requests it.
 const loadKatexStyles = () => import('katex/dist/katex.min.css')
@@ -89,6 +92,7 @@ const loadKatexStyles = () => import('katex/dist/katex.min.css')
 // Runs the enabled upgrades over freshly painted markup and returns one cleanup.
 export function runMarkdownEnhancers(root: ParentNode, flags: MarkdownEnhanceFlags): () => void {
   const cleanups = [
+    ...(flags.codeHighlight ? [enhanceCodeBlocks(root)] : []),
     ...(flags.mermaid ? [enhanceMermaid(root)] : []),
     ...(flags.math ? [enhanceMath(root, { loadStyles: loadKatexStyles })] : []),
   ]
@@ -129,6 +133,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   let pageWrites = 0
   const pendingReactions = new Set<string>()
   const reactionPickers = new Set<string>()
+  // Votes in flight, by comment id: both buttons of the row wait for the answer.
+  const pendingVotes = new Set<string>()
   const PAGE_REACTIONS_KEY = 'page'
   // The tree is derived from the row cache: reuse it while its inputs hold.
   let treeKey: { comments: Comment[]; votes: VotePatch; sort: ThreadSort } | null = null
@@ -147,13 +153,13 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   const actionMode = options.actionMode ?? 'icon-text'
   const math = options.math ?? false
   const mermaid = options.mermaid ?? false
-  // `codeHighlight` is API parity only: Shiki lives in the React bundle today.
+  const codeHighlight = options.codeHighlight ?? true
   let listCleanup: (() => void) | null = null
   const previewCleanups = new Map<Element, () => void>()
   function runEnhancers(root: ParentNode) {
-    if (!math && !mermaid) return
+    if (!math && !mermaid && !codeHighlight) return
     listCleanup?.()
-    listCleanup = runMarkdownEnhancers(root, { math, mermaid })
+    listCleanup = runMarkdownEnhancers(root, { math, mermaid, codeHighlight })
   }
   function clearEnhancers() {
     listCleanup?.()
@@ -214,6 +220,10 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       viewerUserId: options.viewerUserId ?? session?.userId,
     }
   }
+  // The error and prompt blocks use the host's `onSignInClick` in place of the sign-in page, as React does.
+  function promptSignInUrl(): string | undefined {
+    return options.onSignInClick ? undefined : safeUrl(options.signInUrl)
+  }
   const tokens = new Map<string, string>()
   const widgetIds = new Map<string, string>()
   // Load generation: a response from an older load never commits.
@@ -233,9 +243,6 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   // trigger stays a bare flex child of this row and the panel is mounted on
   // demand by openIdentityMenu.
   function signInRow(): string {
-    // Moderators post as themselves through the moderation endpoint: the
-    // anonymous/account switcher does not apply.
-    if (moderator) return ''
     const { signed, label } = composerIdentity()
     // The identity is unknown until the session request settles; showing a
     // guess here (or letting a post through) would pick the wrong wire flag.
@@ -492,6 +499,12 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     items[index].focus()
   }
 
+  // The host's `onSignInClick` replaces the OAuth start for the error and prompt blocks, as in React.
+  function requestSignIn() {
+    if (options.onSignInClick) options.onSignInClick()
+    else void signIn()
+  }
+
   async function signIn() {
     ui = transition(ui, { type: 'signin/pending', value: true })
     ui = transition(ui, { type: 'identity/error', value: null })
@@ -521,7 +534,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   function listBody(): string {
-    const signInUrl = safeUrl(options.signInUrl)
+    const signInUrl = promptSignInUrl()
     const { guest, viewerUserId } = composerIdentity()
     const lockBar =
       moderator && pageLock
@@ -530,7 +543,11 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         <button type="button" data-action="toggle-lock" ${ui.lockPending ? 'disabled' : ''} class="ml-auto rounded border border-border px-3 py-1 text-sm disabled:opacity-50">${pageLock.locked ? 'Unlock' : 'Lock'}</button>
       </div>`
         : ''
-    const actionBanner = ui.actionError ? errorMarkup(ui.actionError, { signInUrl }) : ''
+    const actionBanner = ui.actionError
+      ? ui.actionError.action === 'sign-in'
+        ? signInPromptMarkup(ui.actionError, 'vote', { signInUrl })
+        : errorMarkup(ui.actionError, { signInUrl })
+      : ''
     if (status === 'loading' && comments.length === 0) return skeletonBlock(3)
     if (status === 'error' && comments.length === 0 && error)
       return error.action === 'sign-in'
@@ -567,6 +584,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       reactionsLocked: Boolean(pageLock?.locked),
       pendingReactions,
       reactionPickers,
+      pendingVotes,
     })
     const signIn = ui.needsSignIn ? signInPromptMarkup(signInRequired('vote'), 'vote', { signInUrl }) : ''
     const sortBar = status !== 'error' && roots.length > 0 ? sortToggleMarkup(ui.sort) : ''
@@ -582,7 +600,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     if (!composerShowsForm()) {
       // On a private site the list's read prompt is the only sign-in card, so the composer slot stays empty.
       if (!readAllowedNow()) return ''
-      return signInPromptMarkup(signInRequired('write'), 'write', { signInUrl: safeUrl(options.signInUrl) })
+      return signInPromptMarkup(signInRequired('write'), 'write', { signInUrl: promptSignInUrl() })
     }
     const { guest } = composerIdentity()
     const signInHtml = `<div data-lc-identity>${signInRow()}</div>`
@@ -732,44 +750,28 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     return 'ok'
   }
 
-  // Moderator branch: resolve this page from the site's page list, then read
-  // its thread including hidden/deleted rows. `total` is exact, so the window
-  // is filled by row count.
-  async function loadModeration(offset: number, seq: number): Promise<'ok' | 'stale'> {
-    // A host-supplied `pageId` wins over the URL match: the page list is
-    // capped, so a match can miss on a busy site.
-    const overview = await client.listModeration({ limit: 1 })
+  // Moderator load: the thread is looked up on a reload (an unlisted URL throws PAGE_NOT_LISTED, which the
+  // error block shows). Load-more reuses the thread id that lookup found.
+  async function loadModerationPage(pages: number, seq: number, reset: boolean): Promise<'ok' | 'stale'> {
+    const found =
+      reset || threadPageId === null
+        ? await resolveModerationThread({ client, url: pageUrl, pageId: options.pageId })
+        : null
     if (seq !== loadSeq) return 'stale'
-    const normalized = normalizePageUrl(pageUrl)
-    const match = options.pageId
-      ? (overview.pages.find((p) => p.id === options.pageId) ?? null)
-      : (overview.pages.find((p) => normalizePageUrl(p.canonicalUrl) === normalized) ?? null)
-    // Unknown lock state stays unknown: the lock bar is hidden rather than
-    // claiming the thread is open.
-    pageLock = match ? { pageId: match.id, locked: match.isLocked } : null
-    threadPageId = options.pageId ?? match?.id ?? null
-    if (!threadPageId) {
-      if (offset === 0) comments = []
+    if (found) {
+      pageLock = found.pageLock
+      threadPageId = found.threadPageId
+    }
+    const pageId = found ? found.threadPageId : threadPageId
+    if (pageId === null) {
+      comments = []
       hasMore = false
-      status = 'ready'
       return 'ok'
     }
-    const list = await client.listModeration({ pageId: threadPageId, limit, offset })
+    const window = await loadModerationWindow({ client, pageId, limit, pages, existing: reset ? [] : comments })
     if (seq !== loadSeq) return 'stale'
-    const rows = list.comments.map(moderationCommentToComment)
-    comments = offset === 0 ? rows : [...comments, ...rows]
-    hasMore = comments.length < list.total
-    status = 'ready'
-    return 'ok'
-  }
-
-  async function fillModeration(target: number, seq: number): Promise<'ok' | 'stale'> {
-    let before = comments.length
-    while (hasMore && currentTree().length < target) {
-      if ((await loadModeration(comments.length, seq)) === 'stale') return 'stale'
-      if (comments.length === before) break
-      before = comments.length
-    }
+    comments = window.comments
+    hasMore = window.hasMore
     return 'ok'
   }
 
@@ -803,11 +805,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     ui = transition(ui, { type: 'error', value: null })
     paint()
     try {
-      const result = moderator
-        ? (await loadModeration(0, seq)) === 'stale'
-          ? 'stale'
-          : await fillModeration(limit, seq)
-        : await loadWindow(1, seq)
+      const result = moderator ? await loadModerationPage(1, seq, true) : await loadWindow(1, seq)
       if (destroyed || result === 'stale' || seq !== loadSeq) return
       status = 'ready'
       // A committed reload supersedes every pending vote patch.
@@ -827,7 +825,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     renderList()
     // Fill the DESTINATION window before rendering it.
     try {
-      const result = moderator ? await fillModeration((ui.page + 1) * limit, seq) : await loadWindow(ui.page + 1, seq)
+      const result = moderator ? await loadModerationPage(ui.page + 1, seq, false) : await loadWindow(ui.page + 1, seq)
       if (destroyed || result === 'stale' || seq !== loadSeq) return
     } catch (err) {
       if (destroyed || seq !== loadSeq) return
@@ -855,6 +853,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
             pageId: threadPageId,
             bodyMarkdown: input.bodyMarkdown,
             ...(input.parentId ? { parentId: input.parentId } : {}),
+            // The "Comment as" choice applies to moderator posts too, as in React and Vue.
+            anonymous: guest,
+            ...(guest && input.authorName ? { authorName: input.authorName } : {}),
           })
         : await client.postComment({
             url: pageUrl,
@@ -876,7 +877,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const errBox = form.querySelector('[data-lc-form-error]')
     const fail = (info: ErrorInfo) => {
       if (errBox) {
-        errBox.innerHTML = errorMarkup(info, { signInUrl: options.signInUrl })
+        errBox.innerHTML = errorMarkup(info, { signInUrl: promptSignInUrl() })
         errBox.classList.remove('hidden')
       }
     }
@@ -916,7 +917,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
         ui = transition(ui, {
           type: 'reply/settle',
           id: parentId,
-          error: describeError(err, { title: "Your reply wasn't posted" }),
+          error: postFailure(err, "Your reply wasn't posted"),
         })
       }
       ui = transition(ui, { type: 'replying/set', id: parentId, replying: false })
@@ -942,12 +943,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       if (moderator) options.onModerated?.()
     } catch (err) {
       resetTurnstile(formId)
-      if (err instanceof ApiError && err.code === 'UNAUTHENTICATED' && options.signInUrl) {
-        ui = transition(ui, { type: 'signin/needed', value: true })
-        renderList()
-        return
-      }
-      fail(describeError(err, { title: "Your comment wasn't posted" }))
+      fail(postFailure(err, "Your comment wasn't posted"))
       hydrateTurnstile()
     } finally {
       ui = transition(ui, { type: 'posting/set', value: false })
@@ -956,7 +952,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
   }
 
   async function vote(commentId: string, value: VoteValue) {
-    const current = comments.find((c) => c.id === commentId)
+    const current = applyVotes(comments, votes).find((c) => c.id === commentId)
     ui = transition(ui, { type: 'error', value: null })
     // Votes need a signed-in session: a guest gets the sign-in notice instead of a refused request.
     if (!composerIdentity().signed && !moderator) {
@@ -964,6 +960,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       renderList()
       return
     }
+    setVotePending(commentId, true)
     try {
       // Moderators vote through the moderation endpoint: the public vote route
       // checks the site's origin allow-list, which a dashboard origin is not on.
@@ -990,14 +987,12 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       patchVoteRow(commentId)
       return
     } catch (err) {
-      if (err instanceof ApiError && err.code === 'UNAUTHENTICATED') {
-        ui = transition(ui, { type: 'signin/needed', value: true })
-      } else {
-        ui = transition(ui, {
-          type: 'error',
-          value: describeError(err, { title: "Your vote wasn't saved" }),
-        })
-      }
+      ui = transition(ui, {
+        type: 'error',
+        value: describeError(err, { title: "Your vote wasn't saved" }),
+      })
+    } finally {
+      setVotePending(commentId, false)
     }
     renderList()
   }
@@ -1114,6 +1109,15 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     )
   }
 
+  // Both buttons of a row wait while its vote is in flight, as in React.
+  function setVotePending(commentId: string, pending: boolean) {
+    if (pending) pendingVotes.add(commentId)
+    else pendingVotes.delete(commentId)
+    const article = el.querySelector(`article[data-comment-id="${CSS.escape(commentId)}"]`)
+    const buttons = article?.firstElementChild?.querySelectorAll<HTMLButtonElement>('button[data-action="vote"]')
+    for (const button of buttons ?? []) button.disabled = pending
+  }
+
   function patchVoteRow(commentId: string) {
     const patch = votes[commentId]
     const article = el.querySelector(`article[data-comment-id="${CSS.escape(commentId)}"]`)
@@ -1131,7 +1135,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
 
   function applyTextEdit(
     form: HTMLFormElement,
-    kind: 'wrap' | 'prefix',
+    kind: 'wrap' | 'prefix' | 'fence',
     before: string,
     after: string,
     placeholder: string,
@@ -1143,7 +1147,9 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     const next =
       kind === 'wrap'
         ? insertWrap(area.value, start, end, before, after, placeholder)
-        : insertPrefix(area.value, start, end, before, placeholder)
+        : kind === 'prefix'
+          ? insertPrefix(area.value, start, end, before, placeholder)
+          : insertCodeBlock(area.value, start, end)
     area.value = next.value
     area.focus()
     area.selectionStart = next.start
@@ -1155,6 +1161,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     else if (action === 'md-italic') applyTextEdit(form, 'wrap', '*', '*', 'italic')
     else if (action === 'md-quote') applyTextEdit(form, 'prefix', '> ', '', 'quote')
     else if (action === 'md-code') applyTextEdit(form, 'wrap', '`', '`', 'code')
+    else if (action === 'md-code-block') applyTextEdit(form, 'fence', '', '', 'code')
     else if (action === 'md-link') applyTextEdit(form, 'wrap', '[', '](url)', 'link')
     else if (action === 'md-bullet') applyTextEdit(form, 'prefix', '- ', '', 'item')
     else if (action === 'md-ordered') applyTextEdit(form, 'prefix', '1. ', '', 'item')
@@ -1177,7 +1184,8 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
       div.className = 'lc-markdown min-h-24 px-1 py-2 font-sans text-sm'
       div.innerHTML = html
       wrapMarkdownTables(div)
-      if (math || mermaid) previewCleanups.set(div, runMarkdownEnhancers(div, { math, mermaid }))
+      if (math || mermaid || codeHighlight)
+        previewCleanups.set(div, runMarkdownEnhancers(div, { math, mermaid, codeHighlight }))
       area.insertAdjacentElement('beforebegin', div)
       area.classList.add('hidden')
     } else {
@@ -1399,7 +1407,7 @@ export function mountComments(el: HTMLElement, options: MountOptions): WidgetHan
     if (actionsMenu?.panel.contains(target)) closeActionsMenu(false)
     if (action === 'preview' || action === 'write') setPreview(target, action === 'preview')
     else if (action === 'error-retry') void initialLoad()
-    else if (action === 'error-sign-in') void signIn()
+    else if (action === 'error-sign-in') requestSignIn()
     else if (action === 'signin') void signIn()
     else if (action === 'identity') {
       if (identityPanel) closeIdentityMenu(true)
