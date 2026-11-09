@@ -115,6 +115,7 @@ try {
     await page.addStyleTag({ url: `${server.url}styles.css` })
     expect(await hostStyles()).toEqual(before)
     expect(await skeleton.evaluate((element) => getComputedStyle(element).borderRadius)).toBe('9px')
+    expect(await skeleton.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe('rgb(12, 34, 56)')
     releaseComments()
     await page.waitForFunction(() =>
       ['a', 'b', 'viewer'].every((id) => document.querySelectorAll(`#${id} .lc-comment`).length === 2),

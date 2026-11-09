@@ -394,6 +394,15 @@
     .lc-skeleton:not(.rounded-full) {
       border-radius: var(--lc-skeleton-radius, calc(var(--radius) * 0.8));
     }
+    /* This layer beats the bg-muted utility, so a host can retint placeholders without retinting muted surfaces. */
+    .lc-skeleton {
+      background-color: var(--lc-skeleton-background, var(--muted));
+    }
+    @supports (color: color-mix(in oklab, red, red)) {
+      .lc-skeleton {
+        background-color: var(--lc-skeleton-background, color-mix(in oklab, var(--muted-foreground) 12%, transparent));
+      }
+    }
     :where(button, input, select) {
       min-height: var(--lc-control-height, 0);
     }

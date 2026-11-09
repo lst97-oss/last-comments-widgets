@@ -155,6 +155,7 @@ Vue uses `:theme-vars="brand"`; Angular uses `[themeVars]="brand"`; vanilla acce
 | `destructive`, `destructiveForeground`                         | Errors and destructive actions                                                                          |
 | `success`, `warning`, `error`, `info`                          | Status palettes; each also has `Foreground` and `Muted` keys                                            |
 | `radius`, `controlRadius`, `avatarRadius`, `skeletonRadius`    | Surface/control corner radii, avatar shape, and loading placeholder radius                              |
+| `skeletonBackground`                                           | Loading placeholder fill; defaults to `muted`, so setting it retints only the placeholders              |
 | `fontFamily`, `fontFamilyMono`, `fontSize`, `lineHeight`       | Typography, including Markdown and popups                                                               |
 | `fontWeightMedium`                                             | Weight used by author names, buttons, and other emphasized labels                                       |
 | `spacing`                                                      | Spacing unit used by gaps, margins, padding, and utility-sized controls                                 |
